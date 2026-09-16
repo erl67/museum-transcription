@@ -30,7 +30,7 @@ from typing import Any
 
 
 # --- 1. Settings: existing paths, model, and temperature retained ---
-SCRIPT_VERSION = "2026-09-16.4"
+SCRIPT_VERSION = "2026-09-16.5"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"
@@ -592,12 +592,17 @@ class ResponseProblem(Exception):
 
 
 SECTION_HEADING = re.compile(
-    r"^[ \t]*(?:\*\*)?(?P<label>ANNOTATIONS|BACK[ \t]+OF[ \t]+SLIP(?:[ \t]+\d+)?|"
-    r"TRANSCRIPTION[ \t]+NOTES)[ \t]*(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?", re.M | re.I
+    r"^[ \t]*(?:\#{1,6}[ \t]+)?(?:\*\*)?"
+    r"(?:SECTION[ \t]*:[ \t]*(?:\*\*)?[ \t]*)?"
+    r"(?P<label>ANNOTATIONS|BACK[ \t]+OF[ \t]+SLIP(?:[ \t]+\d+)?|"
+    r"TRANSCRIPTION[ \t]+NOTES)[ \t]*(?:\*\*)?[ \t]*"
+    r"(?::[ \t]*(?:\*\*)?|(?=\r?$))", re.M | re.I
 )
 
 
 def section_headers(text: str) -> list[tuple[str, int, int]]:
+    # Accept standalone headings with or without a colon and the model's
+    # optional SECTION: prefix. Prose mentions within a line are not headings.
     return [(re.sub(r"[ \t]+", " ", match["label"]).upper(), match.start(), match.end())
             for match in SECTION_HEADING.finditer(text)]
 
@@ -915,7 +920,7 @@ def output_block(card: Card, result: dict, cached: bool = False) -> str:
     if result.get("error"):
         lines.append("ERROR: " + result["error"])
         if result.get("text"):
-            lines.append("PARTIAL RESPONSE (not a completed transcription):")
+            lines.append("SAVED RESPONSE (see error above):")
     lines.append(result.get("text", ""))
     return "\n".join(lines).rstrip("\r\n") + "\n\n\n"  # Two blank lines between slips.
 
