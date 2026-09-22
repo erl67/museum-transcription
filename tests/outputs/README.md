@@ -1,6 +1,6 @@
 # Test reports
 
-Live `test` runs write independent reports here when this directory is selected. Generated contents are ignored by Git; this README is the only default tracked file. Retain earlier runs for comparison rather than replacing them.
+This is the default output directory. Live `tests` runs write one combined report here, independent of the Family folder and working directory. Use `--test-output-dir` to select another location. Generated contents are ignored by Git; this README is the only default tracked file. Retain earlier runs for comparison rather than replacing them.
 
 An example name is `test_20260922_1425_g3.5-f-l_t0.1.txt`. Same-minute collisions receive a counter before the model/temperature suffix.
 

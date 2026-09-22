@@ -1,6 +1,6 @@
 # Museum Transcription
 
-Large language model-assisted transcription of historical museum egg-collection slips. The current application reads JPEG scans, groups the sides of each physical slip, matches catalogue references from a CSV, and produces readable UTF-8 plain-text transcriptions with source filenames and review flags.
+Large language model assisted transcription of historical museum egg-collection slips. The current application reads JPEG scans, groups the sides of each physical slip, matches catalogue references from a CSV, and produces readable UTF-8 plain-text transcriptions with source filenames and review flags.
 
 This project grew out of a natural-history collection workflow involving roughly 10,000 slips and 12,000 images. Vision models do the reading; Python handles selection, image order, requests, validation, progress, and output. The output uses the fields actually printed on each card, not a fixed database schema.
 
@@ -14,7 +14,7 @@ This project grew out of a natural-history collection workflow involving roughly
 - Uses catalogue values as fallible reading hints; preserves historical wording, spelling, units, and uncertainty.
 - Supports Gemini and an optional OpenAI Responses API adapter through model profiles.
 - Paces and counts every request attempt, with bounded retries and resumable normal runs.
-- Saves independent model/temperature comparisons through a mixed-species `test` target.
+- Saves independent model/temperature comparisons through a mixed-species `tests` target.
 - Keeps source scans and the catalogue CSV read-only.
 
 ## Requirements and installation
@@ -68,7 +68,7 @@ Run `python transcribe.py` for the interactive target prompt, or supply a target
 | `python transcribe.py "2-1000"` | Select inclusive CSV row numbers; row 1 is the header. Includes uncatalogued cards in visited species folders. |
 | `python transcribe.py Accipiter_cooperii --dry-run` | Preview grouping and side order without API calls or output files. |
 | `python transcribe.py E4268 --force` | Refresh a normally cached reading. |
-| `python transcribe.py test` | Run fresh comparisons on the handpicked test folder. |
+| `python transcribe.py tests` | Run fresh comparisons on the handpicked test folder. |
 
 Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. `--help` lists the remaining options.
 
@@ -83,16 +83,15 @@ TEST_TEMPERATURE = 0.1
 
 `MODEL_PROFILES` contains the configured model IDs and their provider, limits, generation settings, and retry budgets. These are project settings, not a guarantee of current model availability or account quota. See [configuration](docs/configuration.md).
 
-Place 10–15 representative cards directly in `tests/inputs/`, keeping their original filenames and both sides where applicable. Multiple species can share this folder. The hand-selected set is expected to be added by the maintainer; no sample scans were added during this handoff.
-
-**Path detail:** by default, `tests/inputs/` and `tests/outputs/` are relative to the **parent of the configured Family directory**, not this repository. To use the folders in this checkout, run from its root with explicit overrides and your CSV path:
+The curated set in `tests/inputs/` contains **10 cards / 18 images** across several species. Keep all sides directly in that folder. Launch `python transcribe.py` and type **tests**, or run:
 
 ```text
-python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --dry-run
-python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --model gemini-3.8-flash --temperature 1.0
+python transcribe.py tests --dry-run
+python transcribe.py tests --model gemini-3.5-flash-lite --temperature 0.1
+python transcribe.py tests --model gemini-3.8-flash --temperature 1.0
 ```
 
-Replace `PATH/TO/catalog.csv` with the real CSV path. The second command makes live requests. A non-dry test creates its folders if needed; an empty input folder produces no API calls or empty report.
+Only the dry run avoids API calls. The default CSV path remains the configured master CSV. Test input is **tests/inputs beside the script** and the combined report goes to **tests/outputs beside the script**, regardless of the launch directory or Family setting. Override with `--test-input-dir` / `--test-output-dir` if needed. An empty input folder produces no requests or empty report.
 
 Each test runs one configuration, starts at the first card, and **never reads or writes a transcription cache**. Daily limits still apply. Example filenames:
 
@@ -101,7 +100,16 @@ test_20260922_1425_g3.5-f-l_t0.1.txt
 test_20260922_1430_g3.8f_t1.0.txt
 ```
 
-Same-minute repeats get a counter rather than overwriting a report. `TEST_TEMPERATURE` affects only tests; explicit `--temperature` wins. Use `--temperature auto` to omit it, including OpenAI tests whose model requires its default. Full procedures and baseline guidance: [testing](docs/testing.md).
+Same-minute repeats get a counter rather than overwriting a report. `TEST_TEMPERATURE` affects only tests; explicit `--temperature` wins. Use `--temperature auto` to omit it. OpenAI profiles are `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, and `gpt-6-astra`; all use `OPENAI_API_KEY` from your existing `.env`. Astra automatically omits the code-level test temperature and uses `tauto` in filenames; an explicit numeric Astra override is rejected before any request.
+
+```text
+python transcribe.py tests --model gpt-5.6-luna --temperature auto
+python transcribe.py tests --model gpt-5.6-terra --temperature auto
+python transcribe.py tests --model gpt-5.6-sol --temperature auto
+python transcribe.py tests --model gpt-6-astra
+```
+
+The known wollweberi/ultramarina filename mismatch does not prevent the test: catalogue hints are matched by complete E-number. Source names remain unchanged. Full procedures and baseline guidance: [testing](docs/testing.md).
 
 ## Output and review
 
@@ -117,28 +125,28 @@ See [transcription rules](docs/transcription_rules.md) for preservation, ditto m
 python -m unittest -v test_transcribe.py
 ```
 
-The handoff verification ran **115 tests, all passing, with no skips** using both SDKs and the optional original-image fixture. Without that fixture, one test skips; missing SDKs cause additional skips. Tests use generated fixtures and simulated HTTP transports, never live API credentials. See [testing](docs/testing.md) for exact conditions and limitations.
+This Windows checkout now runs **115 offline tests: 113 passed, 2 skipped** (the POSIX lock test and the optional older three-image fixture). Both provider SDK transport tests ran, including all four OpenAI profiles. The real curated set also passed a 10-card / 18-image dry run. No live API calls were made. Missing SDKs cause additional skips. Tests use generated fixtures and simulated HTTP transports, never live API credentials. See [testing](docs/testing.md) for exact conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-21.2
+transcribe.py                  Current application; build 2026-09-22.1
 test_transcribe.py             Offline unittest suite
 requirements.txt              Gemini/image/timezone dependencies
 requirements-openai.txt       Optional OpenAI dependency plus the above
 .env.example                  Credential names; no real keys
 AGENTS.md                     Durable instructions for coding agents
-PROJECT_HANDOFF.md            Architecture, history, invariants, next steps
-transcribe_notes.md            Preserved historical revision notes
+docs/PROJECT_HANDOFF.md       Architecture, history, invariants, next steps
+docs/transcribe_notes.md       Preserved historical revision notes
 docs/
     configuration.md          Credentials, profiles, quotas, retries
     filename_rules.md         CSV, paths, targeting, physical-card grouping
     transcription_rules.md    Egg-slip SOP, statuses, reports, caches
     testing.md                Offline tests and live comparison protocol
 tests/
-    inputs/README.md          Reserved for the curated JPEG set
-    outputs/README.md         Generated comparisons stay local
+    inputs/README.md          Curated JPEG set (10 cards, 18 images)
+    outputs/README.md         Combined comparison reports stay local
 ```
 
-Start future development with [AGENTS.md](AGENTS.md) and [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md). The handoff distinguishes current implementation from the proposed domain/backend extraction. The intended sequence is model comparisons, a reliable egg-slip baseline, then incremental extraction—not a new plugin framework.
+Start future development with [AGENTS.md](AGENTS.md) and [PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md). The handoff distinguishes current implementation from the proposed domain/backend extraction. The intended sequence is model comparisons, a reliable egg-slip baseline, then incremental extraction—not a new plugin framework.
 
 ## Current limits
 

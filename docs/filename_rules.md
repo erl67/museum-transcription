@@ -39,7 +39,7 @@ The defaults are machine-specific Windows paths under `G:\My Drive\Egg Slip Scan
 | `E4268` | Exact number, case-insensitive; it must exist in the CSV to route to its species. |
 | `E4268*` | Same selection, fresh console output; `*` is a mode suffix, not a glob. |
 | `2-1000` | Inclusive spreadsheet-style row range; first row must be at least 2. Select corresponding E-numbers, plus uncatalogued groups in every visited species folder. |
-| `test` | Every recognized group in the one test input directory, regardless of species. Case-insensitive with surrounding whitespace ignored. |
+| `tests` (or `test`) | Every recognized group in the one test input directory, regardless of species. Case-insensitive with surrounding whitespace ignored. |
 
 Invalid targets, descending ranges, species/range targets with `*`, and path strings used as species names are rejected. `--console-only` is available for normal species/range selections; `test --console-only` is rejected. There is no E-number numeric range or general wildcard search.
 
@@ -76,6 +76,6 @@ Malformed JPEG names are reported as `FILE CHECK`, not silently treated as uncat
 
 ## Mixed-species test directory
 
-The default is `<parent-of-base-dir>/tests/inputs`, with no `JPEG` subdirectory or recursive species folders. Explicit `--test-input-dir` overrides it. All cards still use the same filename/side parser. No production family/species directories are required, but the configured CSV is still loaded first. Missing catalogue records are transcribed with a review warning; no unrelated hints are supplied. Uncatalogued groups use filenames in their banners and no invented CM/E number.
+The default is `tests/inputs` beside `transcribe.py`, with no `JPEG` subdirectory or recursive species folders. Explicit `--test-input-dir` overrides it. All cards still use the same filename/side parser. No production family/species directories are required, but the configured CSV is still loaded first. Missing catalogue records are transcribed with a review warning; no unrelated hints are supplied. Uncatalogued groups use filenames in their banners and no invented CM/E number.
 
 See [testing](testing.md) for the representative set and [transcription rules](transcription_rules.md) for output. The eventual backend should receive ordered record images and metadata from a domain adapter; it should not need to understand any of the E-number, species, or A/B conventions above.

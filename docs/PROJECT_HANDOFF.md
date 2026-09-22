@@ -2,6 +2,18 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Windows implementation update — 22 September 2026
+
+Build **2026-09-22.1** implements the requested `tests` target (`test` alias retained), reading `tests/inputs` beside the script and writing one `test_TIMESTAMP_MODEL_tTEMP.txt` report in `tests/outputs` beside the script. These defaults override the older Family-relative guidance below. The real curated set is now 10 cards / 18 images. No scans or CSV were renamed or edited, including the known wollweberi/ultramarina mismatch.
+
+The initial Windows checkout actually contained build 2026-09-21.1, 103 tests, and no sample-test implementation despite the Work record below. Baseline: 101 passed, two expected skips. Current: 115 tests, 113 passed, two expected skips (Windows/POSIX lock test and the older optional three-image fixture). Both SDK transports ran offline; the actual curated dry run found 10 cards / 18 images. No live requests were made.
+
+`run` now routes the sample folder through its existing processing loop, skips journals entirely, and durably writes each result to the combined report. Test temperature is resolved after the interactive target so normal runs retain profile defaults. Existing prompts, validation, image order, and normal fingerprint configuration are unchanged. No domain/backend extraction has occurred.
+
+Profiles now include GPT-5.6 Luna, Terra, Sol, and **GPT-6 Astra** using one shared OpenAI Responses transport. Astra omits temperature automatically and rejects explicit numeric overrides. GPT-5.6 tests can pass the test temperature; use `--temperature auto` for initial comparisons because numeric parameter acceptance is not proven by offline transport tests. See [configuration](configuration.md) and [testing](testing.md).
+
+The remainder preserves the earlier Work handoff and its historical verification claims; where they differ, this update and current code/tests take precedence.
+
 ## Purpose and context
 
 The current program transcribes scanned historical museum egg-collection slips. The working collection has roughly 10,000 physical slips / 12,000 images, many form types, old scientific names, cursive and pencil, crossings-out, stamps, marginal additions, and occasional narrative backs. A physical slip can refer to several catalogue records; an image is not necessarily a whole record. A previously reported production CSV load contained 10,174 catalogue numbers across 10,190 data rows. Those are historical observations, not counts of data bundled here.

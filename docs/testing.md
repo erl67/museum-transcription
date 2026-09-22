@@ -36,7 +36,7 @@ The suite currently covers:
 04-Accipiter_gentilis_E4268-B-.jpg
 ```
 
-The test also accepts their unprefixed conventional names; it copies/normalizes names inside a temporary test directory without modifying the originals. The test only checks image handling and grouping, not handwriting accuracy. These three originals were available in Work for verification but are not included in the repository handoff. The future 10–15-card curated set is a separate activity. Do not point this variable at a folder with additional matching Accipiter images; the current exact-three assertion would fail.
+The test also accepts their unprefixed conventional names; it copies/normalizes names inside a temporary test directory without modifying the originals. The test only checks image handling and grouping, not handwriting accuracy. These three originals were available in Work for verification but are not included in the repository handoff. The current 10-card / 18-image curated set is separate from this older optional fixture. Do not point this variable at a folder with additional matching Accipiter images; the current exact-three assertion would fail.
 
 PowerShell, with a real local directory substituted:
 
@@ -49,21 +49,21 @@ For a portable default run without those originals, leave the variable unset and
 
 ## Live representative-card comparisons
 
-The maintainer intends to add 10–15 hand-selected physical cards before Codex development. `tests/inputs/` is ready, with no fabricated scans. Choose real examples that exercise the existing workflow: easy fronts, faint/dense handwriting, A/B narrative backs, collection headings, corrections/stamps, grouped dimensions/ditto marks, signatures, shared E-numbers, and uncatalogued records where available. This is selection guidance, not an assertion those examples have already been committed.
+The current curated `tests/inputs/` set contains 10 physical cards / 18 JPEGs across several species. Choose real examples that exercise the existing workflow: easy fronts, faint/dense handwriting, A/B narrative backs, collection headings, corrections/stamps, grouped dimensions/ditto marks, signatures, shared E-numbers, and uncatalogued records where available. This is selection guidance, not an assertion those examples have already been committed.
 
-Keep JPG/JPEG files directly in the input directory with original names. One request contains all sides of one physical record, before any retries. There is no enforced 15-card limit. The master CSV remains required, even for `test`, but normal family/species folders are unnecessary. Unmatched numbers get a review flag; uncatalogued images get no unrelated hints.
+Keep JPG/JPEG files directly in the input directory with original names. One request contains all sides of one physical record, before any retries. There is no enforced 15-card limit. The master CSV remains required, even for `tests`, but normal family/species folders are unnecessary. Unmatched numbers get a review flag; uncatalogued images get no unrelated hints.
 
-From the repository root, use the same CSV path for each comparison and override test directories explicitly when the data root is elsewhere:
+Test paths default to `tests/inputs/` and `tests/outputs/` beside the script, independent of the Family folder and launch directory. From the repository root:
 
 ```text
-python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --dry-run
-python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --model gemini-3.5-flash-lite --temperature 0.1
-python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --model gemini-3.5-flash-lite --temperature 1.0
+python transcribe.py tests --dry-run
+python transcribe.py tests --model gemini-3.5-flash-lite --temperature 0.1
+python transcribe.py tests --model gemini-3.5-flash-lite --temperature 1.0
 ```
 
-Replace the placeholder CSV path. Only the first command is offline. Review its card count/order before launching paid/quota-consuming runs. Substitute another configured model for the next comparison. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `test` at its prompt. Each launch runs one combination.
+The configured CSV path is used; `--csv` overrides it. Only the first command is offline. Review its card count/order before launching paid/quota-consuming runs. Substitute another configured model for the next comparison. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `tests` at its prompt (`test` is also accepted). Each launch runs one combination.
 
-For the configured OpenAI starter, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. The default `TEST_TEMPERATURE` otherwise overrides the profile's omitted temperature. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
+For the four configured OpenAI models, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. For GPT-5.6, `TEST_TEMPERATURE` otherwise overrides the omitted normal temperature. Astra always omits temperature and rejects explicit numeric overrides. See [configuration](configuration.md) for the model IDs and parameter limitations. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
 
 A non-dry test creates the input/output directories if absent. An empty folder causes no API calls or report and returns code 1 with instructions. A dry run creates nothing, does not decode the images or test credentials, and returns code 1 if its folder is absent. Test input and output cannot be the same resolved directory. `test --console-only` is invalid.
 
@@ -94,7 +94,7 @@ Daily accounting is shared with normal calls and retries. Twenty daily requests 
 6. During extraction, replay the same provider responses offline and compare those artifacts exactly where behavior is intended to be identical. Do not depend solely on new live calls: nondeterministic output could hide a code regression or falsely suggest one.
 7. After structural equivalence, use the same curated samples for authorized live spot comparisons if needed. Keep prompt tuning separate from architectural changes.
 
-Raw reports remain ignored in `tests/outputs/`. A future reviewed baseline should be deliberately selected and documented, not created by committing every run. Ordinary text differences are not a reliable accuracy metric without aligned, human-reviewed references.
+Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` location). A future reviewed baseline should be deliberately selected and documented, not created by committing every run. Ordinary text differences are not a reliable accuracy metric without aligned, human-reviewed references.
 
 ## Regression focus after changes
 
@@ -107,9 +107,17 @@ Raw reports remain ignored in `tests/outputs/`. A future reviewed baseline shoul
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
 
-## Handoff verification record — 22 September 2026
+## Current checkout verification — build 2026-09-22.1
 
-The authoritative Work implementation was overlaid onto a checkout of the older public repository. Before documentation changes, **115 tests passed with zero skips**. The post-documentation verification repeats the same suite; its final result is recorded in [PROJECT_HANDOFF.md](../PROJECT_HANDOFF.md#current-state-and-verification).
+The initial Windows checkout contained build 2026-09-21.1 and 103 tests; its documentation described later Work code that was absent. The baseline passed with two skips. After implementing the mixed-species test route and OpenAI profiles, 115 tests ran: 113 passed and two skipped (POSIX locking on Windows and the older optional three-image fixture). Both installed SDKs were tested through mocked HTTP, including each configured OpenAI model. The actual sample directory dry run found 10 cards / 18 images without changing scans or spending quota.
+
+The Windows sandbox denied temporary fixture access; the offline suite was run with permission outside that sandbox. This is a test-environment permission issue, not evidence of an application regression.
+
+## Historical Work handoff verification — 22 September 2026
+
+The following is the earlier Work environment record, not the initial state observed in this Windows checkout.
+
+The authoritative Work implementation was overlaid onto a checkout of the older public repository. Before documentation changes, **115 tests passed with zero skips**. The post-documentation verification repeats the same suite; its final result is recorded in [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md#current-state-and-verification).
 
 Environment: Python 3.12.14/Linux; google-genai 2.23.0, Pillow 12.3.0, tzdata 2026.3, openai 3.16.2; HTTPX 0.28.1 available to transport tests. Both SDKs and the three original Accipiter images were available. Dependency pins derive from that inspected environment. The whole master CSV, Windows/Drive deployment, current key validity, live model output, actual limits, and comparative transcription accuracy were not exercised. No live API calls were made.
 

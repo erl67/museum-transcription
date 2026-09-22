@@ -1,6 +1,6 @@
-# Direct dependencies verified for build 2026-09-21.2 (Python 3.10+).
-# This pins direct packages, not every transitive dependency.
+# Direct dependencies; Python 3.10+.
 google-genai==2.23.0
 Pillow==12.3.0
 tzdata==2026.3
 openai==3.16.2
+

@@ -1,6 +1,6 @@
 # Configuration, providers, and request control
 
-Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-21.2`; they are not independently verified provider quotas or model-availability promises.
+Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-22.1`; they are not independently verified provider quotas or model-availability promises.
 
 ## Profiles and temperature
 
@@ -12,10 +12,13 @@ Change `MODEL` near the top of the script or pass `--model`. The exact ID must h
 | `gemini-3.6-flash` | Gemini | 5 | 20 | 300 s | 3 | 0.1 | `g3.6f` |
 | `gemini-3.8-flash` | Gemini | 5 | 20 | 300 s | 3 | 0.1 | `g3.8f` |
 | `gpt-5.6-luna` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
+| `gpt-5.6-terra` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
+| `gpt-5.6-sol` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
+| `gpt-6-astra` | OpenAI | 5 | 20 | 300 s | 3 | Unsupported / omitted | Full model ID |
 
 The Gemini caps came from the maintainer's stated allowances. OpenAI's values are conservative local testing caps, not an account entitlement. Confirm model IDs and supported parameters against the intended account when running live comparisons. The default reflects the established working workflow and available request allowance, not a measured quality ranking.
 
-`TEST_TEMPERATURE = 0.1` directly below `MODEL` overrides the profile's temperature for `test` only. Explicit `--temperature 1.0` overrides either mode; `--temperature auto` or a Python setting of `None` omits the parameter. **An OpenAI test otherwise receives `TEST_TEMPERATURE`, even though its normal profile omits temperature.** Use `auto` when that model requires the default. Numeric temperatures must be finite and between 0 and 2; local validation is not proof every provider/model accepts every value.
+`TEST_TEMPERATURE = 0.1` directly below `MODEL` overrides the profile's temperature for `test` only. Explicit `--temperature 1.0` overrides either mode; `--temperature auto` or a Python setting of `None` omits the parameter. GPT-5.6 tests also receive `TEST_TEMPERATURE`; use `--temperature auto` for the initial OpenAI comparison with the model's defaults. Numeric temperature acceptance for GPT-5.6 has not been established by live tests or the fetched model guide. Astra does not support temperature: it automatically omits the code-level test setting and rejects explicit numeric overrides. An omitted parameter is recorded as `tauto`, never labelled as a temperature that was not sent. Numeric temperatures must be finite and between 0 and 2; local validation is not proof every provider/model accepts every value.
 
 Profiles also hold `max_output_tokens` (16,384 by default), retry base (5 s for Flash-Lite, 15 s for the other entries), maximum retry wait (120 s), quota timezone, and optional provider generation settings. Explicit CLI options override their corresponding profile values. There is no automatic parameter sweep.
 
@@ -23,13 +26,15 @@ Profiles also hold `max_output_tokens` (16,384 by default), retry base (5 s for 
 | --- | --- |
 | `--thinking-level auto/minimal/low/medium/high` | Gemini; omitted by default. The configured 3.8 profile permits only low/medium/high or auto. This is a local profile restriction. |
 | `--media-resolution auto/low/medium/high` | Gemini; omitted by default. |
-| `--reasoning-effort auto/none/minimal/low/medium/high/xhigh/max` | OpenAI; omitted by default. Actual supported values depend on the chosen model. |
+| `--reasoning-effort auto/none/minimal/low/medium/high/xhigh/max` | OpenAI; omitted by default. GPT-5.6 allows none/low/medium/high/xhigh/max; Astra allows low/medium/high/xhigh/max. Unsupported efforts fail locally. |
 | `--image-detail auto/low/high/original` | OpenAI; `original` in the current profile. |
 | `--max-edge N` | Optional local longest-edge resizing; `0` retains original resolution. |
 | `--max-output-tokens N` | Provider output cap; increase deliberately after a token-limit failure. |
 | `--rpm`, `--rpd`, `--timeout`, `--attempts`, `--max-retry-wait` | Execution overrides, excluded from transcription cache identity. |
 
 `retry_base`, `quota_timezone`, `filename_tag`, and the configured thinking-level allowlist are profile fields, not separate CLI options. `--rpd 0` / profile `rpd=None` removes the local daily cap but does not disable attempt accounting. `--max-retry-wait` must be at least 60 s. Run `--list-models` or `--help` without any keys or dataset.
+
+Model IDs and reasoning support were checked against [OpenAI's GPT-5.6 guide](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6). [Astra's guide](https://developers.openai.com/api/docs/guides/latest-model) specifies `gpt-6-astra` and disallows temperature. There is no configured `gpt-5.6-astra` alias. Profiles share the existing Responses transport, completion checks, pacing, and quota code.
 
 ## Credentials and `.env`
 
@@ -70,7 +75,7 @@ Requests are sequential. `RateLimiter` spaces request starts by `60 / RPM + 0.1`
 
 Counters are keyed by `provider/model`, **not credential/project**. Multiple keys sharing a file share that local count; different files/machines do not. Counts cannot see traffic from other tools or prove the provider has remaining quota. State contains date, attempt count, and an exhausted flag, not keys/images/transcriptions. Writes use a short OS lock, flush/fsync, and atomic replacement. A damaged counter stops rather than resetting silently.
 
-Gemini profile days use `America/Los_Angeles` (midnight with daylight-saving rules). The OpenAI starter uses UTC midnight for its local cap. No provider-side quota query occurs. Known daily exhaustion is remembered until the next local profile day; billing exhaustion is not a daily-reset diagnosis.
+Gemini profile days use `America/Los_Angeles` (midnight with daylight-saving rules). The OpenAI profiles use UTC midnight for its local cap. No provider-side quota query occurs. Known daily exhaustion is remembered until the next local profile day; billing exhaustion is not a daily-reset diagnosis.
 
 At a cap, `PAUSED` preserves available response text and exits with code 1 rather than waiting overnight. A normal rerun can reuse completed journal entries; a test rerun always starts fresh. Custom quota filenames and other local output paths must be kept out of Git explicitly; `.gitignore` covers the defaults.
 

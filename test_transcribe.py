@@ -1308,6 +1308,11 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
 
     def test_actual_openai_sdk_serializes_request_and_counts_its_own_retries_offline(self):
+        for model in ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"):
+            with self.subTest(model=model):
+                self.check_openai_sdk_transport(model)
+
+    def check_openai_sdk_transport(self, model):
         try:
             import openai
             from openai import _base_client
@@ -1315,7 +1320,7 @@ class DatasetTest(unittest.TestCase):
             self.skipTest("Install openai for the SDK transport test")
         # Current SDK uses httpx2; older supported SDKs use httpx.
         http = getattr(_base_client, "httpx2", None) or _base_client.httpx
-        self.use_profile("gpt-5.6-luna")
+        self.use_profile(model)
         card = self.cards({"E4268"})[0]
         captured = []
 
@@ -1325,7 +1330,7 @@ class DatasetTest(unittest.TestCase):
                 return http.Response(429, headers={"Retry-After": "1"}, json={
                     "error": {"message": "offline rate limit", "type": "rate_limit_error", "code": "rate_limit_exceeded"}})
             return http.Response(200, json={"id": "resp_offline", "object": "response", "created_at": 1,
-                "model": "gpt-5.6-luna", "status": "completed", "error": None, "incomplete_details": None,
+                "model": model, "status": "completed", "error": None, "incomplete_details": None,
                 "output": [{"type": "message", "id": "msg_offline", "role": "assistant", "status": "completed",
                             "content": [{"type": "output_text", "text": transcript(card.sections), "annotations": []}]}],
                 "usage": {"input_tokens": 100, "output_tokens": 60, "total_tokens": 160,
@@ -1357,10 +1362,224 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(captured[0].url.path, "/v1/responses")
         self.assertEqual(captured[0].headers["authorization"], "Bearer offline-openai-token")
         body = json.loads(captured[-1].content)
-        self.assertEqual(body["model"], "gpt-5.6-luna")
+        self.assertEqual(body["model"], model)
         self.assertNotIn("temperature", body)
         self.assertFalse(body["store"])
         self.assertEqual(len([part for part in body["input"][0]["content"] if part["type"] == "input_image"]), 2)
+
+
+    def sample_args(self, *options):
+        self.args = t.parse_args(["tests", "--csv", str(self.csv), "--base-dir", str(self.root / "no-Family"),
+                                 "--test-input-dir", str(self.folder), "--test-output-dir", str(self.root / "outputs"),
+                                 "--quota-file", str(self.root / "usage.json"), *options])
+        return self.args
+
+    def test_sample_default_paths_ignore_family_and_launch_directory(self):
+        with patch.object(Path, "cwd", return_value=self.root):
+            args = t.parse_args(["tests", "--base-dir", str(self.root / "elsewhere")])
+        script = Path(t.__file__).resolve().parent
+        self.assertEqual(Path(args.test_input_dir), script / "tests" / "inputs")
+        self.assertEqual(Path(args.test_output_dir), script / "tests" / "outputs")
+
+    def test_sample_mixed_ten_cards_eighteen_images_in_one_report(self):
+        self.folder = self.root / "samples"
+        self.folder.mkdir()
+        specimens = [("Accipiter_cooperii", "E905", 1), ("Aphelocoma_californica", "E1191", 2),
+                     ("Aphelocoma_californica", "E3835", 2), ("Accipiter_cooperii", "E4933", 2),
+                     ("Accipiter_cooperii", "E4934", 2), ("Falco_mexicanus", "E5175", 2),
+                     ("Aphelocoma_californica", "E7249", 2), ("Aphelocoma_ultramarina", "E7298", 1),
+                     ("Aphelocoma_ultramarina", "E7301", 1), ("Psarocolius_bifasciatus", "E10001", 3)]
+        self.write_csv([enum for _, enum, _ in specimens])
+        for species, enum, sides in specimens:
+            for side in reversed(range(sides)):
+                suffix = f"({chr(65 + side)})" if sides > 1 else ""
+                self.card_image(f"{species}_{enum}{suffix}.jpg")
+        self.sample_args()
+        before = {path: path.read_bytes() for path in self.folder.iterdir()}
+        engine, client, _ = self.engine()
+        with patch.object(t, "resolve_folders", side_effect=AssertionError("production routing")),                 patch.object(t, "Journal", side_effect=AssertionError("cache access")):
+            self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 10)
+        self.assertEqual(sum(sum("inline_data" in part for part in call["contents"][0]["parts"])
+                             for call in client.calls), 18)
+        last_labels = [part["text"] for part in client.calls[-1]["contents"][0]["parts"] if "text" in part][1:]
+        self.assertTrue(last_labels[0].endswith("SECTION: FRONT"))
+        self.assertTrue(last_labels[1].endswith("SECTION: BACK OF SLIP"))
+        self.assertTrue(last_labels[2].endswith("SECTION: BACK OF SLIP 2"))
+        reports = list((self.root / "outputs").glob("*.txt"))
+        self.assertEqual(len(reports), 1)
+        text = reports[0].read_text()
+        self.assertIn("CARDS: 10; IMAGES: 18", text)
+        self.assertEqual(text.count("STATUS: OK"), 10)
+        self.assertIn("TEST FINISHED: 10 new", text)
+        self.assertEqual(before, {path: path.read_bytes() for path in self.folder.iterdir()})
+
+    def test_sample_repeated_runs_ignore_matching_production_cache(self):
+        self.assertEqual(t.run(self.args, self.engine()[0]), 0)
+        production = {path: path.read_bytes() for path in self.family.glob("*") if path.is_file()}
+        self.sample_args()
+        fixed = datetime(2026, 9, 22, 14, 25)
+        with patch.object(t, "Journal", side_effect=AssertionError("cache access")), patch.object(t, "datetime") as dt:
+            dt.now.return_value = fixed
+            for _ in range(2):
+                engine, client, _ = self.engine()
+                self.assertEqual(t.run(self.args, engine), 0)
+                self.assertEqual(len(client.calls), 2)
+        reports = sorted((self.root / "outputs").glob("*.txt"))
+        self.assertEqual({p.name for p in reports}, {"test_20260922_1425_g3.5-f-l_t0.1.txt",
+                                                    "test_20260922_1425_2_g3.5-f-l_t0.1.txt"})
+        self.assertEqual(production, {path: path.read_bytes() for path in production})
+        for report in reports:
+            self.assertNotIn("(reused)", report.read_text())
+            self.assertEqual(report.read_text().count("STATUS: OK"), 2)
+        self.assertEqual(json.loads(Path(self.args.quota_file).read_text())["models"]["gemini/" + self.args.model]["attempts"], 6)
+
+    def test_sample_temperatures_tags_and_cli_precedence(self):
+        for model, tag in (("gemini-3.5-flash-lite", "g3.5-f-l"), ("gemini-3.8-flash", "g3.8f")):
+            for temp in (0.1, 1.0):
+                self.sample_args("--model", model, "--temperature", str(temp))
+                engine, client, _ = self.engine()
+                with patch.object(t, "TEST_TEMPERATURE", 0.7):
+                    self.assertEqual(t.run(self.args, engine), 0)
+                self.assertEqual([call["config"]["temperature"] for call in client.calls], [temp, temp])
+                self.assertEqual(len(list((self.root / "outputs").glob(f"*_{tag}_t{temp}.txt"))), 1)
+        with patch.object(t, "TEST_TEMPERATURE", 1.0):
+            self.assertEqual(t.parse_args([]).temperature, 0.1)
+            self.sample_args()
+            t.configure_test_run(self.args)
+            self.assertEqual(self.args.temperature, 1.0)
+            self.sample_args("--temperature", "auto")
+            t.configure_test_run(self.args)
+            self.assertNotIn("temperature", t.generation_config(self.args))
+
+    def test_sample_interactive_aliases_and_dry_run_are_read_only(self):
+        for target in ("tests", " TeStS ", "test"):
+            self.sample_args("--dry-run")
+            self.args.target = None
+            before = self.snapshot()
+            engine, client, _ = self.engine()
+            with patch("builtins.input", return_value=target):
+                self.assertEqual(t.run(self.args, engine), 0)
+            self.assertEqual(client.calls, [])
+            self.assertEqual(self.snapshot(), before)
+
+    def test_sample_empty_missing_and_invalid_settings_spend_nothing(self):
+        for dry in (True, False):
+            self.sample_args()
+            self.args.test_input_dir = str(self.root / f"empty-{dry}")
+            self.args.dry_run = dry
+            engine, client, _ = self.engine()
+            self.assertEqual(t.run(self.args, engine), 1)
+            self.assertEqual(client.calls, [])
+            self.assertFalse((self.root / "outputs").exists())
+            self.assertEqual(Path(self.args.test_input_dir).exists(), not dry)
+        for options in (["--console-only"], ["--test-output-dir", str(self.folder)]):
+            self.sample_args(*options)
+            engine, client, _ = self.engine()
+            with self.assertRaises(ValueError):
+                t.run(self.args, engine)
+            self.assertEqual(client.calls, [])
+        for temp in (float("nan"), float("inf"), -0.1, 2.1):
+            self.sample_args()
+            with patch.object(t, "TEST_TEMPERATURE", temp), self.assertRaises(ValueError):
+                t.run(self.args, self.engine()[0])
+
+    def test_sample_missing_csv_shared_number_and_uncatalogued_last(self):
+        self.card_image("Other_species_E001_E999(B).jpg")
+        self.card_image("Other_species_E001_E999(A).jpg")
+        self.card_image("Other_species_Uncatalogued(B).jpg")
+        self.sample_args()
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 4)
+        text = next((self.root / "outputs").glob("*.txt")).read_text()
+        self.assertIn("No CSV record for: E999", text)
+        self.assertIn("CM001", text)
+        self.assertIn("CM999", text)
+        self.assertIn("Front image is missing", text)
+        self.assertGreater(text.index("ID: Other_species_Uncatalogued"), text.index("ID: Accipiter_gentilis_E4927"))
+        self.assertEqual(text.count("STATUS: REVIEW"), 2)
+
+    def test_sample_quota_stop_and_restart_preserve_report(self):
+        self.sample_args("--rpd", "1")
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 1)
+        self.assertEqual(len(client.calls), 1)
+        report = next((self.root / "outputs").glob("*.txt"))
+        first = report.read_bytes()
+        self.assertIn(b"STATUS: OK", first)
+        self.assertIn(b"STATUS: PAUSED", first)
+        self.assertIn(b"TEST STOPPED:", first)
+        self.assertNotIn(b"TEST FINISHED:", first)
+        self.sample_args("--rpd", "10")
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(report.read_bytes(), first)
+
+    def test_sample_interruption_keeps_completed_output_and_closes_client(self):
+        self.sample_args()
+        engine, client, _ = self.engine([response(transcript(self.cards()[0].sections)), KeyboardInterrupt()])
+        self.assertEqual(t.run(self.args, engine), 130)
+        text = next((self.root / "outputs").glob("*.txt")).read_text()
+        self.assertIn("STATUS: OK", text)
+        self.assertNotIn("TEST FINISHED", text)
+        self.assertTrue(client.closed)
+
+
+    def test_sample_failed_response_text_is_retained(self):
+        self.sample_args("--attempts", "1")
+        engine, client, _ = self.engine([response("Failed fixture text"), response(transcript())])
+        self.assertEqual(t.run(self.args, engine), 1)
+        text = next((self.root / "outputs").glob("*.txt")).read_text()
+        self.assertIn("STATUS: FAILED", text)
+        self.assertIn("SAVED RESPONSE", text)
+        self.assertIn("Failed fixture text", text)
+        self.assertIn("TEST FINISHED: 1 new", text)
+        self.assertEqual(len(client.calls), 2)
+
+    def test_sample_report_must_open_before_requests(self):
+        self.sample_args()
+        engine, client, _ = self.engine()
+        with patch.object(t, "open_output_report", side_effect=OSError("fixture write failure")):
+            with self.assertRaises(OSError):
+                t.run(self.args, engine)
+        self.assertEqual(client.calls, [])
+        self.assertTrue(client.closed)
+
+    def test_sample_openai_profiles_send_independent_requests(self):
+        for model in ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"):
+            self.sample_args("--model", model, "--temperature", "auto")
+            for _ in range(2):
+                clock = Clock()
+                client = FakeOpenAIClient([openai_response(transcript(card.sections)) for card in self.cards()])
+                engine = t.Transcriber(self.args, client, clock.time, clock.sleep)
+                with patch.object(t, "Journal", side_effect=AssertionError("cache access")):
+                    self.assertEqual(t.run(self.args, engine), 0)
+                self.assertEqual(len(client.calls), 2)
+                for call in client.calls:
+                    self.assertEqual(call["model"], model)
+                    self.assertNotIn("previous_response_id", call)
+                    self.assertNotIn("conversation", call)
+                    self.assertNotIn("temperature", call)
+                    self.assertFalse(call["store"])
+            self.assertEqual(len(list((self.root / "outputs").glob(f"*_{model}_tauto.txt"))), 2)
+        self.sample_args("--model", "gpt-6-astra")
+        t.configure_test_run(self.args)
+        self.assertIsNone(self.args.temperature)
+        self.assertIsNone(t.parse_args(["--model", "gpt-6-astra"]).temperature)
+        for model, options in (("gpt-6-astra", ["--temperature", "0.1"]),
+                               ("gpt-6-astra", ["--reasoning-effort", "none"]),
+                               ("gpt-5.6-sol", ["--reasoning-effort", "minimal"])):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                t.parse_args(["--model", model, *options])
+        for model in ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"):
+            for temp in (0.1, 1.0):
+                self.sample_args("--model", model, "--temperature", str(temp), "--reasoning-effort", "none")
+                t.configure_test_run(self.args)
+                config = t.generation_config(self.args)
+                self.assertEqual(config["temperature"], temp)
+                self.assertEqual(config["reasoning"], {"effort": "none"})
 
     def test_supplied_scans_preserve_pixels_and_pair_correctly(self):
         location = os.environ.get("EGG_SLIP_SAMPLE_DIR")

@@ -34,10 +34,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-09-21.1"
+SCRIPT_VERSION = "2026-09-22.1"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
+
+TEST_TEMPERATURE = 1.0  # Tests only: try 0.1 or 1.0; None omits temperature.
+# OpenAI choices: gpt-5.6-luna, gpt-5.6-terra, gpt-5.6-sol, gpt-6-astra.
+# Astra does not accept temperature; its tests use auto (omitted).
+TEST_INPUT_DIR = Path(__file__).resolve().parent / "tests" / "inputs"
+TEST_OUTPUT_DIR = Path(__file__).resolve().parent / "tests" / "outputs"
 
 
 @dataclass(frozen=True)
@@ -57,6 +63,9 @@ class ModelProfile:
     image_detail: str = "original"      # OpenAI image setting.
     quota_timezone: str = "America/Los_Angeles"
     thinking_levels: tuple[str, ...] = ("minimal", "low", "medium", "high")
+    filename_tag: str | None = None  # None uses the full model ID.
+    supports_temperature: bool = True
+    reasoning_efforts: tuple[str, ...] = ("none", "low", "medium", "high", "xhigh", "max")
 
 
 # Gemini caps below are YOUR supplied allowances, not universal provider limits.
@@ -64,17 +73,27 @@ class ModelProfile:
 # Optional generation settings belong in that entry; unrelated settings are not
 # sent to the other provider. No model/provider is ever substituted on failure.
 MODEL_PROFILES = {
-    "gemini-3.5-flash-lite": ModelProfile("gemini", rpm=15, rpd=500),
+    "gemini-3.5-flash-lite": ModelProfile("gemini", rpm=15, rpd=500, filename_tag="g3.5-f-l"),
     "gemini-3.6-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
-                                      attempts=3, retry_base=15),
+                                      attempts=3, retry_base=15, filename_tag="g3.6f"),
     "gemini-3.8-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
                                       attempts=3, retry_base=15,
-                                      thinking_levels=("low", "medium", "high")),
-    # Optional OpenAI starter: these are conservative TEST caps, not your quota.
-    # Add OPENAI_API_KEY to .env and install openai before selecting this model.
+                                      thinking_levels=("low", "medium", "high"), filename_tag="g3.8f"),
+    # OpenAI profiles: these are conservative TEST caps, not your quota.
+    # Add OPENAI_API_KEY to .env and install openai before selecting an OpenAI model.
     "gpt-5.6-luna": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
                                   attempts=3, temperature=None, retry_base=15,
                                   quota_timezone="UTC"),
+    "gpt-5.6-terra": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
+                                   attempts=3, temperature=None, retry_base=15,
+                                   quota_timezone="UTC"),
+    "gpt-5.6-sol": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
+                                 attempts=3, temperature=None, retry_base=15,
+                                 quota_timezone="UTC"),
+    "gpt-6-astra": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
+                                 attempts=3, temperature=None, retry_base=15,
+                                 quota_timezone="UTC", supports_temperature=False,
+                                 reasoning_efforts=("low", "medium", "high", "xhigh", "max")),
 }
 
 # Daily counts cover all targets/restarts using this script and this state file.
@@ -712,7 +731,7 @@ class DailyQuota:
                     source = "The API reported a daily quota limit" if entry["exhausted"] else "The local daily attempt cap was reached"
                     raise QuotaReached(f"{source} for {self.key} ({entry['attempts']} local attempt(s) today). "
                                        f"Run the same target after midnight in {self.timezone} to resume. "
-                                       "Previously saved cards can be reused; no overnight wait or extra request was made.")
+                                       "Normal saved cards can be reused; tests start fresh. No overnight wait or extra request was made.")
                 entry["attempts"] += 1
             state["models"][self.key] = entry
             self._write(state)
@@ -1257,13 +1276,13 @@ def durable_write(handle, text: str):
     os.fsync(handle.fileno())
 
 
-def open_output_report(folder: Path, stem: str):
+def open_output_report(folder: Path, stem: str, trailing_tag: str = ""):
     """Use minutes in filenames; a short counter preserves same-minute runs."""
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     number = 1
     while True:
         suffix = "" if number == 1 else f"_{number}"
-        path = folder / f"{stem}_{stamp}{suffix}.txt"
+        path = folder / f"{stem}_{stamp}{suffix}{trailing_tag}.txt"
         try:
             return path, path.open("x", encoding="utf-8", newline="\n")
         except FileExistsError:
@@ -1271,11 +1290,35 @@ def open_output_report(folder: Path, stem: str):
 
 
 # --- 8. Main processing loop: dry run, console mode, resumable batch mode ---
+def configure_test_run(args):
+    """Resolve settings after the interactive target, before any API/output work."""
+    if args.console_only:
+        raise ValueError("tests saves a combined report; --console-only cannot be used with tests.")
+    if Path(args.test_input_dir).expanduser().resolve() == Path(args.test_output_dir).expanduser().resolve():
+        raise ValueError("Test input and output directories must be different.")
+    if not args.temperature_explicit:
+        args.temperature = TEST_TEMPERATURE if args.supports_temperature else None
+        if not args.supports_temperature and TEST_TEMPERATURE is not None:
+            print(f"{args.model} does not support temperature; tests use auto (omitted).")
+    if args.temperature is not None and (not math.isfinite(args.temperature) or not 0 <= args.temperature <= 2):
+        raise ValueError("Test temperature must be finite and between 0 and 2, or None/auto.")
+    print(f"Test temperature: {temperature_tag(args)}; transcription cache disabled.")
+
+
+def temperature_tag(args) -> str:
+    return "auto" if args.temperature is None else str(float(args.temperature))
+
+
 def run(args, engine=None) -> int:
     db = load_database(Path(args.csv))
     target = args.target if args.target is not None else input(
-        "Enter target (e.g., Lagopus_lagopus, E2695, E2695*, or 2-1000): ")
-    targets, star_mode = select_targets(db, target)
+        "Enter target (e.g., tests, Lagopus_lagopus, E2695, E2695*, or 2-1000): ")
+    test_mode = target.strip().casefold() in {"test", "tests"}
+    if test_mode:
+        configure_test_run(args)
+        targets, star_mode = {"tests": None}, False
+    else:
+        targets, star_mode = select_targets(db, target)
     # Include unnumbered scans in each visited batch folder, but keep a targeted
     # E-number lookup scoped to that card (including the console-only * form).
     include_uncatalogued = re.fullmatch(r"E\d+", target.strip().removesuffix("*").strip(), re.I) is None
@@ -1287,9 +1330,20 @@ def run(args, engine=None) -> int:
     try:
         for species, allowed in targets.items():
             try:
-                family_dir, input_dir = resolve_folders(Path(args.base_dir), db, species)
+                if test_mode:
+                    input_dir = Path(args.test_input_dir).expanduser().resolve()
+                    family_dir = Path(args.test_output_dir).expanduser().resolve()
+                    if not args.dry_run:
+                        input_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    family_dir, input_dir = resolve_folders(Path(args.base_dir), db, species)
                 cards, issues, missing = discover_cards(
                     input_dir, allowed, include_uncatalogued=include_uncatalogued)
+                if test_mode:
+                    for card in cards:
+                        unmatched = [enum for enum in card.enums if enum not in db.by_enum]
+                        if unmatched:
+                            card.warnings.append("No CSV record for: " + ", ".join(unmatched) + ".")
             except (OSError, ValueError) as exc:
                 print(f"ERROR: {species}: {exc}")
                 totals["discovery_issues"] += 1
@@ -1319,12 +1373,23 @@ def run(args, engine=None) -> int:
                 journal = None
                 output = None
                 if not console_only:
-                    stem = f"{species}_transcriptions"
-                    stack.enter_context(species_lock(family_dir / f"{stem}.lock"))
-                    journal = stack.enter_context(Journal(family_dir / f"{stem}_cache.jsonl"))
-                    output_path, handle = open_output_report(family_dir, stem)
+                    if test_mode:
+                        family_dir.mkdir(parents=True, exist_ok=True)
+                        tag = safe_component(args.filename_tag or args.model)
+                        output_path, handle = open_output_report(
+                            family_dir, "test", f"_{tag}_t{temperature_tag(args)}")
+                    else:
+                        stem = f"{species}_transcriptions"
+                        stack.enter_context(species_lock(family_dir / f"{stem}.lock"))
+                        journal = stack.enter_context(Journal(family_dir / f"{stem}_cache.jsonl"))
+                        output_path, handle = open_output_report(family_dir, stem)
                     output = stack.enter_context(handle)
                     print(f"Output: {output_path}")
+                    if test_mode:
+                        durable_write(output, f"TEST RUN: {SCRIPT_VERSION}\nMODEL: {args.provider} / {args.model}\n"
+                                      f"TEMPERATURE: {temperature_tag(args)}\nINPUT: {input_dir}\n"
+                                      f"CARDS: {len(cards)}; IMAGES: {sum(len(card.paths) for card in cards)}\n"
+                                      "CACHE: disabled; every card receives a fresh request.\n\n\n")
                     for issue in issues:
                         durable_write(output, "FILE CHECK: " + issue + "\n")
                     if missing:
@@ -1365,10 +1430,17 @@ def run(args, engine=None) -> int:
                     else:
                         print(block)
                     if result.get("fatal"):
+                        if test_mode and output:
+                            durable_write(output, "TEST STOPPED: " + result["stop_reason"] + "\n")
                         print("Stopped: " + result["stop_reason"])
                         return 1
+                if test_mode and output:
+                    durable_write(output, f"TEST FINISHED: {totals['fresh']} new, {totals['review']} review, "
+                                  f"{totals['failed']} failed; {totals['discovery_issues']} file issues; "
+                                  f"{engine.requests} API attempt(s).\n")
     except KeyboardInterrupt:
-        print("\nInterrupted. Completed saved cards can be reused by running the same target again.")
+        print("\nInterrupted. Completed test output is saved; the next test starts fresh." if test_mode else
+              "\nInterrupted. Completed saved cards can be reused by running the same target again.")
         return 130
     finally:
         engine.close()
@@ -1387,9 +1459,11 @@ def run(args, engine=None) -> int:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"Egg-slip transcriber {SCRIPT_VERSION}")
-    parser.add_argument("target", nargs="?", help="Species, E-number, E-number*, or CSV row range")
+    parser.add_argument("target", nargs="?", help="tests, species, E-number, E-number*, or CSV row range")
     parser.add_argument("--csv", default=CSV_PATH, help="Master CSV path")
     parser.add_argument("--base-dir", default=BASE_FAMILY_DIR, help="Root Family directory")
+    parser.add_argument("--test-input-dir", default=str(TEST_INPUT_DIR), help="Flat sample JPEG folder; default: tests/inputs beside script")
+    parser.add_argument("--test-output-dir", default=str(TEST_OUTPUT_DIR), help="Combined test reports; default: tests/outputs beside script")
     parser.add_argument("--env-file", help="Explicit .env path; otherwise checks script/project folders, then current directory")
     parser.add_argument("--prompt-key", action="store_true", help="Allow manual key entry if no .env or process key is found")
     parser.add_argument("--check-config", action="store_true", help="Show running version/path and check key lookup; no API requests or CSV/image reads")
@@ -1427,6 +1501,7 @@ def parse_args(argv=None):
         parser.error(f"No profile for {args.model!r}. Add its exact model ID, provider, RPM and RPD "
                      "to MODEL_PROFILES in the settings section. Use --list-models to see configured models.")
     explicit = set(vars(args))
+    args.temperature_explicit = "temperature" in explicit
     for name, value in vars(profile).items():
         if not hasattr(args, name):
             setattr(args, name, value)
@@ -1456,6 +1531,10 @@ def parse_args(argv=None):
             parser.error(f"{args.model} thinking levels: {', '.join(args.thinking_levels)} (or auto).")
     elif args.thinking_level is not None or args.media_resolution is not None:
         parser.error("--thinking-level and --media-resolution are Gemini settings.")
+    if not args.supports_temperature and args.temperature is not None:
+        parser.error(f"{args.model} does not support temperature; use --temperature auto.")
+    if args.provider == "openai" and args.reasoning_effort and args.reasoning_effort not in args.reasoning_efforts:
+        parser.error(f"{args.model} reasoning efforts: {', '.join(args.reasoning_efforts)} (or auto).")
     return args
 
 
