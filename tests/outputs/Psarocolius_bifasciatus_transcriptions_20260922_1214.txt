@@ -1,0 +1,54 @@
+======================CM10001=====================
+ID: Psarocolius_bifasciatus_E10001
+STATUS: REVIEW
+FILES: Psarocolius_bifasciatus_E10001(A).jpg; Psarocolius_bifasciatus_E10001(B).jpg; Psarocolius_bifasciatus_E10001(C).jpg
+MODEL: gemini / gemini-3.5-flash-lite
+REVIEW: 2 bracketed uncertain reading(s).
+REVIEW: Transcription notes are present.
+==================================================
+COLLECTION OF CARNEGIE MUSEUM, PITTSBURGH, PENNA.
+Name: -
+Locality: Buenavista, Bolivia
+Date: -
+Incubation: -
+A.O.U. No.: -
+Set Mark: 1 2 7
+No. of Eggs: 13 (more than one)
+Identification: -
+Collector: José Steinbach
+ANNOTATIONS:
+Top left red ink: 10001
+Top left crossed-out printed year: 1900
+Pasted note covering lower left, containing German handwriting: 10. XI. 1919 / Die Colonie bestand aus / ca 80 Nesterm, worn etwa / die Hälfte untersucht wurden / wobei 18 Eier im Ganzen / heraus kamen, meist unbe- / brütet. Einige zerbrochen / erhalten blieben die wohle- / [illegible] 13, wovon 4 Stück / augenscheinlich [schmorntzer] / sind. Ich bemerkte in der Nähe / den kleinen Tajo boliviano / sowie den ganz schwarzen Saltator / mit schwefelgelben Schnabel. Kein Nest / enthielt mehr als 4 Eier, die / meisten enthielten 1-3 Junge. / Alle Nester hingen an den Blättern / der Totaipalme an einer stillen / Waldwiese.
+Also printed line above Nest in B image.
+
+BACK OF SLIP:
+COLLECTION OF CARNEGIE MUSEUM, PITTSBURGH, PENNA.
+Name: -
+Locality: Buenavista, Bolivia
+Date: -
+Incubation: -
+Nest: -
+A.O.U. No.: -
+Set Mark: 1 2 7
+No. of Eggs: 13 (more than one)
+Identification: -
+Collector: José Steinbach
+ANNOTATIONS:
+Top left red ink: 10001
+Top left crossed-out printed year: 1900
+Pasted note covering lower left, containing German handwriting and a boxed heading: No. 127 13 Eier / "Tajo major" / Die Colonie bestand aus / ca 80 Nestern, wovon etwa / die Hälfte untersucht wurden / wobei 18 Eier im Ganzen / heraus kamen, meist unbe- / brütet. Einige zerbrochen / erhalten blieben die wohl- / geraten 13, wovon 4 Stück / augenscheinlich schmarotzer / sind. Ich bemerkte in der Nähe / den kleinen Tajo boliviano / sowie den ganz schwarzen Saltator / mit schwefelgelben Schnabel. Kein Nest / enthielt mehr als 4 Eier, die / meisten enthielten 1-3 Junge. / Alle Nester hingen an den Blättern / der Totaipalme an einer stillen / Waldwiese. / 10. XI. 1919.
+
+BACK OF SLIP 2:
+meisten enthielten 1-3 Junge.
+Alle Nester hingen an den Blättern
+der Totaipalme an einer stillen
+Waldwiese.
+10. XI. 1919.
+ANNOTATIONS:
+Handwritten slip showing the continuation/overlap of the German notes.
+
+TRANSCRIPTION NOTES:
+Image A and Image B show the same front slip with a pasted handwritten note covering the lower left portion. Image C shows the same pasted slip folded or viewed separately to reveal text hidden under the fold in the other images. The collector signature José Steinbach is identified from comparison with collection records and handwriting style.
+
+
