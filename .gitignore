@@ -23,8 +23,6 @@ Thumbs.db
 /Family/
 /data/
 /private/
-/sample_inputs/
-/sample_outputs/
 *.csv
 *.xlsx
 *.xls
@@ -45,5 +43,3 @@ Thumbs.db
 *_transcriptions.lock
 transcribe_request_usage.json
 transcribe_request_usage.json.*
-/tests/outputs/*
-!/tests/outputs/README.md

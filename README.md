@@ -145,3 +145,8 @@ Start future development with [AGENTS.md](AGENTS.md) and [PROJECT_HANDOFF.md](PR
 The program is sequential, with per-process minute pacing and a local daily counter. It does not track other applications' quota use, enforce token-per-minute limits, calculate costs, or guarantee identical model responses. Windows/Google Drive locking and live model accuracy need deployment testing. A real catalogue and permission-appropriate scans are supplied separately. No accuracy percentage or cross-model winner has been established by this test suite.
 
 Source data and generated results are excluded from Git by default; only deliberately selected JPEGs under `tests/inputs/` are eligible sample scans. Review their publication rights before adding them. No project licence has yet been selected; a public repository is not itself a licence grant.
+
+
+### Licensce
+
+Source code in this repository is licensed under the Apache License 2.0 unless otherwise noted. Sample collection images, specimen records, and other third-party materials are not covered by the software license and retain their respective rights and usage restrictions.
