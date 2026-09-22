@@ -1,0 +1,116 @@
+# Testing and the behavioral baseline
+
+There are two different activities: deterministic offline regression tests and live, quota-consuming model comparisons. Neither should be mistaken for a measured accuracy benchmark without human-reviewed source readings.
+
+## Offline regression suite
+
+From the repository root:
+
+```text
+python -m pip install -r requirements-openai.txt
+python -m unittest -v test_transcribe.py
+```
+
+`requirements-openai.txt` includes the Gemini/image/timezone dependencies as well as OpenAI, enabling both real-SDK transport tests. `unittest` is in the standard library. The suite uses temporary CSVs/JPEGs, fake clients/clocks, and SDK HTTP mock transports with dummy credentials. It makes no live provider calls and does not need the production CSV, Drive mount, or `.env`.
+
+Check the final skipped count, not only `OK`. Missing SDKs cause client/transport tests to skip. Pillow is required even for the synthetic JPEG tests. Python 3.10+ is the source/dependency floor; the handoff was run on Python 3.12.14/Linux, not every supported Python/OS combination.
+
+The suite currently covers:
+
+- Credential lookup from unrelated launch directories, `.env` precedence/encodings, hidden `.txt` extensions, and provider-specific keys/endpoints.
+- Profile selection, explicit overrides, invalid settings, timezone reset boundaries, persistent attempt counts, corrupted/unwritable quota state, and daily/billing stops.
+- Species/row routing, duplicate CSV records, ambiguous directories, shared numbers, leading zeros, A/B/numeric order, missing fronts, duplicate sides, `_exchanged`, and uncatalogued handling.
+- Original image bytes, EXIF correction, optional resize, payload budget, and cache identity/invalidation.
+- Completion/refusal/token-cutoff handling, answer-vs-thought extraction, flexible back headings, multiple annotation sections, empty-note markers, LaTeX, and bounded correction retries.
+- Cache reuse, forced refresh, damaged journal recovery, checkpoint-before-report ordering, and local locks.
+- Mixed-species tests, both temperatures/model tags, repeat fresh calls despite cached production results, independent reports, custom paths, and test quota stops.
+- Actual Gemini/OpenAI SDK serialization and retry disabling through simulated HTTP transports.
+
+## Optional original-image fixture
+
+`DatasetTest.test_supplied_scans_preserve_pixels_and_pair_correctly` uses `EGG_SLIP_SAMPLE_DIR`. Without it, that test skips. The directory must contain **exactly three lowercase `.jpg` files matching `*Accipiter_gentilis*.jpg`**: E4927 plus E4268 front/back. Recognized original attachment names were:
+
+```text
+02-Accipiter_gentilis_E4927.jpg
+03-Accipiter_gentilis_E4268-A-.jpg
+04-Accipiter_gentilis_E4268-B-.jpg
+```
+
+The test also accepts their unprefixed conventional names; it copies/normalizes names inside a temporary test directory without modifying the originals. The test only checks image handling and grouping, not handwriting accuracy. These three originals were available in Work for verification but are not included in the repository handoff. The future 10–15-card curated set is a separate activity. Do not point this variable at a folder with additional matching Accipiter images; the current exact-three assertion would fail.
+
+PowerShell, with a real local directory substituted:
+
+```powershell
+$env:EGG_SLIP_SAMPLE_DIR = "PATH\TO\original-three-image-fixture"
+python -m unittest -v test_transcribe.py
+```
+
+For a portable default run without those originals, leave the variable unset and report the one expected skip. Missing sample images do not prevent repository setup or ordinary offline tests. On Windows, the specific POSIX second-lock test also skips; the Windows lock implementation must be exercised on that deployment.
+
+## Live representative-card comparisons
+
+The maintainer intends to add 10–15 hand-selected physical cards before Codex development. `tests/inputs/` is ready, with no fabricated scans. Choose real examples that exercise the existing workflow: easy fronts, faint/dense handwriting, A/B narrative backs, collection headings, corrections/stamps, grouped dimensions/ditto marks, signatures, shared E-numbers, and uncatalogued records where available. This is selection guidance, not an assertion those examples have already been committed.
+
+Keep JPG/JPEG files directly in the input directory with original names. One request contains all sides of one physical record, before any retries. There is no enforced 15-card limit. The master CSV remains required, even for `test`, but normal family/species folders are unnecessary. Unmatched numbers get a review flag; uncatalogued images get no unrelated hints.
+
+From the repository root, use the same CSV path for each comparison and override test directories explicitly when the data root is elsewhere:
+
+```text
+python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --dry-run
+python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --model gemini-3.5-flash-lite --temperature 0.1
+python transcribe.py test --csv "PATH/TO/catalog.csv" --test-input-dir tests/inputs --test-output-dir tests/outputs --model gemini-3.5-flash-lite --temperature 1.0
+```
+
+Replace the placeholder CSV path. Only the first command is offline. Review its card count/order before launching paid/quota-consuming runs. Substitute another configured model for the next comparison. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `test` at its prompt. Each launch runs one combination.
+
+For the configured OpenAI starter, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. The default `TEST_TEMPERATURE` otherwise overrides the profile's omitted temperature. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
+
+A non-dry test creates the input/output directories if absent. An empty folder causes no API calls or report and returns code 1 with instructions. A dry run creates nothing, does not decode the images or test credentials, and returns code 1 if its folder is absent. Test input and output cannot be the same resolved directory. `test --console-only` is invalid.
+
+## Isolation, naming, and quota
+
+Each test starts over, never reads/writes a `Journal`, and sends its own images/prompt/relevant CSV hints. It does not use an earlier generated answer as input. This guarantees fresh application requests, not control over any provider-internal caching or determinism. `--force` is unnecessary.
+
+Example report names (illustrations, not committed outputs):
+
+```text
+test_20260922_1425_g3.5-f-l_t0.1.txt
+test_20260922_1425_2_g3.5-f-l_t0.1.txt
+test_20260922_1430_g3.8f_t1.0.txt
+test_20260922_1435_gpt-5.6-luna_tauto.txt
+```
+
+The report includes full model/provider, effective temperature, input path, and card count. It does not yet contain a complete reproducibility manifest, image hashes, per-card token costs, or every generation setting. Keep a separate comparison record of script version/commit, input hashes, CSV/hint policy, resizing, thinking/reasoning/image-detail settings, and run time. Do not put sensitive catalogue content into a public baseline without review.
+
+Daily accounting is shared with normal calls and retries. Twenty daily requests permit two temperatures on ten cards only if no retry is needed; fifteen cards at two temperatures require at least thirty requests. A stopped test retains completed output, but its next invocation starts from card one. There is no subset selector or resume within `test`; adjust the chosen input set before an authorized run when necessary, preserving the original museum scans.
+
+## Establishing a baseline before modularization
+
+1. Freeze the selected image set and relevant catalogue hints/settings for a comparison round. Record exact file hashes so later corrections are not mistaken for model changes.
+2. Finish Gemini model/temperature runs, then OpenAI comparisons. Evaluate missing lines, wrong readings/numbers, unsupported inference, side omissions, formatting, latency, and attempts. Avoid judging by tidy formatting alone.
+3. Human-review especially difficult readings. Distinguish acceptable uncertainty from an invented confident answer and from a harmless formatting variation.
+4. Retain a small reviewed reference set and representative provider responses locally or in explicitly publication-approved fixtures. No canonical gold transcriptions or scoring tool currently exists.
+5. Before moving domain code, capture deterministic expectations for grouping, prompt strings, ordered image bytes/labels, cache keys, validation, and rendered output. Existing mocks are useful; reviewed sample responses would strengthen them.
+6. During extraction, replay the same provider responses offline and compare those artifacts exactly where behavior is intended to be identical. Do not depend solely on new live calls: nondeterministic output could hide a code regression or falsely suggest one.
+7. After structural equivalence, use the same curated samples for authorized live spot comparisons if needed. Keep prompt tuning separate from architectural changes.
+
+Raw reports remain ignored in `tests/outputs/`. A future reviewed baseline should be deliberately selected and documented, not created by committing every run. Ordinary text differences are not a reliable accuracy metric without aligned, human-reviewed references.
+
+## Regression focus after changes
+
+| Changed area | Required attention |
+| --- | --- |
+| Filename/CSV parsing or discovery | Exact-number matching, shared slips, zeros, case, suffixes, ambiguity, duplicate routing, unmatched/uncatalogued scopes. |
+| Grouping or image loading | Physical-card boundaries, all sides and order, front-only/back-only/gaps, bytes/EXIF/resize, no source mutations. |
+| Prompts or validation | Historical wording policy, section rules, substantive unexpected text, notes/brackets, LaTeX, bounded correction, intentional cache invalidation. |
+| Output/journal handling | Banners/order/spacing/status, collision safety, fsync ordering, interrupted writes, reuse/failure semantics. |
+| Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
+| Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
+
+## Handoff verification record — 22 September 2026
+
+The authoritative Work implementation was overlaid onto a checkout of the older public repository. Before documentation changes, **115 tests passed with zero skips**. The post-documentation verification repeats the same suite; its final result is recorded in [PROJECT_HANDOFF.md](../PROJECT_HANDOFF.md#current-state-and-verification).
+
+Environment: Python 3.12.14/Linux; google-genai 2.23.0, Pillow 12.3.0, tzdata 2026.3, openai 3.16.2; HTTPX 0.28.1 available to transport tests. Both SDKs and the three original Accipiter images were available. Dependency pins derive from that inspected environment. The whole master CSV, Windows/Drive deployment, current key validity, live model output, actual limits, and comparative transcription accuracy were not exercised. No live API calls were made.
+
+Production and test Python files are unchanged by this documentation task. An offline pass validates software behavior under its fixtures, not a claim of 99% reading accuracy or proof a newer model is better.

@@ -1,8 +1,9 @@
-"""Egg-slip transcription, revised 2026-09-18. Python 3.10+.
+"""Egg-slip transcription, revised 2026-09-21. Python 3.10+.
 
 Run normally for the original interactive prompt, or use --help for options.
-Dependencies: python -m pip install --upgrade google-genai Pillow
-API key: GEMINI_API_KEY / GOOGLE_API_KEY in .env or the environment.
+Gemini: python -m pip install --upgrade google-genai Pillow tzdata
+OpenAI (optional): python -m pip install --upgrade openai Pillow tzdata
+Keys: GEMINI_API_KEY or OPENAI_API_KEY in .env beside this script.
 Use --check-config for local key lookup, or --prompt-key to enter a key manually.
 The CSV and source photographs are read only. No API calls occur on import.
 """
@@ -10,6 +11,7 @@ The CSV and source photographs are read only. No API calls occur on import.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import getpass
 import hashlib
@@ -27,26 +29,65 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-# --- 1. Settings: existing paths, model, and temperature retained ---
-SCRIPT_VERSION = "2026-09-18.1"
+# --- 1. Settings: change MODEL to select ALL of that model's settings ---
+SCRIPT_VERSION = "2026-09-21.1"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
-MODEL = "gemini-3.5-flash-lite"
-TEMPERATURE = 0.1
-REQUESTS_PER_MINUTE = 15       # A pacing setting, not a claim about your quota.
-MAX_ATTEMPTS = 5              # Total attempts per card, including the first.
-TIMEOUT_SECONDS = 180
+MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
+
+
+@dataclass(frozen=True)
+class ModelProfile:
+    provider: str              # "gemini" or "openai"; selects client and API key.
+    rpm: float
+    rpd: int | None            # Local daily attempt cap; None disables the cap.
+    timeout: float = 180       # Seconds per request (not per entire batch).
+    attempts: int = 5          # Total attempts per card, including the first.
+    temperature: float | None = 0.1  # None = omit; useful for reasoning models.
+    max_output_tokens: int = 16384
+    retry_base: float = 5      # Exponential backoff base, in seconds.
+    max_retry_wait: float = 120  # Longer server delays pause the run instead.
+    thinking_level: str | None = None  # Gemini: None leaves the model default.
+    media_resolution: str | None = None  # Gemini: None, "low", "medium", "high".
+    reasoning_effort: str | None = None  # OpenAI: None leaves the model default.
+    image_detail: str = "original"      # OpenAI image setting.
+    quota_timezone: str = "America/Los_Angeles"
+    thinking_levels: tuple[str, ...] = ("minimal", "low", "medium", "high")
+
+
+# Gemini caps below are YOUR supplied allowances, not universal provider limits.
+# Copy an entry to add another model, using its exact API model ID as the key.
+# Optional generation settings belong in that entry; unrelated settings are not
+# sent to the other provider. No model/provider is ever substituted on failure.
+MODEL_PROFILES = {
+    "gemini-3.5-flash-lite": ModelProfile("gemini", rpm=15, rpd=500),
+    "gemini-3.6-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
+                                      attempts=3, retry_base=15),
+    "gemini-3.8-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
+                                      attempts=3, retry_base=15,
+                                      thinking_levels=("low", "medium", "high")),
+    # Optional OpenAI starter: these are conservative TEST caps, not your quota.
+    # Add OPENAI_API_KEY to .env and install openai before selecting this model.
+    "gpt-5.6-luna": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
+                                  attempts=3, temperature=None, retry_base=15,
+                                  quota_timezone="UTC"),
+}
+
+# Daily counts cover all targets/restarts using this script and this state file.
+# Keep this file when updating the script. No credentials or image data go in it.
+REQUEST_USAGE_FILE = Path(__file__).resolve().with_name("transcribe_request_usage.json")
 MAX_IMAGE_EDGE = 0            # 0 = original resolution; 2000 restores old cap.
-MAX_OUTPUT_TOKENS = 16384
 MAX_INLINE_REQUEST_BYTES = 19_000_000  # Leave room below the 20 MB API limit.
 CACHE_VERSION = 1
 
 
 # --- API key lookup: independent of the directory VS Code launches from ---
 API_KEY_NAMES = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
-DOTENV_KEY_NAMES = (*API_KEY_NAMES, "API_KEY")
+DOTENV_KEY_NAMES = (*API_KEY_NAMES, "API_KEY", "OPENAI_API_KEY")
 
 
 def dotenv_api_keys(path: Path) -> dict[str, str]:
@@ -59,7 +100,7 @@ def dotenv_api_keys(path: Path) -> dict[str, str]:
         raise ValueError(f"Cannot read {path}; save it as UTF-8 text.") from None
     values = {}
     for number, line in enumerate(lines, start=1):
-        match = re.fullmatch(r"[ \t]*(?:export[ \t]+)?(GEMINI_API_KEY|GOOGLE_API_KEY|API_KEY)[ \t]*=[ \t]*(.*)", line)
+        match = re.fullmatch(r"[ \t]*(?:export[ \t]+)?(GEMINI_API_KEY|GOOGLE_API_KEY|API_KEY|OPENAI_API_KEY)[ \t]*=[ \t]*(.*)", line)
         if not match:
             continue
         name, value = match.groups()
@@ -87,6 +128,9 @@ def dotenv_api_keys(path: Path) -> dict[str, str]:
 
 def load_api_key(args) -> str:
     """Prefer the intended .env over stale process variables; never print a key."""
+    names = (*API_KEY_NAMES, "API_KEY") if args.provider == "gemini" else ("OPENAI_API_KEY",)
+    environment_names = API_KEY_NAMES if args.provider == "gemini" else ("OPENAI_API_KEY",)
+    key_hint = names[0] + "=your_actual_key"
     if args.env_file:
         paths = [Path(args.env_file).expanduser().resolve()]
         if not paths[0].is_file():
@@ -104,13 +148,18 @@ def load_api_key(args) -> str:
                 raise ValueError(f"Found {mistaken_path}, but expected {path}. Rename the file to .env, not .env.txt.")
             continue
         values = dotenv_api_keys(path)
-        for name in DOTENV_KEY_NAMES:
+        for name in names:
             if values.get(name):
                 print(f"API key loaded from {path} ({name}).")
                 return values[name]
-        raise ValueError(f"Found {path}, but it contains no usable API key. "
-                         "Use GEMINI_API_KEY=your_actual_key on one line (GOOGLE_API_KEY or API_KEY also works).")
-    for name in API_KEY_NAMES:
+        # A file with just the other provider's valid key may coexist with this
+        # provider's process variable. An explicit empty/wrong file still errors.
+        other_names = set(DOTENV_KEY_NAMES) - set(names)
+        if not any(name in values for name in names) and any(values.get(name) for name in other_names):
+            continue
+        raise ValueError(f"Found {path}, but it contains no usable API key for {args.provider}. "
+                         f"Use {key_hint} on one line.")
+    for name in environment_names:
         key = os.environ.get(name, "").strip()
         if key:
             print(f"API key loaded from environment variable {name}.")
@@ -118,7 +167,7 @@ def load_api_key(args) -> str:
     print("No API key found. Checked these paths:")
     for path in paths:
         print(f"  {path}")
-    print("Put GEMINI_API_KEY=your_actual_key in .env beside this script. "
+    print(f"Put {key_hint} in .env beside this script. "
           "The filename must be .env, not .env.txt. Use --env-file for another location.")
     return ""
 
@@ -533,10 +582,22 @@ def prepare_image(path: Path, max_edge: int) -> bytes:
 
 
 def generation_config(args) -> dict:
-    config = {"temperature": args.temperature, "max_output_tokens": args.max_output_tokens,
+    if args.provider == "openai":
+        config = {"max_output_tokens": args.max_output_tokens, "store": False,
+                  "text": {"format": {"type": "text"}}}
+        if args.temperature is not None:
+            config["temperature"] = args.temperature
+        if args.reasoning_effort:
+            config["reasoning"] = {"effort": args.reasoning_effort}
+        return config
+    config = {"max_output_tokens": args.max_output_tokens,
               "response_mime_type": "text/plain", "automatic_function_calling": {"disable": True}}
+    if args.temperature is not None:
+        config["temperature"] = args.temperature
     if args.media_resolution:
         config["media_resolution"] = "MEDIA_RESOLUTION_" + args.media_resolution.upper()
+    if args.thinking_level:
+        config["thinking_config"] = {"thinking_level": args.thinking_level.upper()}
     return config
 
 
@@ -544,6 +605,10 @@ def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
     config = generation_config(args)
     manifest = {"cache_version": CACHE_VERSION, "model": args.model, "config": config,
                 "prompt": prompt, "max_edge": args.max_edge, "images": []}
+    # Gemini was the original provider. Keep its manifest identical so changes
+    # to pacing alone never invalidate existing successful transcriptions.
+    if args.provider != "gemini":
+        manifest.update(provider=args.provider, image_detail=args.image_detail)
     parts: list[dict] = [{"text": prompt}]
     request_size = len(prompt.encode("utf-8")) + 4096
     for path, section in zip(card.paths, card.sections):
@@ -568,9 +633,90 @@ class RateLimiter:
         self.next_start = 0.0
 
     def wait(self):
+        if self.next_start - self.clock() >= 1:
+            print(f"    Request pacing: waiting {self.next_start - self.clock():.1f}s.")
         while self.clock() < self.next_start:
             self.sleep(self.next_start - self.clock())
         self.next_start = self.clock() + self.interval
+
+
+class QuotaReached(Exception):
+    """A normal resumable stop, not a failed transcription or an overnight wait."""
+
+
+class DailyQuota:
+    """Local conservative attempt counts, shared by targets, keys and restarts.
+
+    The provider's project usage can also include other programs. Every attempted
+    request is reserved before sending, including retries and interrupted calls.
+    A short OS lock plus atomic replacement prevents concurrent counter updates
+    from being lost. RPM pacing remains per process; run one batch at a time.
+    """
+    def __init__(self, args, now=None):
+        self.path = Path(args.quota_file).expanduser().resolve()
+        self.key = args.provider + "/" + args.model
+        self.limit = args.rpd
+        self.timezone = args.quota_timezone
+        self.now = now or (lambda: datetime.now(timezone.utc))
+
+    def day(self) -> str:
+        try:
+            zone = ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError:
+            raise RuntimeError(f"Daily quota timezone {self.timezone!r} is unavailable. "
+                               "Check quota_timezone in the profile; on Windows install timezone data with: "
+                               "python -m pip install --upgrade tzdata") from None
+        return self.now().astimezone(zone).date().isoformat()
+
+    def _read(self) -> dict:
+        if not self.path.exists():
+            return {"version": 1, "models": {}}
+        try:
+            state = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(state, dict) or state.get("version") != 1 or not isinstance(state.get("models"), dict):
+                raise ValueError("Invalid counter format")
+            for entry in state["models"].values():
+                if (not isinstance(entry, dict) or not isinstance(entry.get("date"), str)
+                        or type(entry.get("attempts")) is not int or entry["attempts"] < 0
+                        or type(entry.get("exhausted")) is not bool):
+                    raise ValueError("Invalid daily count")
+                datetime.strptime(entry["date"], "%Y-%m-%d")
+            return state
+        except (ValueError, UnicodeError):
+            raise RuntimeError(f"Daily usage file is damaged: {self.path}. "
+                               "No request was sent; restore the counter before continuing.") from None
+
+    def _write(self, state: dict):
+        temp_path = self.path.with_name(self.path.name + ".tmp")
+        try:
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(state, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, self.path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def update(self, *, exhaust=False) -> int:
+        with species_lock(self.path.with_name(self.path.name + ".lock")):
+            day = self.day()
+            state = self._read()
+            entry = state["models"].get(self.key)
+            if entry is None or entry["date"] != day:
+                entry = {"date": day, "attempts": 0, "exhausted": False}
+            if exhaust:
+                entry["exhausted"] = True
+            else:
+                if entry["exhausted"] or (self.limit is not None and entry["attempts"] >= self.limit):
+                    source = "The API reported a daily quota limit" if entry["exhausted"] else "The local daily attempt cap was reached"
+                    raise QuotaReached(f"{source} for {self.key} ({entry['attempts']} local attempt(s) today). "
+                                       f"Run the same target after midnight in {self.timezone} to resume. "
+                                       "Previously saved cards can be reused; no overnight wait or extra request was made.")
+                entry["attempts"] += 1
+            state["models"][self.key] = entry
+            self._write(state)
+            return entry["attempts"]
 
 
 def enum_value(value: Any) -> str:
@@ -593,6 +739,8 @@ def is_transient(exc: Exception) -> bool:
         return code in {408, 429, 500, 502, 503, 504}
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return True
+    if type(exc).__name__ in {"APIConnectionError", "APITimeoutError"}:
+        return True  # OpenAI wraps its httpx transport errors.
     # httpx is a google-genai dependency, but --dry-run and tests need neither.
     try:
         import httpx
@@ -601,6 +749,22 @@ def is_transient(exc: Exception) -> bool:
     except ImportError:
         pass
     return getattr(exc, "winerror", None) in {10053, 10054, 10060}
+
+
+def quota_error_kind(exc: Exception, provider: str = "gemini") -> str | None:
+    if error_code(exc) != 429:
+        return None
+    payload = (getattr(exc, "response_json", None) or getattr(exc, "body", None)
+               or getattr(exc, "details", None) or {})
+    description = json.dumps(payload, default=str).lower() + " " + str(exc).lower()
+    if "insufficient_quota" in description or "billing_hard_limit_reached" in description:
+        return "billing"
+    body = payload.get("error", payload) if isinstance(payload, dict) else {}
+    if provider == "gemini" and isinstance(body, dict) and body.get("code") == "quota_exceeded":
+        return "daily"
+    if re.search(r"per[ _-]?day(?:\b|[ _-]|per)|requests/day|daily[ _-](?:quota|limit)", description):
+        return "daily"
+    return None
 
 
 def retry_delay(exc: Exception) -> float:
@@ -761,11 +925,64 @@ def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
     return text, warnings, usage
 
 
+def openai_input(contents: list, detail: str) -> list:
+    """Translate the same labelled images/prompt without reordering either side."""
+    messages = []
+    for message in contents:
+        parts = []
+        for part in message["parts"]:
+            if "text" in part:
+                parts.append({"type": "input_text", "text": part["text"]})
+            else:
+                inline = part["inline_data"]
+                encoded = base64.b64encode(inline["data"]).decode("ascii")
+                parts.append({"type": "input_image", "detail": detail,
+                              "image_url": f"data:{inline['mime_type']};base64,{encoded}"})
+        messages.append({"role": message["role"], "content": parts})
+    return messages
+
+
+def normalize_openai_response(response):
+    """Give both providers identical completeness/format checks and usage fields."""
+    answer_parts, refused = [], False
+    for item in getattr(response, "output", None) or []:
+        if getattr(item, "type", None) != "message":
+            continue  # Never include reasoning summaries in the transcription.
+        for part in getattr(item, "content", None) or []:
+            if getattr(part, "type", None) == "output_text":
+                answer_parts.append(getattr(part, "text", "") or "")
+            elif getattr(part, "type", None) == "refusal":
+                refused = True
+    text = "\n".join(answer_parts).strip()
+    if refused:
+        raise ResponseProblem("OpenAI declined the request.", text)
+    status = getattr(response, "status", None)
+    if status != "completed":
+        reason = getattr(getattr(response, "incomplete_details", None), "reason", None)
+        if reason == "max_output_tokens":
+            raise ResponseProblem("Response hit the output token limit; rerun with a higher --max-output-tokens.", text)
+        raise ResponseProblem(f"OpenAI response did not complete: {status or 'missing status'}"
+                              + (f" ({reason})." if reason else "."), text)
+    usage = getattr(response, "usage", None)
+    output_tokens = getattr(usage, "output_tokens", None)
+    thoughts = getattr(getattr(usage, "output_tokens_details", None), "reasoning_tokens", None)
+    return SimpleNamespace(
+        candidates=[SimpleNamespace(finish_reason="STOP", content=SimpleNamespace(
+            parts=[SimpleNamespace(text=text, thought=False)]))],
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=getattr(usage, "input_tokens", None),
+            candidates_token_count=output_tokens - (thoughts or 0) if output_tokens is not None else None,
+            thoughts_token_count=thoughts,
+            total_token_count=getattr(usage, "total_tokens", None)),
+        model_version=getattr(response, "model", None))
+
+
 class Transcriber:
     def __init__(self, args, client=None, clock=time.monotonic, sleep=time.sleep):
         self.args, self.client = args, client
         self.sleep = sleep
         self.limiter = RateLimiter(args.rpm, clock, sleep)
+        self.quota = DailyQuota(args)
         self.requests = 0
         self.secret = ""
 
@@ -773,29 +990,38 @@ class Transcriber:
         if self.client is not None:
             return
         try:
-            from google import genai
+            if self.args.provider == "gemini":
+                from google import genai
+            else:
+                import openai
         except ImportError as exc:
-            raise RuntimeError("Install dependencies: python -m pip install --upgrade google-genai Pillow") from exc
+            package = "google-genai" if self.args.provider == "gemini" else "openai"
+            raise RuntimeError(f"Install dependencies: python -m pip install --upgrade {package} Pillow tzdata") from exc
         try:
             self.secret = load_api_key(self.args)
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"API key setup error: {exc}") from exc
         if not self.secret and self.args.prompt_key:
-            self.secret = getpass.getpass("Gemini API key (hidden; not saved): ").strip()
+            self.secret = getpass.getpass(f"{self.args.provider.capitalize()} API key (hidden; not saved): ").strip()
         if not self.secret:
             raise RuntimeError("No API key loaded. Correct the .env file shown above, "
                                "or use --prompt-key if you want to enter it manually.")
-        print(f"Gemini Developer API; google-genai {getattr(genai, '__version__', 'unknown version')}.")
         try:
-            # Keep unrelated SDK backend/base-URL variables from changing this client.
-            self.client = genai.Client(vertexai=False, api_key=self.secret, http_options={
-                "base_url": "https://generativelanguage.googleapis.com/",
-                "api_version": "v1beta",
-                "timeout": int(self.args.timeout * 1000),
-                "retry_options": {"attempts": 1},  # This script paces EVERY retry itself.
-            })
+            if self.args.provider == "gemini":
+                print(f"Gemini Developer API; google-genai {getattr(genai, '__version__', 'unknown version')}.")
+                # Keep unrelated SDK backend/base-URL variables from changing this client.
+                self.client = genai.Client(vertexai=False, api_key=self.secret, http_options={
+                    "base_url": "https://generativelanguage.googleapis.com/",
+                    "api_version": "v1beta",
+                    "timeout": int(self.args.timeout * 1000),
+                    "retry_options": {"attempts": 1},  # Script paces/counts EVERY retry.
+                })
+            else:
+                print(f"OpenAI Responses API; openai {getattr(openai, '__version__', 'unknown version')}.")
+                self.client = openai.OpenAI(api_key=self.secret, base_url="https://api.openai.com/v1",
+                                            timeout=self.args.timeout, max_retries=0)
         except (TypeError, ValueError) as exc:
-            raise RuntimeError("Cannot initialize Gemini; check the SDK installation and settings. "
+            raise RuntimeError(f"Cannot initialize {self.args.provider}; check the SDK installation and settings. "
                                + self.clean_error(exc)) from exc
 
     def clean_error(self, exc: Exception) -> str:
@@ -811,12 +1037,27 @@ class Transcriber:
         request_contents = contents
         for attempt in range(1, self.args.attempts + 1):
             self.limiter.wait()
+            try:
+                daily_count = self.quota.update()
+            except QuotaReached as exc:
+                return {"status": "paused", "error": str(exc), "text": partial, "fatal": True,
+                        "stop_reason": str(exc), "attempts": attempt - 1}
+            except (OSError, RuntimeError) as exc:
+                raise RuntimeError(f"Could not record daily usage; no API request was sent. {exc}") from exc
             self.requests += 1
+            cap = str(self.args.rpd) if self.args.rpd is not None else "uncapped"
+            print(f"    API request {attempt}/{self.args.attempts}; local daily use {daily_count}/{cap}; "
+                  f"timeout {self.args.timeout:g}s.")
             service_failure = False
             format_retry = False
             try:
-                response = self.client.models.generate_content(
-                    model=self.args.model, contents=request_contents, config=generation_config(self.args))
+                if self.args.provider == "gemini":
+                    response = self.client.models.generate_content(
+                        model=self.args.model, contents=request_contents, config=generation_config(self.args))
+                else:
+                    response = normalize_openai_response(self.client.responses.create(
+                        model=self.args.model, input=openai_input(request_contents, self.args.image_detail),
+                        **generation_config(self.args)))
                 text, warnings, usage = validate_response(response, card)
                 return {"status": "review" if warnings else "ok", "text": text,
                         "warnings": warnings, "usage": usage, "attempts": attempt,
@@ -836,26 +1077,46 @@ class Transcriber:
             except Exception as exc:
                 message = self.clean_error(exc)
                 code = error_code(exc)
+                quota_kind = quota_error_kind(exc, self.args.provider)
+                if quota_kind:
+                    if quota_kind == "daily":
+                        self.quota.update(exhaust=True)
+                        reason = ("The API reported exhausted daily quota. Local counts cannot see requests "
+                                  f"from other programs. Resume after midnight in {self.args.quota_timezone}.")
+                    else:
+                        reason = "The API reported exhausted billing/credit quota. Check billing before resuming."
+                    return {"status": "paused", "error": message, "text": partial, "fatal": True,
+                            "stop_reason": reason, "attempts": attempt}
                 # Authentication/model/config errors affect the entire run.
-                if code in {400, 401, 403, 404}:
+                if code in {400, 401, 402, 403, 404}:
                     reason = "API authentication/model/configuration error affects the run."
-                    if code == 401:
+                    if code == 401 and self.args.provider == "gemini":
                         reason = ("Google rejected the loaded credential (HTTP 401). Verify the full key "
                                   "and its Key Type in Google AI Studio. Google's September 2026 migration "
                                   "requires an Auth key; changing local .env lookup cannot repair a rejected key.")
                     elif code == 404:
-                        reason = (f"Google returned HTTP 404 for {self.args.model}. Check the model ID "
+                        reason = (f"{self.args.provider} returned HTTP 404 for {self.args.model}. Check the model ID "
                                   "and its availability to your project; the model was not changed automatically.")
                     return {"status": "failed", "error": message, "text": partial,
                             "fatal": True, "stop_reason": reason,
                             "attempts": attempt}
                 retry = is_transient(exc)
                 service_failure = retry
-                delay = max(retry_delay(exc), min(60.0, 5.0 * 2 ** (attempt - 1))) + random.uniform(0, 1)
+                hint = retry_delay(exc)
+                if retry and hint > self.args.max_retry_wait:
+                    reason = (f"The server requested a {hint:g}s wait, beyond the {self.args.max_retry_wait:g}s "
+                              "retry-wait limit. Resume later; the wait was not shortened.")
+                    return {"status": "paused", "error": message, "text": partial, "fatal": True,
+                            "stop_reason": reason, "attempts": attempt}
+                delay = max(hint, 60.0 if code == 429 else 0.0,
+                            min(60.0, self.args.retry_base * 2 ** min(attempt - 1, 10)))
+                delay += random.uniform(0, 1)
+                delay = min(delay, self.args.max_retry_wait)  # Also bounds jitter.
             if not retry or attempt == self.args.attempts:
                 result = {"status": "failed", "error": message, "text": partial, "attempts": attempt}
                 if service_failure:
                     result.update(fatal=True, stop_reason="Repeated rate-limit/network/server errors. "
+                                  "HTTP 503 means service unavailable; it does not prove a quota limit. "
                                   "Restart the same target to resume after the service or quota recovers.")
                 return result
             if format_retry:
@@ -890,7 +1151,7 @@ def species_lock(path: Path):
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise RuntimeError(f"Cannot lock {path.name}; another run may be using this species.") from exc
+            raise RuntimeError(f"Cannot lock {path.name}; another run may be using it.") from exc
         try:
             yield
         finally:
@@ -977,6 +1238,8 @@ def output_block(card: Card, result: dict, cached: bool = False) -> str:
         lines.append("=" * 22 + label + "=" * max(2, 50 - 22 - len(label)))
     lines.extend([f"ID: {card.base_id}", f"STATUS: {result['status'].upper()}" + (" (reused)" if cached else ""),
                   "FILES: " + "; ".join(path.name for path in card.paths)])
+    if result.get("model"):
+        lines.append(f"MODEL: {result.get('provider', 'gemini')} / {result['model']}")
     for warning in result.get("warnings", []):
         lines.append("REVIEW: " + warning)
     lines.append(bar)
@@ -1018,7 +1281,7 @@ def run(args, engine=None) -> int:
     include_uncatalogued = re.fullmatch(r"E\d+", target.strip().removesuffix("*").strip(), re.I) is None
     console_only = star_mode or args.console_only
     engine = engine or Transcriber(args)
-    totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "discovery_issues": 0}
+    totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0}
     selected = 0
     start = time.monotonic()
     try:
@@ -1079,8 +1342,9 @@ def run(args, engine=None) -> int:
                             result = engine.transcribe(card, contents)
                     except (OSError, ValueError) as exc:
                         result = {"status": "failed", "error": f"Local error: {exc}", "text": ""}
-                    if result["status"] == "failed":
-                        totals["failed"] += 1
+                    result = {**result, "provider": args.provider, "model": args.model}
+                    if result["status"] in {"failed", "paused"}:
+                        totals[result["status"]] += 1
                     else:
                         totals["reused" if reused else "fresh"] += 1
                         if result["status"] == "review":
@@ -1116,7 +1380,7 @@ def run(args, engine=None) -> int:
               f"{totals['failed']} failed; {engine.requests} API attempt(s).")
     if totals["discovery_issues"]:
         print(f"File/routing issues: {totals['discovery_issues']}; see messages above.")
-    return 1 if totals["failed"] or totals["discovery_issues"] else 0
+    return 1 if totals["failed"] or totals["paused"] or totals["discovery_issues"] else 0
 
 
 # --- 9. Command-line options; original interactive launch still works ---
@@ -1129,28 +1393,69 @@ def parse_args(argv=None):
     parser.add_argument("--env-file", help="Explicit .env path; otherwise checks script/project folders, then current directory")
     parser.add_argument("--prompt-key", action="store_true", help="Allow manual key entry if no .env or process key is found")
     parser.add_argument("--check-config", action="store_true", help="Show running version/path and check key lookup; no API requests or CSV/image reads")
-    parser.add_argument("--model", default=MODEL)
-    parser.add_argument("--temperature", type=float, default=TEMPERATURE)
-    parser.add_argument("--rpm", type=float, default=REQUESTS_PER_MINUTE)
-    parser.add_argument("--attempts", type=int, default=MAX_ATTEMPTS)
-    parser.add_argument("--timeout", type=float, default=TIMEOUT_SECONDS, help="Request timeout in seconds")
+    parser.add_argument("--model", default=MODEL, help="Model ID in MODEL_PROFILES; selects its provider and defaults")
+    parser.add_argument("--list-models", action="store_true", help="List configured profiles; no keys, files or API calls")
+    parser.add_argument("--temperature", type=lambda value: None if value.lower() == "auto" else float(value),
+                        default=argparse.SUPPRESS, help="Override profile temperature; auto omits it")
+    parser.add_argument("--rpm", type=float, default=argparse.SUPPRESS, help="Override profile requests per minute")
+    parser.add_argument("--rpd", type=int, default=argparse.SUPPRESS, help="Override local daily attempt cap; 0 disables cap")
+    parser.add_argument("--quota-file", default=str(REQUEST_USAGE_FILE), help="Persistent daily request counter path")
+    parser.add_argument("--attempts", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--timeout", type=float, default=argparse.SUPPRESS, help="Request timeout in seconds")
+    parser.add_argument("--max-retry-wait", type=float, default=argparse.SUPPRESS,
+                        help="Pause instead of sleeping longer than this many seconds for a retry")
     parser.add_argument("--max-edge", type=int, default=MAX_IMAGE_EDGE, help="Longest image edge; 0 keeps original pixels")
-    parser.add_argument("--max-output-tokens", type=int, default=MAX_OUTPUT_TOKENS)
-    parser.add_argument("--media-resolution", choices=["low", "medium", "high"], help="Optional model setting; default leaves it unset")
+    parser.add_argument("--max-output-tokens", type=int, default=argparse.SUPPRESS)
+    parser.add_argument("--media-resolution", choices=["auto", "low", "medium", "high"],
+                        default=argparse.SUPPRESS, help="Gemini only; auto leaves it unset")
+    parser.add_argument("--thinking-level", choices=["auto", "minimal", "low", "medium", "high"],
+                        default=argparse.SUPPRESS, help="Gemini only; auto uses model default")
+    parser.add_argument("--reasoning-effort", choices=["auto", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+                        default=argparse.SUPPRESS, help="OpenAI only; supported values vary by model")
+    parser.add_argument("--image-detail", choices=["auto", "low", "high", "original"],
+                        default=argparse.SUPPRESS, help="OpenAI only; supported values vary by model")
     parser.add_argument("--no-csv-hints", action="store_true", help="Transcribe without collector/location/taxonomy hints")
     parser.add_argument("--force", action="store_true", help="Request fresh transcriptions even when completed results are cached")
-    parser.add_argument("--console-only", action="store_true", help="Fresh console output for any target; no output/cache files")
+    parser.add_argument("--console-only", action="store_true", help="Fresh console output; no reports/cache, daily count still saved")
     parser.add_argument("--dry-run", action="store_true", help="List matched cards and image order; no API calls or files")
     args = parser.parse_args(argv)
-    for label, value in (("rpm", args.rpm), ("timeout", args.timeout), ("temperature", args.temperature)):
-        if not math.isfinite(value):
+    if args.list_models:
+        return args
+    args.model = args.model.strip()
+    profile = MODEL_PROFILES.get(args.model)
+    if profile is None:
+        parser.error(f"No profile for {args.model!r}. Add its exact model ID, provider, RPM and RPD "
+                     "to MODEL_PROFILES in the settings section. Use --list-models to see configured models.")
+    explicit = set(vars(args))
+    for name, value in vars(profile).items():
+        if not hasattr(args, name):
+            setattr(args, name, value)
+    for name in ("media_resolution", "thinking_level", "reasoning_effort"):
+        if getattr(args, name) == "auto":
+            setattr(args, name, None)
+    if args.rpd == 0:
+        args.rpd = None
+    for label, value in (("rpm", args.rpm), ("timeout", args.timeout), ("temperature", args.temperature),
+                         ("max-retry-wait", args.max_retry_wait), ("retry_base", args.retry_base)):
+        if value is not None and not math.isfinite(value):
             parser.error(f"--{label} must be finite.")
     if args.rpm <= 0 or args.timeout <= 0 or args.attempts < 1 or args.max_output_tokens < 1 or args.max_edge < 0:
         parser.error("RPM, timeout, attempts and output tokens must be positive; max-edge must be >= 0.")
-    if not 0 <= args.temperature <= 2:
+    if args.temperature is not None and not 0 <= args.temperature <= 2:
         parser.error("Temperature must be between 0 and 2.")
-    if not args.model.strip():
-        parser.error("Model name must not be empty.")
+    if args.rpd is not None and (type(args.rpd) is not int or args.rpd < 1):
+        parser.error("RPD must be a positive integer, or 0/None to disable the local cap.")
+    if args.retry_base <= 0 or args.max_retry_wait < 60:
+        parser.error("retry_base must be positive; --max-retry-wait must be at least 60 seconds.")
+    if args.provider not in {"gemini", "openai"}:
+        parser.error("ModelProfile.provider must be gemini or openai.")
+    if args.provider == "gemini":
+        if args.reasoning_effort is not None or "image_detail" in explicit:
+            parser.error("--reasoning-effort and --image-detail are OpenAI settings.")
+        if args.thinking_level and args.thinking_level not in args.thinking_levels:
+            parser.error(f"{args.model} thinking levels: {', '.join(args.thinking_levels)} (or auto).")
+    elif args.thinking_level is not None or args.media_resolution is not None:
+        parser.error("--thinking-level and --media-resolution are Gemini settings.")
     return args
 
 
@@ -1161,10 +1466,20 @@ def main(argv=None) -> int:
     try:
         args = parse_args(argv)
         print(f"Egg-slip transcriber {SCRIPT_VERSION}\nScript: {Path(__file__).resolve()}\nPython: {sys.executable}")
+        if args.list_models:
+            for model, profile in MODEL_PROFILES.items():
+                print(f"{model}: {profile.provider}; {profile.rpm:g} RPM; "
+                      f"{profile.rpd if profile.rpd is not None else 'uncapped'} local RPD; "
+                      f"timeout {profile.timeout:g}s; {profile.attempts} attempts/card")
+            return 0
+        print(f"Model: {args.model} ({args.provider}); {args.rpm:g} RPM; "
+              f"{args.rpd if args.rpd is not None else 'uncapped'} local RPD; "
+              f"timeout {args.timeout:g}s; {args.attempts} attempts/card.")
+        print(f"Daily usage file: {Path(args.quota_file).expanduser().resolve()}")
         if args.check_config:
             if not load_api_key(args):
                 raise RuntimeError("Local key lookup failed; no API request was sent.")
-            print("Local key lookup succeeded. No API request was sent; Google has not validated the key.")
+            print("Local key lookup succeeded. No API request was sent; the provider has not validated the key.")
             return 0
         return run(args)
     except KeyboardInterrupt:

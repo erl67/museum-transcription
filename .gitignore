@@ -1,6 +1,49 @@
-docs/desktop.ini
-sample_inputs/desktop.ini
-sample_outputs/desktop.ini
-tests/desktop.ini
+# Credentials and local configuration
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python environments and temporary files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.tmp
+*.log
 desktop.ini
+Desktop.ini
+Thumbs.db
+.DS_Store
+
+# Local collection data: do not add a whole Drive tree to this repository.
+/Family/
+/data/
+/private/
+/sample_inputs/
+/sample_outputs/
+*.csv
+*.xlsx
+*.xls
+*.[jJ][pP][gG]
+*.[jJ][pP][eE][gG]
+*.[tT][iI][fF]
+*.[tT][iI][fF][fF]
+*.[pP][nN][gG]
+*.[pP][dD][fF]
+
+# Only hand-selected, publication-reviewed test JPEGs are eligible scans.
+!/tests/inputs/*.[jJ][pP][gG]
+!/tests/inputs/*.[jJ][pP][eE][gG]
+
+# Generated transcriptions, journals, coordination files, and daily counters
+*_transcriptions_*.txt
+*_transcriptions_cache.jsonl
+*_transcriptions.lock
+transcribe_request_usage.json
+transcribe_request_usage.json.*
+/tests/outputs/*
+!/tests/outputs/README.md
