@@ -1,6 +1,6 @@
 # Museum Transcription
 
-AI-assisted transcription of historical museum egg-collection slips. The current application reads JPEG scans, groups the sides of each physical slip, matches catalogue references from a CSV, and produces readable UTF-8 plain-text transcriptions with source filenames and review flags.
+Large language model-assisted transcription of historical museum egg-collection slips. The current application reads JPEG scans, groups the sides of each physical slip, matches catalogue references from a CSV, and produces readable UTF-8 plain-text transcriptions with source filenames and review flags.
 
 This project grew out of a natural-history collection workflow involving roughly 10,000 slips and 12,000 images. Vision models do the reading; Python handles selection, image order, requests, validation, progress, and output. The output uses the fields actually printed on each card, not a fixed database schema.
 
