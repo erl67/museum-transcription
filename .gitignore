@@ -49,3 +49,4 @@ transcribe_request_usage.json.*
 !/outputs/README.md
 /tests/outputs/*
 !/tests/outputs/README.md
+.notes.txt

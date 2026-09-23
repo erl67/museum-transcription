@@ -107,6 +107,20 @@ Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` l
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
 
+## Species routing verification - build 2026-09-23.2
+
+The trailing-period routing fix completed **125 tests: 123 passed, 2 skipped** (POSIX locking on Windows and the absent optional three-image fixture). Three new tests cover dotted CSV names and targets, unchanged source metadata, direct and genus-nested directories, and retained rejection of unsafe paths. The baseline was 122 tests with the same two skips.
+
+The real `E2573 --dry-run` resolves `Serinus_sp_E2573.jpg` successfully. Range `3207-3308 --dry-run` passes the former `Serinus_sp.` failure and discovers 100 card groups, but separately reports no matching JPEG folder for `Spinus_spinus`. No live API requests or source-data changes were made.
+
+## Prompt revision verification - build 2026-09-23.1
+
+The September 23 run completed **122 tests: 120 passed, 2 skipped** (the Windows/POSIX lock test and absent optional three-image fixture). Both SDK transports ran offline. Seven new tests cover exact CSV collector selection and normalization, disabling hints/guidance, shared and conflicting records, unmatched/uncatalogued fallbacks, prompt-driven cache identity with unchanged image parts, reviewed policy requirements, and common initial/retry side instructions.
+
+The baseline had one existing failure in the repeated-test/cache fixture. It now sets temperature explicitly and freezes time across both normal and sample runs, so the expected filenames and six-attempt counter are independent of user configuration and the real date. Production temperature and quota logic were not changed.
+
+This prompt revision intentionally changes assembled prompt bytes and corresponding cache keys. The regression suite checks integration and preserved execution behavior; it does not establish improved handwriting accuracy. The supplied comparison reports informed the instructions, but no new live responses or human-certified golden transcriptions were generated. The earlier verification records below are historical.
+
 ## Current checkout verification — build 2026-09-22.1
 
 The initial Windows checkout contained build 2026-09-21.1 and 103 tests; its documentation described later Work code that was absent. The baseline passed with two skips. After implementing the mixed-species test route and OpenAI profiles, 115 tests ran: 113 passed and two skipped (POSIX locking on Windows and the older optional three-image fixture). Both installed SDKs were tested through mocked HTTP, including each configured OpenAI model. The actual sample directory dry run found 10 cards / 18 images without changing scans or spending quota.
@@ -122,3 +136,8 @@ The authoritative Work implementation was overlaid onto a checkout of the older 
 Environment: Python 3.12.14/Linux; google-genai 2.23.0, Pillow 12.3.0, tzdata 2026.3, openai 3.16.2; HTTPX 0.28.1 available to transport tests. Both SDKs and the three original Accipiter images were available. Dependency pins derive from that inspected environment. The whole master CSV, Windows/Drive deployment, current key validity, live model output, actual limits, and comparative transcription accuracy were not exercised. No live API calls were made.
 
 Production and test Python files are unchanged by this documentation task. An offline pass validates software behavior under its fixtures, not a claim of 99% reading accuracy or proof a newer model is better.
+
+
+## Usage/header regression update - 23 September 2026
+
+Build 2026-09-23.3: `python -m unittest -v test_transcribe.py` ran **133 tests: 131 passed, 2 expected skips** (POSIX lock test on Windows; optional `EGG_SLIP_SAMPLE_DIR` fixture absent). Both installed SDK transports run against offline mocks. New coverage verifies Gemini/OpenAI token normalization, reasoning and cached-input costs, format/service retry accounting, incomplete-response usage retention, compact headers, legacy caches, zero spending on reuse, file-scoped footers, missing usage, dated pricing and long-context rates. Existing interruption coverage now verifies the partial usage footer. No live requests were made.

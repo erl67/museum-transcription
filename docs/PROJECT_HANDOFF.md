@@ -2,6 +2,34 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Usage accounting and compact headers - 23 September 2026
+
+Build **2026-09-23.3** adds the requested per-attempt tokens, paid-rate estimated USD, run totals/averages, and report footers. `token_usage.py` owns provider usage normalization, pricing and aggregation without egg-specific dependencies. `Transcriber.request` wraps the existing transports and records usage before OpenAI completion normalization or egg-slip validation; `_transcribe` retains pacing, persistent quota and retry policy. Each returned card result adds per-attempt `call_usage`, which normal journals checkpoint before report rendering. Existing final-response usage and cache identity remain compatible.
+
+Headers now order ID, status, one consolidated review line, files, model, then tokens and cost on one line. The follow-up presentation change removes the separate COST line and estimated/USD/retry labels from displayed costs, including RUN summaries; accounting is unchanged. Provider prefixes are removed from model lines. Report finalization writes usage for that file even on a handled fatal stop or keyboard interruption; console totals cover the whole invocation. Reused entries retain historical metadata and add no fresh spending. Missing usage/rates are unknown; averages disclose the complete-usage sample count. No prompts, model settings, source scans, CSV, or validation semantics were changed in this pass. This adds one concrete shared accounting boundary, not general multi-domain support.
+
+Offline baseline: **125 tests, 123 passed, 2 expected skips**. Final: **133 tests, 131 passed, 2 expected skips** (POSIX locking on Windows and absent optional sample fixture), including both SDK transports. Added coverage exercises retries, incomplete OpenAI output, cached-input discounts, reasoning, historical cache rendering, reuse spending, dated pricing and report scope; the interruption test now checks usage retention. Sandbox temporary-directory/write restrictions required elevated local offline commands. No live API calls, commit, or push occurred. Pricing assumptions and limitations are in [configuration](configuration.md#token-usage-and-estimated-cost); output conventions are in [transcription rules](transcription_rules.md#reports-and-ordering).
+
+## Species-folder punctuation fix - 23 September 2026
+
+Build **2026-09-23.2** strips trailing periods from the second scientific-name token used for folder routing, so CSV `Serinus sp.` resolves to `Serinus_sp`. CSV values and prompt hints retain their original spelling. General `safe_component` validation is unchanged; empty tokens and unsafe path characters remain errors. No source scans, CSV values, or folders were modified.
+
+Offline verification: **125 tests, 123 passed, 2 expected skips**, up from the passing 122-test baseline. The real E2573 dry run succeeds. The requested range also exposes a separate missing JPEG folder for `Spinus_spinus`; that source-layout issue remains unresolved. No API requests were made. See [routing rules](filename_rules.md) and [verification](testing.md).
+
+## Prompt module and fidelity update - 23 September 2026
+
+Build **2026-09-23.1** implements the maintainer's explicit request to revise the prompt after reviewing sample outputs and move it out of the application. This is a deliberately behavior-changing prompt revision plus a narrow module extraction, not a claim of byte-identical modularization or a general transcription backend.
+
+`egg_slip_prompt.py` now owns `BASE_PROMPT`, `COLLECTOR_PROMPTS`, `collector_instructions`, `build_prompt`, `output_requirements`, and `format_correction`. `transcribe.py` imports that module for initial requests and correction retries. Card/database models, discovery, image preparation, provider execution, validation, journals and rendering remain in the application. Type-only imports describe the existing card/database boundary without a runtime circular import or speculative interface.
+
+The shared rules address the reviewed fidelity failures, including calendar anomalies and sex symbols. The former global Brandt signature candidate is now selected by the exact CSV Collector value `Brandt, Herbert W.`. Matching ignores case/whitespace; guidance is scoped to matched catalogue records, deduplicated for repeated matching rows, and disabled with `--no-csv-hints`. Other collectors use the base prompt until reviewed instructions are configured. See [customization and intentional cache migration](transcription_rules.md#editing-the-prompt-and-collector-guidance).
+
+The full prompt already participates in cache identity, so this revision intentionally refreshes selected cards rather than reusing responses to the old prompt. Existing reports/cache entries are retained. No source scans, CSV, API settings, quota handling, validation or report conventions changed. No live calls were made; prompt quality improvements remain to be measured in an authorized comparison.
+
+Baseline: 115 tests, 112 passed, 1 failed, 2 skipped. The existing repeated-test/cache fixture assumed temperature 0.1 despite the current test setting of 1.0; after resolving that, it also exposed a real-date versus fixed-date daily-counter reset. The fixture now chooses its temperature and fixes the clock for all runs, retaining the six-attempt accounting assertion. Final: **122 tests, 120 passed, 2 expected skips** (POSIX locking on Windows and the absent optional three-image fixture), with both SDK transports exercised offline. Windows sandbox access failures required running the suite and project writes outside the sandbox.
+
+This update supersedes historical statements below that all prompt code remains in a single application module. Broader extraction still awaits a reviewed replay baseline.
+
 ## Windows implementation update — 22 September 2026
 
 Build **2026-09-22.1** implements the requested `tests` target (`test` alias retained), reading `tests/inputs` beside the script and writing one `test_TIMESTAMP_MODEL_tTEMP.txt` report in `tests/outputs` beside the script. These defaults override the older Family-relative guidance below. The real curated set is now 10 cards / 18 images. No scans or CSV were renamed or edited, including the known wollweberi/ultramarina mismatch.
@@ -72,7 +100,7 @@ This is a roadmap, not permission for an agent to start every step or launch liv
 
 ## Architecture: current execution flow
 
-There is one application module, `transcribe.py`, and one standard-library `unittest` module, `test_transcribe.py`. There is no package/domain registry, database server, UI, background worker, or concurrency pool. Numbered source comments identify nine broad sections. Imports do not call APIs; SDK/image imports are mostly delayed until needed.
+There are two application modules: `transcribe.py` and the egg-specific `egg_slip_prompt.py`, plus the standard-library `unittest` module `test_transcribe.py`. There is no package/domain registry, database server, UI, background worker, or concurrency pool. Numbered source comments identify nine broad sections. Imports do not call APIs; SDK/image imports are mostly delayed until needed.
 
 | Phase and actual symbols | Current behavior | Boundary observation |
 | --- | --- | --- |
@@ -81,7 +109,7 @@ There is one application module, `transcribe.py`, and one standard-library `unit
 | `select_targets`, `enum_species`, `species_name` | Resolve species, exact E-number, console-star, or inclusive row selection. `test` is recognized separately in `run`. | Domain selection and generic run mode are intertwined. |
 | `resolve_folders`, `child_directory` | Find exactly one JPEG directory using CSV family/species mapping and either supported layout. | Source organization policy, not engine policy. |
 | `discover_cards`, `side_number`, `Card` | Parse JPEG names; group physical slips; order/label sides; collect file warnings; append uncatalogued groups. Test mode adds unmatched-CSV warnings. | `Card.enums` and literal FRONT/BACK labels make the record object domain-specific. |
-| `build_prompt`, `output_requirements`, `BASE_PROMPT` | Assemble the SOP, actual side requirements, warnings, shared-record references, and optional separate CSV hints. | Domain policy. It knows exactly what counts as a valid egg-slip response. |
+| `egg_slip_prompt`: `build_prompt`, `output_requirements`, `format_correction`, `BASE_PROMPT`, `COLLECTOR_PROMPTS` | Assemble reading rules, collector guidance, actual side requirements, warnings, shared-record references, and optional CSV hints. | Extracted egg-slip prompt policy; structural validation remains in `transcribe.py`. |
 | `prepare_image`, `prepare_card` | Decode JPEGs; preserve bytes if possible; apply EXIF orientation/optional resize in memory; calculate payload estimate and a SHA-256 fingerprint; construct ordered labelled request parts. | Image handling is reusable; labels/manifests and Gemini-shaped parts mix other concerns. |
 | `species_lock`, `Journal`, `open_output_report` | In normal saved mode, acquire a species lock, open journal and new report before spending requests. Test mode opens a report but never a journal. | Generic safety primitives have domain naming/storage and success policy embedded. |
 | `Journal.reusable` | Accept latest matching `ok`/`review` entry; correct the historical empty-notes warning locally. | Storage code knows domain statuses and section headings. |

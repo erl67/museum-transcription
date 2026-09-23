@@ -119,16 +119,23 @@ Normal reports and per-species progress journals are written in the **family dir
 
 See [transcription rules](docs/transcription_rules.md) for preservation, ditto marks, signatures, and front/back handling. Model instructions encourage fidelity but cannot prove that all handwriting was read correctly.
 
+## Prompt customization
+
+The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules and `COLLECTOR_PROMPTS` for instructions selected by exact CSV Collector names (case and whitespace are normalized). The existing Brandt signature guidance is the first collector entry. `--no-csv-hints` disables collector guidance as well as reference hints.
+
+The revised prompt addresses dates, sex symbols, stamps versus fields, alterations, narrative continuation, shared slips, and unsupported inference. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
+
 ## Development and documentation
 
 ```text
 python -m unittest -v test_transcribe.py
 ```
 
-This Windows checkout now runs **115 offline tests: 113 passed, 2 skipped** (the POSIX lock test and the optional older three-image fixture). Both provider SDK transport tests ran, including all four OpenAI profiles. The real curated set also passed a 10-card / 18-image dry run. No live API calls were made. Missing SDKs cause additional skips. Tests use generated fixtures and simulated HTTP transports, never live API credentials. See [testing](docs/testing.md) for exact conditions and limitations.
+Build **2026-09-23.2** passes **123 offline tests, with 2 expected skips** (125 total): the POSIX lock test on Windows and the optional older three-image fixture. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-22.1
+transcribe.py                  Current application; build 2026-09-23.2
+egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
 test_transcribe.py             Offline unittest suite
 requirements.txt              Gemini/image/timezone dependencies
 requirements-openai.txt       Optional OpenAI dependency plus the above
@@ -158,3 +165,6 @@ Source data and generated results are excluded from Git by default; only deliber
 ### Licensce
 
 Source code in this repository is licensed under the Apache License 2.0 unless otherwise noted. Sample collection images, specimen records, and other third-party materials are not covered by the software license and retain their respective rights and usage restrictions.
+
+
+Token usage and estimated paid-rate USD are recorded for fresh attempts, including retries. Normal and test reports use compact headers and end with a `RUN: ... calls | ... tokens | ...` summary; reused results add no new spending. See [usage and pricing assumptions](docs/configuration.md#token-usage-and-estimated-cost) and [report conventions](docs/transcription_rules.md#reports-and-ordering).

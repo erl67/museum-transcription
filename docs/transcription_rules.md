@@ -1,6 +1,6 @@
 # Egg-slip transcription and output rules
 
-This document explains the current **domain-specific** SOP and output contract. The executable instructions live in `BASE_PROMPT`, `output_requirements`, `build_prompt`, `validate_response`, and `output_block` in [transcribe.py](../transcribe.py). A future backend should receive these policies from the egg-slip layer, rather than containing them itself.
+This document explains the current **domain-specific** SOP and output contract. The executable reading instructions and prompt assembly live in [egg_slip_prompt.py](../egg_slip_prompt.py): `BASE_PROMPT`, `COLLECTOR_PROMPTS`, `build_prompt`, `output_requirements`, and `format_correction`. Structural validation and report rendering remain in `validate_response` and `output_block` in [transcribe.py](../transcribe.py). A future backend should receive these policies from the egg-slip layer, rather than containing them itself.
 
 Prompt instructions are desired reading behavior. Python's structural validator cannot verify every word, handwriting interpretation, or missing line. Do not confuse a well-formatted answer with a verified transcription.
 
@@ -14,7 +14,7 @@ Prompt instructions are desired reading behavior. Python's structural validator 
 
 ## Body layout
 
-Start the front body with its complete visible collection heading, on its own line before fields. If none is visible, do not invent one. Do not intentionally add `SECTION: FRONT`, a second record ID, or decorative banners; Python supplies record headers.
+Start the front body with its complete visible collection heading, including its name and address, preserving its lines before fields. If none is visible, do not invent one. Do not intentionally add `SECTION: FRONT`, a second record ID, or decorative banners; Python supplies record headers.
 
 Use the labels actually printed on that card, in visual order: top to bottom, left to right within a row. Write `Label: value`, one labelled field per line, retaining multiline values and sublabels. The field set is dynamic. A printed but unfilled field gets `-`; illegible handwriting is not a blank. Preserve printed units. Set No. and Collector remain separate even when printed on one row. The validator does not currently enforce every label/colon or forbid every redundant front heading.
 
@@ -46,9 +46,31 @@ Use only visible values for that group. A narrative measurement does not fill a 
 
 Bracket only the uncertain part of a plausible reading: `[3]33`, for example. Use `[illegible]` when no defensible reading exists and `[illegible number]` for an unreadable number. Never erase the distinction between a guess, unreadable ink, and an empty field.
 
-For a difficult signature, visible strokes/initials can be interpreted using other evidence on the same card and available catalogue hints. The maintainer identified a stylized signature as **H. W. Brandt**; the prompt names that as a candidate when strokes agree. Collection ownership alone does not identify the collector. Do not insert Brandt into every Brandt collection card, replace another legible name, fill an empty Collector field, expand initials, or list unsupported alternatives. If a reading remains inferred, bracket it and explain the supporting evidence in transcription notes.
+For a difficult signature, visible strokes/initials can be interpreted using other supplied sides and available catalogue hints. The maintainer identified a stylized signature as **H. W. Brandt**; this candidate now lives in CSV-selected collector guidance rather than the universal base prompt. It is a candidate reading, not a supplied visual exemplar. Collection ownership alone does not identify the collector. Do not insert Brandt into every Brandt collection card, replace another legible name, fill an empty Collector field, expand initials, or list unsupported alternatives. If a reading remains inferred, bracket it and explain the supporting evidence in transcription notes.
 
 CSV hints are optional and explicitly fallible. Multiple matching records remain separate hints; never silently combine conflicting collectors/localities or overwrite visible historical taxonomy.
+
+## Editing the prompt and collector guidance
+
+Keep `egg_slip_prompt.py` beside `transcribe.py` when copying or deploying the application. Edit `BASE_PROMPT` for shared transcription rules; the same module assembles side requirements, file warnings, catalogue hints, and format-retry instructions. It performs no API calls or filesystem work.
+
+`COLLECTOR_PROMPTS` is a plain dictionary of trusted local instructions keyed by the CSV **Collector** value. The initial entry is `Brandt, Herbert W.`, matching the current sample catalogue. To customize another collector, add an entry with that collector's exact CSV spelling and reviewed reading guidance. Matching ignores capitalization and repeated/leading/trailing whitespace only. Alternate spellings require explicit entries; surname substring matching, inferred aliases, and collection-heading matching are not used.
+
+Unknown, blank, unmatched, or uncatalogued collectors receive the base rules. `--no-csv-hints` disables both catalogue reference hints and CSV-selected collector guidance. Multiple matching records keep their separate hints, including conflicts. Collector guidance is included once per matching name with the applicable catalogue numbers listed, so a rule for one entry on a shared slip is not assigned to every entry. The CSV selects trusted instructions; its contents are never executed as instructions.
+
+The September 23 revision deliberately changes transcription policy based on the reviewed sample outputs:
+
+- Keep catalogue stamps distinct from fields, including corner panels; do not invent labels for narrative slips.
+- Preserve continuous handwriting across lines and unused labels, multiple-entry boundaries, shared signatures, and addresses.
+- Identify active, deleted, and replacement text without extending crossings-out to neighbouring words; retain uncertain altered measurements.
+- Preserve differences between sides, bracket the full uncertain portion, and avoid unsupported initials expansions, locality inferences, source-error claims, and claims of unseen exemplars.
+- Recognize visible female/male symbols as Unicode characters; bracket uncertain symbol readings.
+- Preserve dates verbatim and note clearly impossible calendar dates without correcting them or guessing ambiguous date order.
+- Recheck headings, numbers, all measurement subfields, margins, and dense text. Notes explain substantive issues, not routine agreement with catalogue hints.
+
+These are model instructions, not new semantic validation in Python. An `OK` result still does not certify an accurate reading or valid date. No hard-coded specimen readings from the sample comparison were added to the prompt.
+
+**Intentional cache migration:** the complete assembled prompt already participates in the cache fingerprint. The revised base prompt therefore causes fresh requests for selected cards on their next normal run; old reports and cache entries remain intact. Later edits to a matching collector rule also change that card's fingerprint. Adding an unrelated collector rule does not. The cache algorithm, image order/bytes, validation, provider settings, retry accounting, and output format are unchanged by this extraction.
 
 ## Annotations versus transcription notes
 
@@ -83,7 +105,7 @@ The validator excludes model thought parts, checks completion, answer text, dete
 | `FAILED` | Request/local input/response validation failed. Available answer text is retained; not reused as a completed result. |
 | `PAUSED` | Local/provider quota, billing, or excessive server wait stopped the run. Available text is retained; not reused as complete. |
 
-The header's `REVIEW:` lines are Python-generated reasons. They are distinct from both annotation text and the model's transcription notes.
+The header's single `REVIEW:` line are Python-generated reasons. They are distinct from both annotation text and the model's transcription notes.
 
 **Known false positive:** every single-line square-bracket span except `[blank]` is currently counted as an uncertain reading. Literal printed text such as `form A291 [3-14-32-1m]` therefore triggers review even if read exactly. This has not been fixed. Avoid “fixing” the source text by stripping meaningful printed brackets. Markdown fences produce a warning; the parser tolerates some Markdown headings despite the prompt's plain-text rule. Detected LaTeX triggers a bounded rereading, not regex conversion into possibly wrong measurements.
 
@@ -93,11 +115,26 @@ See [retry configuration](configuration.md#retry-policy) for the one corrective 
 
 Normal saved output is `<family-directory>/<Species>_transcriptions_YYYYMMDD_HHMM.txt`. Timestamps use the machine's local wall time, to minutes. Same-minute collisions use `_2`, `_3`, etc., with exclusive file creation. A row-range spanning species creates a separate report for each visited species, not one global collection report. Each includes reused results and attempted failures for that selection; a fatal stop leaves a partial run with already-written records intact.
 
-Test output is `test_YYYYMMDD_HHMM_<model-tag>_t<temperature>.txt` in `tests/outputs/` beside the script, or the directory selected by `--test-output-dir`. A collision counter precedes the model tag. `auto` means the temperature parameter was omitted. Full provider/model/temperature and cache-disabled information appear in the test preamble. A completed loop writes `TEST FINISHED`; a handled fatal result writes `TEST STOPPED`. Keyboard interruption or an unexpected storage/setup error can leave a report without a footer. That is not proof the entire set ran.
+Test output is `test_YYYYMMDD_HHMM_<model-tag>_t<temperature>.txt` in `tests/outputs/` beside the script, or the directory selected by `--test-output-dir`. A collision counter precedes the model tag. `auto` means the temperature parameter was omitted. Model, temperature and cache-disabled information appear in the test preamble. A completed loop writes `TEST FINISHED`; a handled fatal result writes `TEST STOPPED`. A usage footer is also written on handled stops and keyboard interruption while the file remains writable. It measures work attempted, not proof the entire set ran. Abrupt process termination or storage failure can still prevent the footer.
 
 Within each report, numbered groups precede uncatalogued groups; [filename rules](filename_rules.md) defines sorting. Normal headers start with 22 equals signs, `CM` and the catalogue digits, then enough equals signs for a 50-character line (minimum two on the right). CM begins in column 23, digits in column 25, with leading zeros preserved. A shared slip gets one banner per number and one body. Uncatalogued slips get one filename banner per supplied side, without an invented number; long filenames can exceed 50 characters.
 
-Headers also contain `ID`, `STATUS`, `FILES`, `MODEL`, and any `REVIEW` reasons. Reused statuses append `(reused)`. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
+Headers contain `ID`, `STATUS`, a single optional `REVIEW` line, `FILES`, `MODEL`, then `TOKENS` with cost appended on the same line (` |  $0.0016`). Review reasons are separated by `    |    `; the notes warning renders as `Notes present`. The model line omits the provider prefix. Reused statuses append `(reused)`; their displayed usage/cost is historical and excluded from the new run totals. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
+
+```text
+ID: Serinus_sp_E2576
+STATUS: REVIEW
+REVIEW: 2 bracketed uncertain reading(s)    |    Notes present
+FILES: Serinus_sp_E2576.jpg
+MODEL: gemini-3.5-flash-lite
+TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  $0.0041
+```
+
+Card usage includes all its attempts, including rejected responses and retries. The console prints usage and estimated cost for each attempt, then cumulative usage after each card. Each report ends with token totals, averages, and a line such as `RUN: 147 calls | 576,830 tokens | $0.81`. A species report counts only fresh attempts made for that file; the console summary covers the whole invocation. A run using only cached results ends with zero new calls/tokens/cost.
+
+`in` includes image and prompt tokens. `out` excludes thinking/reasoning for both providers; `think` is listed separately. OpenAI's raw output count already includes reasoning, so the estimator bills it once. `total` retains the provider-reported total rather than reconstructing it. Missing usage is `unknown`, not zero; partial run totals are labelled `known` and costs show a known subtotal plus unknown calls. Averages use only calls with all four token fields available and show that denominator.
+
+Normal journals retain per-attempt `call_usage` (normalized tokens, provider/model, timestamp, pricing-check date and estimated USD); the existing final-response `usage` remains compatible. Old cache entries can display their saved token fields without refreshing transcriptions. Test reports retain card totals and run totals without creating transcription caches. No retrospective costs or retry counts are fabricated for old entries. See [pricing assumptions](configuration.md#token-usage-and-estimated-cost).
 
 ## Journals and result identity
 

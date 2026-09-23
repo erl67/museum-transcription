@@ -16,6 +16,8 @@ Optional hint columns are `Collector`, `locality`, `county`, `stateProvince`, an
 
 Data rows are numbered from 2, with row 1 treated as the header. These are parsed CSV records, not raw text line numbers when quoted values contain newlines. Blank catalogue numbers remain in the row map but do not become selected records. Missing/duplicate headers and rows with extra columns are rejected. Duplicate catalogue numbers are retained as lists, with a warning, not overwritten. Exact-number routing rejects conflicting scientific-name species; family routing rejects missing or conflicting families.
 
+Species routing removes trailing periods from the second scientific-name token: CSV `Serinus sp.` and targets `Serinus sp.` / `Serinus_sp.` resolve to `Serinus_sp`. This applies to both direct species folders and genus-nested folders. Original CSV values, catalogue hints, and scan text retain their punctuation; no source directories or files are renamed. Empty tokens, path separators, and other unsafe characters are still rejected. General folder validation is unchanged.
+
 No leading-zero normalization occurs: `E001` and `E1` are different catalogue identifiers. The CSV does not decide what is actually written on a scan. `--no-csv-hints` suppresses reading hints, not the CSV load or normal folder routing.
 
 ## Production directories

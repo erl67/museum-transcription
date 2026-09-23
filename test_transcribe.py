@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 from PIL import Image
 import transcribe as t
+import egg_slip_prompt as prompts
 
 
 def response(text, finish="STOP", thought=None):
@@ -485,6 +486,83 @@ class DatasetTest(unittest.TestCase):
                 for path in self.root.rglob("*") if path.is_file()
                 and (include_usage or not path.name.startswith("usage.json"))}
 
+    def test_usage_counts_rejected_responses_and_service_retries(self):
+        card = self.cards({"E4927"})[0]
+        bad, good = response("bad format"), response(transcript())
+        for item in (bad, good):
+            item.usage_metadata = NS(prompt_token_count=100, candidates_token_count=40,
+                                     thoughts_token_count=20, total_token_count=160)
+        engine, client, _ = self.engine([FakeAPIError(503), bad, good])
+        result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(engine.requests, 3)
+        self.assertEqual(len(result["call_usage"]), 3)
+        self.assertIsNone(result["call_usage"][0]["cost_usd"])
+        self.assertAlmostEqual(result["call_usage"][1]["cost_usd"], 0.00018)
+        self.assertIn("320 known tokens", t.token_usage.summary(engine.call_usage))
+        self.assertIn("unknown (1 call(s))", t.token_usage.summary(engine.call_usage))
+        self.assertIn("(2/3 calls", t.token_usage.averages(engine.call_usage))
+
+    def test_openai_incomplete_response_usage_is_saved_before_validation(self):
+        self.use_profile("gpt-5.6-luna")
+        card = self.cards({"E4927"})[0]
+        client = FakeOpenAIClient([openai_response("partial", "incomplete", "max_output_tokens")])
+        clock = Clock()
+        engine = t.Transcriber(self.args, client, clock.time, clock.sleep)
+        result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["text"], "partial")
+        call = result["call_usage"][0]
+        self.assertEqual(call["usage"]["output"], 40)
+        self.assertEqual(call["usage"]["reasoning"], 20)
+        self.assertEqual(call["usage"]["total"], 160)
+        self.assertAlmostEqual(call["cost_usd"], 0.000092)
+
+    def test_compact_header_and_legacy_cached_usage(self):
+        card = self.cards({"E4927"})[0]
+        result = dict(status="review", model="gemini-3.5-flash-lite", text="body",
+                      warnings=["2 bracketed uncertain reading(s).", "Transcription notes are present."],
+                      usage=dict(prompt_token_count=3104, candidates_token_count=812,
+                                 thoughts_token_count=441, total_token_count=4357))
+        block = t.output_block(card, result, cached=True)
+        expected = ("STATUS: REVIEW (reused)\n"
+                    "REVIEW: 2 bracketed uncertain reading(s)    |    Notes present\n"
+                    "FILES: Accipiter_gentilis_E4927.jpg\n"
+                    "MODEL: gemini-3.5-flash-lite\n"
+                    "TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  unknown\n")
+        self.assertIn(expected, block)
+        self.assertEqual(block.count("REVIEW:"), 1)
+        result["call_usage"] = [dict(usage=dict(input=2864, output=306, reasoning=0, total=3170),
+                                     cost_usd=0.0016242)]
+        block = t.output_block(card, result)
+        self.assertIn("TOKENS: 2,864 in | 306 out | 0 think | 3,170 total |  $0.0016\n", block)
+        self.assertNotIn("COST:", block)
+        self.assertNotIn("estimated USD", block)
+        self.assertTrue(block.endswith("body\n\n\n"))
+
+    def test_usage_footer_does_not_charge_reused_cards(self):
+        engine, _, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        first = next(self.family.glob("*_transcriptions_*.txt"))
+        self.assertIn("RUN: 2 calls | 200 tokens", first.read_text())
+        entries = [json.loads(line) for line in next(self.family.glob("*_cache.jsonl")).read_text().splitlines()]
+        self.assertEqual(len(entries[0]["call_usage"]), 1)
+        second_engine, _, _ = self.engine()
+        self.assertEqual(t.run(self.args, second_engine), 0)
+        second = next(path for path in self.family.glob("*_transcriptions_*.txt") if path != first)
+        self.assertIn("STATUS: OK (reused)", second.read_text())
+        self.assertNotIn("COST:", second.read_text())
+        self.assertTrue(second.read_text().endswith("RUN: 0 calls | 0 tokens | $0.00\n"))
+        self.assertEqual(second_engine.call_usage, [])
+
+    def test_report_footer_counts_only_calls_in_that_file(self):
+        handle = io.StringIO()
+        calls = [dict(usage=dict(input=10, output=20, reasoning=0, total=30), cost_usd=0.01),
+                 dict(usage=dict(input=20, output=40, reasoning=0, total=60), cost_usd=0.02)]
+        with patch.object(t, "durable_write", side_effect=lambda stream, text: stream.write(text)):
+            t.write_usage_footer(handle, NS(call_usage=calls), 1)
+        self.assertTrue(handle.getvalue().endswith("RUN: 1 calls | 60 tokens | $0.02\n"))
+
     def test_front_back_order_is_deterministic(self):
         card = self.cards({"E4268"})[0]
         self.assertEqual([path.name for path in card.paths],
@@ -505,7 +583,7 @@ class DatasetTest(unittest.TestCase):
         self.card_image("Accipiter_gentilis_E001.jpg")
         card = self.cards({"E001"})[0]
         self.assertEqual(card.enums, ("E001",))
-        self.assertIn('"catalogNumber": "E001"', t.build_prompt(card, self.db(), True))
+        self.assertIn('"catalogNumber": "E001"', prompts.build_prompt(card, self.db(), True))
 
     def test_numeric_sides_have_numeric_order_and_gap_warning(self):
         for suffix in (10, 2, 1):
@@ -554,7 +632,7 @@ class DatasetTest(unittest.TestCase):
             self.assertEqual(card.enums, ())
             self.assertEqual(card.sections, ("FRONT", "BACK OF SLIP"))
             self.assertTrue(card.paths[0].name.endswith("(A).jpg"))
-            prompt = t.build_prompt(card, self.db(), True)
+            prompt = prompts.build_prompt(card, self.db(), True)
             self.assertNotIn("CATALOGUE REFERENCE HINTS", prompt)
             self.assertNotIn("Reference Collector", prompt)
             block = t.output_block(card, {"status": "ok", "text": transcript(card.sections)})
@@ -621,6 +699,49 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(targets, {"Accipiter_gentilis": {"E4268", "E4927"}})
         self.assertFalse(console)
 
+    def test_species_terminal_period_routes_without_changing_source(self):
+        with self.csv.open("w", newline="", encoding="utf-8-sig") as stream:
+            writer = csv.DictWriter(stream, fieldnames=["catalogNumber", "Scientific Name", "Family"])
+            writer.writeheader()
+            for scientific_name in ("Serinus sp.", "Serinus sp"):
+                writer.writerow({"catalogNumber": "E2573", "Scientific Name": scientific_name,
+                                 "Family": "Fringillidae"})
+        original = self.csv.read_bytes()
+        db = self.db()
+        self.assertEqual(db.families, {"Serinus_sp": {"Fringillidae"}})
+        self.assertEqual(t.select_targets(db, "2-3"), ({"Serinus_sp": {"E2573"}}, False))
+        self.assertEqual(t.select_targets(db, "E2573"), ({"Serinus_sp": {"E2573"}}, False))
+        for target in ("Serinus sp.", "Serinus_sp.", "Serinus sp", "serinus_SP"):
+            with self.subTest(target=target):
+                self.assertEqual(t.select_targets(db, target), ({"Serinus_sp": None}, False))
+        card = t.Card("Serinus_sp_E2573", ("E2573",), (Path("Serinus_sp_E2573.jpg"),), ("FRONT",))
+        self.assertIn('"Scientific Name": "Serinus sp."', prompts.build_prompt(card, db, True))
+        self.assertEqual(db.by_row[2]["Scientific Name"], "Serinus sp.")
+        self.assertEqual(self.csv.read_bytes(), original)
+
+    def test_species_terminal_period_resolves_both_layouts(self):
+        self.write_csv([], {"catalogNumber": "E2573", "Scientific Name": "Serinus sp.",
+                            "Family": "Fringillidae"})
+        db = self.db()
+        species = t.enum_species(db, "E2573")
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                root = self.root / str(nested)
+                family = root / "Fringillidae"
+                parent = family / "Serinus" if nested else family
+                folder = parent / "Serinus_sp" / "JPEG"
+                folder.mkdir(parents=True)
+                self.assertEqual(t.resolve_folders(root, db, species), (family, folder))
+
+    def test_species_period_normalization_retains_path_validation(self):
+        for value in ("Serinus .", "Serinus ..", "Serinus ...", "Serinus sp/.",
+                      "Serinus sp\\.", "Serinus sp?.", "Serinus sp:."):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                t.species_name(value)
+        with self.assertRaises(ValueError):
+            t.safe_component("Serinus_sp.")
+        self.assertEqual(t.species_name("Accipiter gentilis"), "Accipiter_gentilis")
+
     def test_invalid_targets_do_not_silently_save_batch(self):
         db = self.db()
         for target in ("", "5-2", "1-3", "Accipiter_gentilis*", "../Accipiter_gentilis", "E999"):
@@ -654,9 +775,108 @@ class DatasetTest(unittest.TestCase):
 
     def test_prompt_can_omit_catalogue_hints(self):
         card = self.cards({"E4268"})[0]
-        self.assertIn("Reference Collector", t.build_prompt(card, self.db(), True))
-        self.assertNotIn("Reference Collector", t.build_prompt(card, self.db(), False))
-        self.assertNotIn("GROUND TRUTH", t.build_prompt(card, self.db(), True))
+        self.assertIn("Reference Collector", prompts.build_prompt(card, self.db(), True))
+        self.assertNotIn("Reference Collector", prompts.build_prompt(card, self.db(), False))
+        self.assertNotIn("GROUND TRUTH", prompts.build_prompt(card, self.db(), True))
+
+    def test_collector_guidance_matches_csv_exactly_with_case_and_space_normalization(self):
+        card = self.cards({"E4268"})[0]
+        db = self.db()
+        for name, expected in (("Brandt, Herbert W.", True),
+                               ("  BRANDT,  Herbert W.  ", True),
+                               ("Brandt", False), ("C. M. Brandt", False),
+                               ("Brandt, Herbert W.; another collector", False),
+                               ("", False), ("Reference Collector", False)):
+            with self.subTest(name=name):
+                db.by_enum["E4268"][0]["Collector"] = name
+                prompt = prompts.build_prompt(card, db, True)
+                self.assertEqual("COLLECTOR READING GUIDANCE" in prompt, expected)
+                self.assertEqual("known stylized collector signature" in prompt, expected)
+        db.by_enum["E4268"][0].pop("Collector")
+        self.assertNotIn("COLLECTOR READING GUIDANCE", prompts.build_prompt(card, db, True))
+
+    def test_no_csv_hints_disables_collector_guidance_too(self):
+        card = self.cards({"E4268"})[0]
+        db = self.db()
+        db.by_enum["E4268"][0]["Collector"] = "Brandt, Herbert W."
+        prompt = prompts.build_prompt(card, db, False)
+        self.assertNotIn("COLLECTOR READING GUIDANCE", prompt)
+        self.assertNotIn("CATALOGUE REFERENCE HINTS", prompt)
+        self.assertNotIn("H. W. Brandt", prompt)
+        self.assertTrue(prompt.startswith(prompts.BASE_PROMPT))
+
+    def test_shared_collector_guidance_scopes_rules_and_retains_conflicting_hints(self):
+        card = t.Card("shared", ("E4268", "E4927", "E001", "E9999"),
+                      self.cards({"E4268"})[0].paths, ("FRONT", "BACK OF SLIP"))
+        db = self.db()
+        db.by_enum["E4268"][0]["Collector"] = "Brandt, Herbert W."
+        db.by_enum["E4268"].append(dict(db.by_enum["E4268"][0]))
+        db.by_enum["E4268"].append({"Collector": "Other Collector"})
+        db.by_enum["E4927"][0]["Collector"] = "Other Collector"
+        db.by_enum["E001"][0]["Collector"] = "Brandt, Herbert W."
+        with patch.dict(prompts.COLLECTOR_PROMPTS, {"Other Collector": "Other reading guidance."}):
+            prompt = prompts.build_prompt(card, db, True)
+        self.assertIn("For catalogue record(s) E4268, E001:", prompt)
+        self.assertIn("For catalogue record(s) E4268, E4927:", prompt)
+        self.assertEqual(prompt.count("known stylized collector signature"), 1)
+        self.assertEqual(prompt.count("Other reading guidance."), 1)
+        self.assertNotIn("For catalogue record(s) E9999", prompt)
+        hints = json.loads(prompt[prompt.index("\n[", prompt.index("CATALOGUE REFERENCE HINTS")) + 1:])
+        self.assertEqual([h["Collector"] for h in hints if h["catalogNumber"] == "E4268"],
+                         ["Brandt, Herbert W.", "Brandt, Herbert W.", "Other Collector"])
+
+    def test_uncatalogued_and_unmatched_cards_do_not_borrow_collector_rules(self):
+        db = self.db()
+        db.by_enum["E4268"][0]["Collector"] = "Brandt, Herbert W."
+        for enums in ((), ("E9999",)):
+            with self.subTest(enums=enums):
+                card = t.Card("unknown", enums, (Path("unknown.jpg"),), ("FRONT",))
+                prompt = prompts.build_prompt(card, db, True)
+                self.assertNotIn("COLLECTOR READING GUIDANCE", prompt)
+                self.assertNotIn("CATALOGUE REFERENCE HINTS", prompt)
+                self.assertIn("FRONT ONLY", prompt)
+
+    def test_prompt_module_edits_change_cache_identity_without_changing_image_parts(self):
+        card = self.cards({"E4268"})[0]
+        db = self.db()
+        db.by_enum["E4268"][0]["Collector"] = "Brandt, Herbert W."
+        original = prompts.build_prompt(card, db, True)
+        key, parts = t.prepare_card(card, original, self.args)
+        for setting, value in (("BASE_PROMPT", prompts.BASE_PROMPT + "Additional fidelity rule.\n"),
+                               ("COLLECTOR_PROMPTS", {"Brandt, Herbert W.": "Revised signature rule."})):
+            with self.subTest(setting=setting), patch.object(prompts, setting, value):
+                updated = prompts.build_prompt(card, db, True)
+                new_key, new_parts = t.prepare_card(card, updated, self.args)
+                self.assertNotEqual(key, new_key)
+                self.assertEqual(parts[0]["parts"][1:], new_parts[0]["parts"][1:])
+        with patch.dict(prompts.COLLECTOR_PROMPTS, {"Unrelated Collector": "Unused rule."}):
+            self.assertEqual(original, prompts.build_prompt(card, db, True))
+        self.assertEqual(key, t.prepare_card(card, prompts.build_prompt(card, db, True), self.args)[0])
+
+    def test_prompt_rules_preserve_source_errors_symbols_and_entry_boundaries(self):
+        # Policy checks protect these reviewed requirements, not model accuracy.
+        prompt = prompts.BASE_PROMPT
+        for rule in ("calendar\nimpossibilities", "without correcting\nthe date",
+                     "female (\u2640) and male (\u2642)", "do not substitute a similar-looking letter",
+                     "Never silently merge active and deleted text",
+                     "Check the next line", "separate entries in reading order",
+                     "Do not repeat ordinary annotations", "An address beneath a signature"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, prompt)
+        self.assertNotIn("Brandt", prompt)
+
+    def test_prompt_side_requirements_are_shared_by_initial_and_retry_instructions(self):
+        card = t.Card("backs", ("E001",), (Path("back.jpg"), Path("back2.jpg")),
+                      ("BACK OF SLIP", "BACK OF SLIP 2"), ["Missing front."])
+        prompt = prompts.build_prompt(card, t.Database(), True)
+        retry = prompts.format_correction(card, "Missing back text.")
+        requirements = prompts.output_requirements(card)
+        self.assertIn(requirements, prompt)
+        self.assertIn(requirements, retry)
+        self.assertIn("No front was supplied", prompt)
+        self.assertIn("BACK OF SLIP:, BACK OF SLIP 2:", retry)
+        self.assertIn("FILE CHECKS: Missing front.", prompt)
+        self.assertTrue(retry.startswith("FORMAT CORRECTION FOR THIS RETRY: Missing back text."))
 
     def test_original_jpeg_bytes_preserved_without_resize(self):
         path = self.cards()[0].paths[0]
@@ -677,7 +897,7 @@ class DatasetTest(unittest.TestCase):
 
     def test_fingerprint_changes_for_prompt_model_settings_or_pixels(self):
         card = self.cards({"E4268"})[0]
-        prompt = t.build_prompt(card, self.db(), True)
+        prompt = prompts.build_prompt(card, self.db(), True)
         key, _ = t.prepare_card(card, prompt, self.args)
         self.assertEqual(key, t.prepare_card(card, prompt, self.args)[0])
         self.assertNotEqual(key, t.prepare_card(card, prompt + "new", self.args)[0])
@@ -711,7 +931,7 @@ class DatasetTest(unittest.TestCase):
 
     def test_front_only_prompt_explicitly_requires_zero_backs(self):
         card = self.cards({"E4927"})[0]
-        prompt = t.build_prompt(card, self.db(), False)
+        prompt = prompts.build_prompt(card, self.db(), False)
         self.assertIn("1 front image(s), 0 back image(s)", prompt)
         self.assertIn("FRONT ONLY", prompt)
 
@@ -720,7 +940,7 @@ class DatasetTest(unittest.TestCase):
         card = self.cards({"E187"})[0]
         self.assertEqual(card.sections, ("FRONT",))
         self.assertEqual(card.warnings, [])
-        self.assertIn("FRONT ONLY", t.build_prompt(card, self.db(), False))
+        self.assertIn("FRONT ONLY", prompts.build_prompt(card, self.db(), False))
 
     def test_front_only_empty_back_templates_are_removed_without_retry(self):
         card = self.cards({"E4927"})[0]
@@ -1154,7 +1374,7 @@ class DatasetTest(unittest.TestCase):
         self.addCleanup(client.close)
         engine = t.Transcriber(self.args, client=client, clock=clock.time, sleep=clock.sleep)
         card = self.cards({"E4268"})[0]
-        _, contents = t.prepare_card(card, t.build_prompt(card, self.db(), True), self.args)
+        _, contents = t.prepare_card(card, prompts.build_prompt(card, self.db(), True), self.args)
         result = engine.transcribe(card, contents)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(len(captured), 2)
@@ -1205,7 +1425,7 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("STATUS: OK", report)
         self.assertIn("STATUS: PAUSED", report)
         self.assertNotIn("STATUS: FAILED", report)
-        self.assertIn("MODEL: gemini / gemini-3.5-flash-lite", report)
+        self.assertIn("MODEL: gemini-3.5-flash-lite", report)
         engine, client, _ = self.engine()
         self.assertEqual(t.run(self.args, engine), 1)
         self.assertEqual(client.calls, [])
@@ -1415,16 +1635,17 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(before, {path: path.read_bytes() for path in self.folder.iterdir()})
 
     def test_sample_repeated_runs_ignore_matching_production_cache(self):
-        self.assertEqual(t.run(self.args, self.engine()[0]), 0)
-        production = {path: path.read_bytes() for path in self.family.glob("*") if path.is_file()}
-        self.sample_args()
-        fixed = datetime(2026, 9, 22, 14, 25)
-        with patch.object(t, "Journal", side_effect=AssertionError("cache access")), patch.object(t, "datetime") as dt:
+        fixed = datetime(2026, 9, 22, 14, 25, tzinfo=timezone.utc)
+        with patch.object(t, "datetime") as dt:
             dt.now.return_value = fixed
-            for _ in range(2):
-                engine, client, _ = self.engine()
-                self.assertEqual(t.run(self.args, engine), 0)
-                self.assertEqual(len(client.calls), 2)
+            self.assertEqual(t.run(self.args, self.engine()[0]), 0)
+            production = {path: path.read_bytes() for path in self.family.glob("*") if path.is_file()}
+            self.sample_args("--temperature", "0.1")
+            with patch.object(t, "Journal", side_effect=AssertionError("cache access")):
+                for _ in range(2):
+                    engine, client, _ = self.engine()
+                    self.assertEqual(t.run(self.args, engine), 0)
+                    self.assertEqual(len(client.calls), 2)
         reports = sorted((self.root / "outputs").glob("*.txt"))
         self.assertEqual({p.name for p in reports}, {"test_20260922_1425_g3.5-f-l_t0.1.txt",
                                                     "test_20260922_1425_2_g3.5-f-l_t0.1.txt"})
@@ -1524,6 +1745,8 @@ class DatasetTest(unittest.TestCase):
         text = next((self.root / "outputs").glob("*.txt")).read_text()
         self.assertIn("STATUS: OK", text)
         self.assertNotIn("TEST FINISHED", text)
+        self.assertIn("RUN: 2 calls | 100 known tokens", text)
+        self.assertIn("unknown (2 call(s))", text)
         self.assertTrue(client.closed)
 
 
@@ -1600,9 +1823,41 @@ class DatasetTest(unittest.TestCase):
         for card in cards:
             for path in card.paths:
                 self.assertEqual(t.prepare_image(path, 0), path.read_bytes())
-            key, contents = t.prepare_card(card, t.build_prompt(card, self.db(), True), self.args)
+            key, contents = t.prepare_card(card, prompts.build_prompt(card, self.db(), True), self.args)
             self.assertEqual(len(key), 64)
             self.assertEqual(len(contents[0]["parts"]), 1 + 2 * len(card.paths))
+
+
+class TokenUsageTest(unittest.TestCase):
+    def test_cached_input_and_reasoning_are_not_double_counted(self):
+        raw = openai_response("test")
+        raw.usage.input_tokens_details = NS(cached_tokens=80)
+        usage = t.token_usage.read_usage(raw, "openai")
+        self.assertEqual(usage["input"], 100)
+        self.assertEqual(usage["billed_output"], 60)
+        self.assertAlmostEqual(t.token_usage.estimate(usage, "gpt-5.6-luna"), 0.0000776)
+        gemini = NS(usage_metadata=NS(prompt_token_count=100, candidates_token_count=40,
+                     thoughts_token_count=20, total_token_count=160, cached_content_token_count=80))
+        usage = t.token_usage.read_usage(gemini, "gemini")
+        self.assertAlmostEqual(t.token_usage.estimate(usage, "gemini-3.5-flash-lite"), 0.0001584)
+
+    def test_missing_usage_unknown_rates_and_empty_run(self):
+        usage = t.token_usage.read_usage(None, "gemini")
+        self.assertIsNone(t.token_usage.estimate(usage, "gemini-3.5-flash-lite"))
+        self.assertIn("unknown in", t.token_usage.tokens_line(usage))
+        self.assertEqual(t.token_usage.summary([]), "RUN: 0 calls | 0 tokens | $0.00")
+        self.assertIn("unavailable", t.token_usage.averages([]))
+        usage = t.token_usage.read_usage(openai_response("x"), "openai")
+        self.assertIsNone(t.token_usage.estimate(usage, "new-model"))
+
+    def test_dated_prices_and_long_context(self):
+        from datetime import date
+        usage = dict(input=300000, cached=100000, billed_output=100)
+        self.assertAlmostEqual(t.token_usage.estimate(usage, "gpt-6-astra"), 4.2075)
+        self.assertIsNone(t.token_usage.estimate(usage, "gpt-5.6-sol", date(2026, 11, 22)))
+        before = t.token_usage.estimate(usage, "gemini-3.8-flash", date(2026, 12, 31))
+        after = t.token_usage.estimate(usage, "gemini-3.8-flash", date(2027, 1, 1))
+        self.assertEqual(after, before * 2)
 
 
 if __name__ == "__main__":
