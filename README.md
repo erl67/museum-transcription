@@ -70,16 +70,18 @@ Run `python transcribe.py` for the interactive target prompt, or supply a target
 | `python transcribe.py E4268 --force` | Refresh a normally cached reading. |
 | `python transcribe.py tests` | Run fresh comparisons on the handpicked test folder. |
 
-Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. `--help` lists the remaining options.
+Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches and the saved result is no more than 48 hours old. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. `--help` lists the remaining options.
 
-## Model and temperature comparisons
+## Model comparisons
 
 The settings are together near the top of `transcribe.py`:
 
 ```python
 MODEL = "gemini-3.5-flash-lite"
-TEST_TEMPERATURE = 0.1
+TEST_TEMPERATURE = 1.0
 ```
+
+Normal and test runs default to temperature **1.0** for profiles that accept it. Astra continues to omit it.
 
 `MODEL_PROFILES` contains the configured model IDs and their provider, limits, generation settings, and retry budgets. These are project settings, not a guarantee of current model availability or account quota. See [configuration](docs/configuration.md).
 
@@ -87,8 +89,8 @@ The curated set in `tests/inputs/` contains **10 cards / 18 images** across seve
 
 ```text
 python transcribe.py tests --dry-run
-python transcribe.py tests --model gemini-3.5-flash-lite --temperature 0.1
-python transcribe.py tests --model gemini-3.8-flash --temperature 1.0
+python transcribe.py tests --model gemini-3.5-flash-lite
+python transcribe.py tests --model gemini-3.8-flash
 ```
 
 Only the dry run avoids API calls. The default CSV path remains the configured master CSV. Test input is **tests/inputs beside the script** and the combined report goes to **tests/outputs beside the script**, regardless of the launch directory or Family setting. Override with `--test-input-dir` / `--test-output-dir` if needed. An empty input folder produces no requests or empty report.
@@ -96,16 +98,16 @@ Only the dry run avoids API calls. The default CSV path remains the configured m
 Each test runs one configuration, starts at the first card, and **never reads or writes a transcription cache**. Daily limits still apply. Example filenames:
 
 ```text
-test_20260922_1425_g3.5-f-l_t0.1.txt
+test_20260923_1700_g3.5-f-l_t1.0.txt
 test_20260922_1430_g3.8f_t1.0.txt
 ```
 
 Same-minute repeats get a counter rather than overwriting a report. `TEST_TEMPERATURE` affects only tests; explicit `--temperature` wins. Use `--temperature auto` to omit it. OpenAI profiles are `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, and `gpt-6-astra`; all use `OPENAI_API_KEY` from your existing `.env`. Astra automatically omits the code-level test temperature and uses `tauto` in filenames; an explicit numeric Astra override is rejected before any request.
 
 ```text
-python transcribe.py tests --model gpt-5.6-luna --temperature auto
-python transcribe.py tests --model gpt-5.6-terra --temperature auto
-python transcribe.py tests --model gpt-5.6-sol --temperature auto
+python transcribe.py tests --model gpt-5.6-luna
+python transcribe.py tests --model gpt-5.6-terra
+python transcribe.py tests --model gpt-5.6-sol
 python transcribe.py tests --model gpt-6-astra
 ```
 
@@ -113,9 +115,9 @@ The known wollweberi/ultramarina filename mismatch does not prevent the test: ca
 
 ## Output and review
 
-Normal reports and per-species progress journals are written in the **family directory**. Each record has aligned CM banners (or filenames for uncatalogued material), source filenames, model, status, and any review reasons. Two blank lines separate records. Failed responses retain available text for inspection. These are text reports, not spreadsheet updates or a machine-enforced field schema.
+Normal reports and per-species progress journals are written in the **family directory**. Each record has aligned CM banners (or filenames for uncatalogued material), source filenames, model, status, and any review reasons. New records also retain the build/prompt versions, full prompt and input fingerprints, effective generation/image settings, CSV-hint setting, and available returned model version. Reused records retain their original metadata; legacy records are not assigned invented settings. Two blank lines separate records. Failed responses retain available text for inspection. These are text reports, not spreadsheet updates or a machine-enforced field schema.
 
-`OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. Literal printed brackets can still cause a false uncertainty flag.
+`OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. The bracket count says "bracketed passages" because literal source brackets can also trigger review. Suspected merged fields and missing label colons produce format warnings without rewriting text or making extra requests.
 
 See [transcription rules](docs/transcription_rules.md) for preservation, ditto marks, signatures, and front/back handling. Model instructions encourage fidelity but cannot prove that all handwriting was read correctly.
 
@@ -123,7 +125,7 @@ See [transcription rules](docs/transcription_rules.md) for preservation, ditto m
 
 The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules and `COLLECTOR_PROMPTS` for instructions selected by exact CSV Collector names (case and whitespace are normalized). The existing Brandt signature guidance is the first collector entry. `--no-csv-hints` disables collector guidance as well as reference hints.
 
-The revised prompt addresses dates, sex symbols, stamps versus fields, alterations, narrative continuation, shared slips, and unsupported inference. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
+The revised prompt addresses dates, sex symbols, stamps versus fields, layered alterations, raised/multiline entries, marginal imprints, shared slips, and unsupported inference in both readings and notes. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
 
 ## Development and documentation
 
@@ -131,11 +133,12 @@ The revised prompt addresses dates, sex symbols, stamps versus fields, alteratio
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-09-23.2** passes **123 offline tests, with 2 expected skips** (125 total): the POSIX lock test on Windows and the optional older three-image fixture. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+Build **2026-09-23.4** passes **140 offline tests, with 2 expected skips** (142 total): the POSIX lock test on Windows and the optional older three-image fixture. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-23.2
+transcribe.py                  Current application; build 2026-09-23.4
 egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
+token_usage.py                Provider usage normalization and cost estimates
 test_transcribe.py             Offline unittest suite
 requirements.txt              Gemini/image/timezone dependencies
 requirements-openai.txt       Optional OpenAI dependency plus the above
@@ -157,7 +160,7 @@ Start future development with [AGENTS.md](AGENTS.md) and [PROJECT_HANDOFF.md](do
 
 ## Current limits
 
-The program is sequential, with per-process minute pacing and a local daily counter. It does not track other applications' quota use, enforce token-per-minute limits, calculate costs, or guarantee identical model responses. Windows/Google Drive locking and live model accuracy need deployment testing. A real catalogue and permission-appropriate scans are supplied separately. No accuracy percentage or cross-model winner has been established by this test suite.
+The program is sequential, with per-process minute pacing and a local daily counter. It does not track other applications' quota use, enforce token-per-minute limits or guarantee identical model responses. Windows/Google Drive locking and live model accuracy need deployment testing. A real catalogue and permission-appropriate scans are supplied separately. No accuracy percentage or cross-model winner has been established by this test suite.
 
 Source data and generated results are excluded from Git by default; only deliberately selected JPEGs under `tests/inputs/` are eligible sample scans. Review their publication rights before adding them. No project licence has yet been selected; a public repository is not itself a licence grant.
 

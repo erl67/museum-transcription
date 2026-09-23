@@ -343,10 +343,23 @@ class ProfileAndQuotaTest(unittest.TestCase):
                 args = t.parse_args([])
                 self.assertEqual((args.rpm, args.rpd, args.timeout, args.attempts), values)
                 self.assertEqual(args.provider, "gemini")
-                self.assertEqual(args.temperature, 0.1)
+                self.assertEqual(args.temperature, 1.0)
                 self.assertNotIn("thinking_config", t.generation_config(args))
         args = t.parse_args(["--model", "gemini-3.8-flash"])
         self.assertEqual((args.rpm, args.rpd), (5, 20))
+
+    def test_supported_profile_temperatures_default_to_one_with_explicit_overrides(self):
+        for model, profile in t.MODEL_PROFILES.items():
+            with self.subTest(model=model):
+                args = t.parse_args(["--model", model])
+                config = t.generation_config(args)
+                if profile.supports_temperature:
+                    self.assertEqual(config["temperature"], 1.0)
+                    self.assertEqual(t.parse_args(["--model", model, "--temperature", "0.4"]).temperature, 0.4)
+                else:
+                    self.assertNotIn("temperature", config)
+                self.assertNotIn("temperature", t.generation_config(
+                    t.parse_args(["--model", model, "--temperature", "auto"])))
 
     def test_explicit_overrides_and_new_profile_keep_own_provider_settings(self):
         model = "another-vision-model"
@@ -526,7 +539,7 @@ class DatasetTest(unittest.TestCase):
                                  thoughts_token_count=441, total_token_count=4357))
         block = t.output_block(card, result, cached=True)
         expected = ("STATUS: REVIEW (reused)\n"
-                    "REVIEW: 2 bracketed uncertain reading(s)    |    Notes present\n"
+                    "REVIEW: 2 bracketed passage(s)    |    Notes present\n"
                     "FILES: Accipiter_gentilis_E4927.jpg\n"
                     "MODEL: gemini-3.5-flash-lite\n"
                     "TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  unknown\n")
@@ -539,6 +552,126 @@ class DatasetTest(unittest.TestCase):
         self.assertNotIn("COST:", block)
         self.assertNotIn("estimated USD", block)
         self.assertTrue(block.endswith("body\n\n\n"))
+
+    def test_field_format_review_retains_text_and_does_not_retry(self):
+        card = self.cards({"E4927"})[0]
+        body = ("Name Finch\nNo. of eggs in set 5 Set mark 378 A\n"
+                "Identity Sure Incubation fresh\nANNOTATIONS:\nTRANSCRIPTION NOTES:")
+        engine, client, _ = self.engine([response(body)])
+        result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
+        self.assertEqual(result["status"], "review")
+        self.assertEqual(result["text"], body)
+        self.assertIn("Format: 3 field line(s) may be missing a label colon.", result["warnings"])
+        self.assertIn("Format: 2 line(s) may merge separate labelled fields.", result["warnings"])
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(engine.requests, 1)
+
+    def test_field_format_checks_backs_but_excludes_annotation_and_note_prose(self):
+        body = ("Name: Finch\nIdentity: Sure\nIncubation: fresh\nANNOTATIONS:\n"
+                "Name copied\nIdentity Sure Incubation fresh\nDate yesterday\n"
+                "BACK OF SLIP:\nName Finch\nIdentity Sure Incubation fresh\nDate 1/1/20\n"
+                "ANNOTATIONS:\nCollected by another person on the reverse\n"
+                "TRANSCRIPTION NOTES:\nName uncertain\nIdentity Sure Incubation fresh\nDate uncertain")
+        warnings = t.field_format_warnings(body)
+        self.assertEqual(warnings, ["Format: 3 field line(s) may be missing a label colon.",
+                                    "Format: 1 line(s) may merge separate labelled fields."])
+        self.assertEqual(t.field_format_warnings(body.split("BACK OF SLIP:")[0]), [])
+
+    def test_multiline_measurements_and_unlabelled_narratives_are_not_format_errors(self):
+        examples = (
+            "Name: Finch\nSet mark: att\n5/36\nMC\nIncubation: Trace of red\none infertile",
+            "Name: Finch\nNest: Diameter: Inside: 7 inches; Outside: 24 inches\n"
+            "Depth: Inside: 3 inches; Outside: 12 inches\nDate: 25. V. 1935",
+            "Nest: 4' up. Incubation unknown to the writer.\n"
+            "Identity: Bird on nest\nDate: 25. V. 1935",
+            "BACK OF SLIP:\nCollected by a friend on a journey.\n"
+            "Date uncertain.\nSent to the museum.\nTRANSCRIPTION NOTES:",
+        )
+        for body in examples:
+            with self.subTest(body=body):
+                self.assertEqual(t.field_format_warnings(body), [])
+
+    def test_bracket_count_does_not_claim_source_brackets_are_uncertainty(self):
+        card = self.cards({"E4927"})[0]
+        body = transcript().replace("TEST FIXTURE ONLY", "Finch [uncertain]")
+        body = body.replace("ANNOTATIONS:", "ANNOTATIONS:\nForm A [123]. Signature [illegible].")
+        text, warnings, _ = t.validate_response(response(body), card)
+        self.assertEqual(text, body)
+        self.assertIn("3 bracketed passage(s).", warnings)
+        self.assertNotIn("uncertain reading", t.review_line(warnings))
+        self.assertEqual(t.review_line(["2 bracketed uncertain reading(s)."]),
+                         "REVIEW: 2 bracketed passage(s)")
+
+    def test_legacy_cache_gets_format_review_without_rewriting_text_or_provenance(self):
+        path = self.root / "legacy_format.jsonl"
+        body = "Name Finch\nIdentity Sure Incubation fresh\nDate 1/1/20\nANNOTATIONS:\nTRANSCRIPTION NOTES:"
+        original = dict(key="legacy", cache_version=t.CACHE_VERSION, status="ok", text=body,
+                        warnings=[], saved_at=datetime.now(timezone.utc).isoformat())
+        with t.Journal(path) as journal:
+            journal.append(original)
+            saved = path.read_bytes()
+            for _ in range(2):
+                result = journal.reusable("legacy")
+                self.assertEqual(result["status"], "review")
+                self.assertEqual(result["text"], body)
+                self.assertEqual(len(result["warnings"]), 2)
+                self.assertNotIn("request_metadata", result)
+            self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual(original["warnings"], [])
+
+    def test_request_metadata_is_checkpointed_and_preserved_on_reuse(self):
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        path = next(self.family.glob("*_cache.jsonl"))
+        before = path.read_bytes()
+        entries = [json.loads(line) for line in before.splitlines()]
+        cards = {card.base_id: card for card in self.cards()}
+        for entry, call in zip(entries, client.calls):
+            prompt = prompts.build_prompt(cards[entry["base_id"]], self.db(), True)
+            metadata = entry["request_metadata"]
+            self.assertEqual(metadata["prompt_sha256"], hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+            self.assertEqual(metadata["input_sha256"], entry["key"])
+            self.assertEqual(metadata["generation"], call["config"])
+            self.assertEqual(metadata["max_edge"], self.args.max_edge)
+            self.assertEqual(metadata["csv_hints"], True)
+            self.assertNotIn("Reference Collector", json.dumps(metadata))
+        with patch.object(t, "SCRIPT_VERSION", "future-build"), patch.object(prompts, "PROMPT_VERSION", "future-label"):
+            engine, client, _ = self.engine()
+            self.assertEqual(t.run(self.args, engine), 0)
+            self.assertEqual(client.calls, [])
+        self.assertEqual(path.read_bytes(), before)
+        for report in self.family.glob("*_transcriptions_*.txt"):
+            body = report.read_text(encoding="utf-8")
+            self.assertIn("PROMPT SHA256: " + entries[0]["request_metadata"]["prompt_sha256"], body)
+            self.assertIn('"temperature": 1.0', body)
+            self.assertIn("MODEL VERSION: offline-fixture", body)
+            self.assertNotIn("future-build", body)
+            self.assertNotIn("future-label", body)
+
+    def test_sample_failed_result_keeps_provenance_without_a_journal(self):
+        self.sample_args()
+        self.args.target = "tests"
+        engine, client, _ = self.engine([response("incomplete transcription")] * 4)
+        with patch.object(t, "Journal", side_effect=AssertionError("test must not touch cache")):
+            self.assertEqual(t.run(self.args, engine), 1)
+        report = next((self.root / "outputs").glob("*.txt")).read_text(encoding="utf-8")
+        self.assertIn("SAVED RESPONSE", report)
+        self.assertIn("incomplete transcription", report)
+        self.assertEqual(report.count("PROMPT SHA256:"), 2)
+        self.assertEqual(report.count("INPUT SHA256:"), 2)
+        self.assertEqual(report.count("MODEL VERSION: unavailable"), 2)
+
+    def test_request_metadata_records_provider_image_settings_and_hint_flag(self):
+        self.use_profile("gpt-6-astra", "--no-csv-hints", "--max-edge", "1200", "--image-detail", "high")
+        metadata = t.request_metadata("source prompt", self.args, "input-hash")
+        self.assertEqual(metadata["image_detail"], "high")
+        self.assertEqual(metadata["max_edge"], 1200)
+        self.assertFalse(metadata["csv_hints"])
+        self.assertNotIn("temperature", metadata["generation"])
+        result = dict(status="ok", text="body", request_metadata=metadata)
+        block = t.output_block(self.cards()[0], result)
+        self.assertIn("MODEL VERSION: unavailable", block)
+        self.assertNotIn("MODEL VERSION:", t.output_block(self.cards()[0], dict(status="ok", text="body")))
 
     def test_usage_footer_does_not_charge_reused_cards(self):
         engine, _, _ = self.engine()
@@ -860,7 +993,12 @@ class DatasetTest(unittest.TestCase):
                      "female (\u2640) and male (\u2642)", "do not substitute a similar-looking letter",
                      "Never silently merge active and deleted text",
                      "Check the next line", "separate entries in reading order",
-                     "Do not repeat ordinary annotations", "An address beneath a signature"):
+                     "Do not repeat ordinary annotations", "An address beneath a signature",
+                     "Incubation: Trace of red\none infertile", "source brackets in ANNOTATIONS",
+                     "Treat underlying text, cancellation strokes", "separate layers",
+                     "publisher/printer imprints", "A calendar-valid date may still have been misread",
+                     "Distinguish collectors, dealers, former owners, donors and annotators",
+                     "Do not invent identities, intentions or historical explanations"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, prompt)
         self.assertNotIn("Brandt", prompt)
@@ -904,7 +1042,7 @@ class DatasetTest(unittest.TestCase):
         self.args.model = "test-model"
         self.assertNotEqual(key, t.prepare_card(card, prompt, self.args)[0])
         self.args.model = t.MODEL
-        self.args.temperature = 1.0
+        self.args.temperature = 0.1
         self.assertNotEqual(key, t.prepare_card(card, prompt, self.args)[0])
         self.args.temperature = t.MODEL_PROFILES[t.MODEL].temperature
         self.card_image(card.paths[0].name, "black")
@@ -1051,7 +1189,8 @@ class DatasetTest(unittest.TestCase):
             with self.subTest(other_flags=other_flags), t.Journal(path) as journal:
                 text = transcript() + "\nNone."
                 original = {"key": "old", "cache_version": t.CACHE_VERSION, "status": "review",
-                            "text": text, "warnings": ["Transcription notes are present.", *other_flags]}
+                            "text": text, "warnings": ["Transcription notes are present.", *other_flags],
+                            "saved_at": datetime.now(timezone.utc).isoformat()}
                 journal.append(original)
                 entry = journal.reusable("old")
                 self.assertEqual(entry["warnings"], other_flags)
@@ -1322,9 +1461,59 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(t.run(self.args, engine2), 0)
         self.assertEqual(client2.calls, [])
 
+    def test_cache_reuse_expires_by_entry_timestamp_without_erasing_history(self):
+        now = datetime(2026, 9, 23, 15, tzinfo=timezone.utc)
+        path = self.root / "age_cache.jsonl"
+        base = {"key": "age", "cache_version": t.CACHE_VERSION, "status": "ok",
+                "text": "saved text", "warnings": []}
+        with t.Journal(path, now=lambda: now) as journal:
+            for hours, usable in ((47, True), (48, True), (49, False), (-1, False)):
+                with self.subTest(hours=hours):
+                    entry = {**base, "saved_at": (now - t.timedelta(hours=hours)).isoformat()}
+                    journal.append(entry)
+                    self.assertEqual(journal.reusable("age") is not None, usable)
+            for stamp in (None, "invalid", "2026-09-23T14:00:00"):
+                with self.subTest(stamp=stamp):
+                    entry = {**base, "saved_at": stamp}
+                    journal.append(entry)
+                    self.assertIsNone(journal.reusable("age"))
+            journal.append({**base, "saved_at": now.isoformat(), "status": "failed"})
+            self.assertIsNone(journal.reusable("age"))
+        self.assertEqual(len(path.read_text().splitlines()), 8)
+
+    def test_expired_cache_triggers_fresh_request_and_preserves_old_entry(self):
+        self.args.target = "E4927"
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        journal_path = next(self.family.glob("*_cache.jsonl"))
+        entry = json.loads(journal_path.read_text().splitlines()[0])
+        entry["saved_at"] = (datetime.now(timezone.utc) - t.timedelta(hours=49)).isoformat()
+        journal_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+        engine2, client2, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine2), 0)
+        self.assertEqual(len(client2.calls), 1)
+        lines = journal_path.read_text().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(json.loads(lines[0])["saved_at"], entry["saved_at"])
+        engine3, client3, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine3), 0)
+        self.assertEqual(client3.calls, [])
+        if os.name == "nt":
+            self.assertEqual(list(self.root.rglob("*.lock")), [])
+
+    def test_windows_removes_legacy_lock_files_on_acquisition(self):
+        if os.name != "nt":
+            self.skipTest("Windows named mutex cleanup")
+        path = self.root / "legacy.lock"
+        path.write_bytes(b"0")
+        with t.species_lock(path):
+            self.assertFalse(path.exists())
+        self.assertFalse(path.exists())
+
     def test_journal_recovers_from_partial_line_and_never_reuses_failure(self):
         path = self.root / "journal.jsonl"
-        good = {"key": "good", "cache_version": t.CACHE_VERSION, "status": "ok", "text": "saved text", "warnings": []}
+        good = {"key": "good", "cache_version": t.CACHE_VERSION, "status": "ok",
+                "text": "saved text", "warnings": [], "saved_at": datetime.now(timezone.utc).isoformat()}
         path.write_bytes((json.dumps(good) + '\n{"key":"broken"').encode())
         with t.Journal(path) as journal:
             self.assertEqual(journal.reusable("good"), good)
@@ -1336,15 +1525,26 @@ class DatasetTest(unittest.TestCase):
             self.assertIsNone(journal.reusable("good"))
 
     def test_second_species_lock_is_rejected(self):
-        if os.name == "nt":
-            self.skipTest("Windows lock must be checked on the deployment machine")
         path = self.root / "lock"
         with t.species_lock(path):
-            with self.assertRaises(RuntimeError):
-                with t.species_lock(path):
-                    pass
+            if os.name == "nt":
+                # Windows mutexes are reentrant in one thread; use another thread.
+                from concurrent.futures import ThreadPoolExecutor
+                def compete():
+                    with t.species_lock(path):
+                        pass
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(compete)
+                    with self.assertRaises(RuntimeError):
+                        future.result()
+            else:
+                with self.assertRaises(RuntimeError):
+                    with t.species_lock(path):
+                        pass
         with t.species_lock(path):
             pass
+        if os.name == "nt":
+            self.assertFalse(path.exists())
 
     def test_actual_sdk_serializes_images_and_parses_errors_offline(self):
         try:
@@ -1382,7 +1582,7 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(len([part for part in parts if "inlineData" in part]), 2)
         self.assertIn("SECTION: FRONT", parts[1]["text"])
         self.assertIn("SECTION: BACK OF SLIP", parts[3]["text"])
-        self.assertEqual(captured[-1]["generationConfig"]["temperature"], 0.1)
+        self.assertEqual(captured[-1]["generationConfig"]["temperature"], 1.0)
         self.assertGreaterEqual(clock.now, 7)
         self.assertEqual(t.retry_delay(errors.APIError(429, {"error": {"details": [{"retryDelay": "9s"}]}})), 9)
 
@@ -1493,7 +1693,7 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(result["usage"], {"prompt_token_count": 100, "candidates_token_count": 40,
                                          "thoughts_token_count": 20, "total_token_count": 160})
         payload = client.calls[0]
-        self.assertNotIn("temperature", payload)
+        self.assertEqual(payload["temperature"], 1.0)
         self.assertNotIn("thinking_config", payload)
         self.assertFalse(payload["store"])
         parts = payload["input"][0]["content"]
@@ -1583,7 +1783,10 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(captured[0].headers["authorization"], "Bearer offline-openai-token")
         body = json.loads(captured[-1].content)
         self.assertEqual(body["model"], model)
-        self.assertNotIn("temperature", body)
+        if t.MODEL_PROFILES[model].supports_temperature:
+            self.assertEqual(body["temperature"], 1.0)
+        else:
+            self.assertNotIn("temperature", body)
         self.assertFalse(body["store"])
         self.assertEqual(len([part for part in body["input"][0]["content"] if part["type"] == "input_image"]), 2)
 
@@ -1664,11 +1867,11 @@ class DatasetTest(unittest.TestCase):
                     self.assertEqual(t.run(self.args, engine), 0)
                 self.assertEqual([call["config"]["temperature"] for call in client.calls], [temp, temp])
                 self.assertEqual(len(list((self.root / "outputs").glob(f"*_{tag}_t{temp}.txt"))), 1)
-        with patch.object(t, "TEST_TEMPERATURE", 1.0):
-            self.assertEqual(t.parse_args([]).temperature, 0.1)
+        with patch.object(t, "TEST_TEMPERATURE", 0.7):
+            self.assertEqual(t.parse_args([]).temperature, 1.0)
             self.sample_args()
             t.configure_test_run(self.args)
-            self.assertEqual(self.args.temperature, 1.0)
+            self.assertEqual(self.args.temperature, 0.7)
             self.sample_args("--temperature", "auto")
             t.configure_test_run(self.args)
             self.assertNotIn("temperature", t.generation_config(self.args))

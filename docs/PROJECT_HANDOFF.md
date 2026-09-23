@@ -2,6 +2,26 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## 48-hour cache reuse and lock cleanup - 23 September 2026
+
+Build **2026-09-23.5** limits normal journal reuse to matching completed entries saved at most 48 hours ago. `Journal.recent` checks each entry's timezone-aware `saved_at` in UTC; invalid, absent, or future dates cause a fresh request. No journal history or readable reports are deleted. Test and console modes remain fresh by design; cache fingerprints and checkpoint ordering are unchanged.
+
+On Windows, `species_lock` now uses a path-derived named OS mutex for both species and daily quota protection. It creates no lock file and removes an older `.lock` file for that path when safe on acquisition. A process crash releases the mutex. POSIX keeps persistent `flock` files because unlinking them would permit concurrent writers to lock different inodes. This is local-machine coordination, as before.
+
+Offline baseline: **142 tests, 140 passed, 2 expected skips**. The focused cache-age and lock tests pass. Full-suite results appear in [testing](testing.md). No API requests, scan/CSV edits, commits, or pushes were made for this change.
+
+## Fringilla fidelity and provenance update - 23 September 2026
+
+Build **2026-09-23.4** implements the approved Fringilla review refinements. `egg_slip_prompt.py` remains the prompt owner and now exposes `PROMPT_VERSION`. Shared guidance emphasizes raised/multiline field attachment, character-by-character date/number checks, separate layers of alterations and filing notes, imprints, restrained explanations and distinct collector/owner/annotator roles. Signature candidates from this review were not hard-coded as facts or new collector aliases. See [review cases and unresolved readings](fringilla_review.md).
+
+`transcribe.py` adds conservative field-format review hints without rewriting responses or adding API attempts. A side needs three recognized field starts before these heuristics apply; annotations/notes are excluded. Matching cached text receives derived format warnings locally without journal mutations. Bracket counts are labelled as passages, including legacy warning display, because source brackets are not necessarily uncertainty.
+
+New results checkpoint request metadata (build/prompt versions, initial assembled-prompt SHA-256, existing input fingerprint, generation/image settings and hint enablement) before report output. Reuse preserves original provenance; older entries do not receive fabricated metadata. Returned model versions are shown when available. No provider execution, quota accounting or image ordering was extracted or replaced.
+
+The maintainer chose **1.0** as the normal and test default for profiles accepting numeric temperature; Astra keeps omission and CLI overrides remain available. Test settings remain independent of normal profiles. Changed prompt/configuration bytes intentionally refresh selected requests, with existing reports/cache entries retained and the fingerprint algorithm unchanged.
+
+Baseline: 133 tests, 131 passed, 2 skipped. Final: **142 tests, 140 passed, 2 expected skips** (POSIX lock on Windows and missing optional three-image fixture), including both SDK transport tests. Offline replay flags formatting in 7/7 records in each supplied Fringilla report. No API requests, source-data edits, commits or pushes. This verifies software behavior, not improved live transcription accuracy.
+
 ## Usage accounting and compact headers - 23 September 2026
 
 Build **2026-09-23.3** adds the requested per-attempt tokens, paid-rate estimated USD, run totals/averages, and report footers. `token_usage.py` owns provider usage normalization, pricing and aggregation without egg-specific dependencies. `Transcriber.request` wraps the existing transports and records usage before OpenAI completion normalization or egg-slip validation; `_transcribe` retains pacing, persistent quota and retry policy. Each returned card result adds per-attempt `call_usage`, which normal journals checkpoint before report rendering. Existing final-response usage and cache identity remain compatible.

@@ -16,7 +16,16 @@ Prompt instructions are desired reading behavior. Python's structural validator 
 
 Start the front body with its complete visible collection heading, including its name and address, preserving its lines before fields. If none is visible, do not invent one. Do not intentionally add `SECTION: FRONT`, a second record ID, or decorative banners; Python supplies record headers.
 
-Use the labels actually printed on that card, in visual order: top to bottom, left to right within a row. Write `Label: value`, one labelled field per line, retaining multiline values and sublabels. The field set is dynamic. A printed but unfilled field gets `-`; illegible handwriting is not a blank. Preserve printed units. Set No. and Collector remain separate even when printed on one row. The validator does not currently enforce every label/colon or forbid every redundant front heading.
+Use the labels actually printed on that card, in visual order: top to bottom, left to right within a row. Write `Label: value`, one labelled field per line, retaining multiline values and sublabels. The field set is dynamic. A printed but unfilled field gets `-`; illegible handwriting is not a blank. Preserve printed units. Set No. and Collector remain separate even when printed on one row. The validator flags some likely missing colons and merged field pairs when a side contains at least three recognized field starts. This is a conservative review aid, not a complete field schema. Narrative passages, continuations, annotations and notes are not automatically reformatted.
+
+Raised set-mark components stay with Set mark. Multiline incubation entries stay together, for example:
+
+```text
+Incubation: Trace of red
+one infertile
+```
+
+This demonstrates layout, not text to insert into other cards. Reread numeric fields character by character, including Roman months and year endings: a calendar-valid date can still be transcribed incorrectly. Keep visible feet/inch marks rather than spelling out their units.
 
 Plain text is required: no generated Markdown tables, equations, LaTeX commands, introductions, or summaries. Fractions and set marks remain ordinary text such as `5/4` and `1 1/2`. A vertical stack can be separate measurements rather than a fraction: never evaluate, reduce, or turn such values into decimals. Preserve meaningful line breaks in multiline fields.
 
@@ -48,6 +57,8 @@ Bracket only the uncertain part of a plausible reading: `[3]33`, for example. Us
 
 For a difficult signature, visible strokes/initials can be interpreted using other supplied sides and available catalogue hints. The maintainer identified a stylized signature as **H. W. Brandt**; this candidate now lives in CSV-selected collector guidance rather than the universal base prompt. It is a candidate reading, not a supplied visual exemplar. Collection ownership alone does not identify the collector. Do not insert Brandt into every Brandt collection card, replace another legible name, fill an empty Collector field, expand initials, or list unsupported alternatives. If a reading remains inferred, bracket it and explain the supporting evidence in transcription notes.
 
+The same evidence rules apply to explanatory notes. Do not invent identities from initials, infer intentions, or justify an uncertain name from catalogue hints. Collectors, dealers, former owners, donors and annotators are separate roles; CSV-selected collector guidance does not identify every signature on the card. Other-card exemplars must actually be supplied to the request to count as evidence.
+
 CSV hints are optional and explicitly fallible. Multiple matching records remain separate hints; never silently combine conflicting collectors/localities or overwrite visible historical taxonomy.
 
 ## Editing the prompt and collector guidance
@@ -68,15 +79,17 @@ The September 23 revision deliberately changes transcription policy based on the
 - Preserve dates verbatim and note clearly impossible calendar dates without correcting them or guessing ambiguous date order.
 - Recheck headings, numbers, all measurement subfields, margins, and dense text. Notes explain substantive issues, not routine agreement with catalogue hints.
 
-These are model instructions, not new semantic validation in Python. An `OK` result still does not certify an accurate reading or valid date. No hard-coded specimen readings from the sample comparison were added to the prompt.
+These are model instructions, not new semantic validation in Python. An `OK` result still does not certify an accurate reading or valid date. The multiline incubation example demonstrates structure only; it explicitly prohibits copying example values unless visible. No card-number lookup or automatic reading correction was added.
 
-**Intentional cache migration:** the complete assembled prompt already participates in the cache fingerprint. The revised base prompt therefore causes fresh requests for selected cards on their next normal run; old reports and cache entries remain intact. Later edits to a matching collector rule also change that card's fingerprint. Adding an unrelated collector rule does not. The cache algorithm, image order/bytes, validation, provider settings, retry accounting, and output format are unchanged by this extraction.
+**Intentional cache migration:** the complete assembled prompt already participates in the cache fingerprint. The revised base prompt therefore causes fresh requests for selected cards on their next normal run; old reports and cache entries remain intact. Later edits to a matching collector rule also change that card's fingerprint. Adding an unrelated collector rule does not. The original module extraction preserved image preparation and request execution. Build 2026-09-23.4 deliberately adds format review hints and request metadata, and changes numeric temperature defaults to 1.0. These changes are documented separately from the extraction; existing reports and cache entries are retained.
 
 ## Annotations versus transcription notes
 
 `ANNOTATIONS:` captures source content: unlabelled writing, stamps, marginal numbers, additions, meaningful marks, and readable crossed-out text/replacements. Include location and ink color when clear. Preserve the relationship between a cancelled reading and its replacement, not a silently repaired field. Ordinary printed rules and punch holes need no transcription.
 
-A separate catalogue stamp belongs here, not appended to Set No. or Collector. Do not invent an `E` prefix on a visible numeric stamp. A collection heading belongs at the top of the body; an alteration to it can also be described in annotations.
+Include publisher/printer imprints here, even when vertical. Preserve original text, cancellation strokes and inserted text as separate layers; do not reconstruct a taxon from expected spelling. Later filing and ownership notes remain separate from original field text when the evidence distinguishes them. Describe colour only when clear, separating the stamp colour from the colour of a cancelling stroke.
+
+A separate catalogue stamp belongs here once per side, not repeated in the body or appended to Set No. or Collector. Do not invent an `E` prefix on a visible numeric stamp. A collection heading belongs at the top of the body; an alteration to it can also be described in annotations.
 
 Each supplied front requires an `ANNOTATIONS:` section, even when empty. Each back may have its own annotations. Multiple location entries are ordinary content. Repeated annotation headings on one side retain all text and produce review, rather than failing because the heading is not globally unique.
 
@@ -101,13 +114,15 @@ The validator excludes model thought parts, checks completion, answer text, dete
 | Status | Meaning and reuse |
 | --- | --- |
 | `OK` | Structural checks passed with no warning. Reusable in a matching normal run; not human-certified. |
-| `REVIEW` | Accepted text with warnings. Also reusable normally. Includes bracketed text, nonempty notes, missing/gapped sides, repeated annotations, removed empty back templates, Markdown fences, and test-mode unmatched catalogue references. |
+| `REVIEW` | Accepted text with warnings. Also reusable normally. Includes bracketed text, suspected field-format problems, nonempty notes, missing/gapped sides, repeated annotations, removed empty back templates, Markdown fences, and test-mode unmatched catalogue references. |
 | `FAILED` | Request/local input/response validation failed. Available answer text is retained; not reused as a completed result. |
 | `PAUSED` | Local/provider quota, billing, or excessive server wait stopped the run. Available text is retained; not reused as complete. |
 
-The header's single `REVIEW:` line are Python-generated reasons. They are distinct from both annotation text and the model's transcription notes.
+The header's single `REVIEW:` line contains Python-generated reasons. They are distinct from both annotation text and the model's transcription notes.
 
-**Known false positive:** every single-line square-bracket span except `[blank]` is currently counted as an uncertain reading. Literal printed text such as `form A291 [3-14-32-1m]` therefore triggers review even if read exactly. This has not been fixed. Avoid “fixing” the source text by stripping meaningful printed brackets. Markdown fences produce a warning; the parser tolerates some Markdown headings despite the prompt's plain-text rule. Detected LaTeX triggers a bounded rereading, not regex conversion into possibly wrong measurements.
+**Bracket counts:** every single-line square-bracket span except `[blank]` is counted as a **bracketed passage**, not automatically an uncertain reading. Literal source brackets still trigger conservative review and must be preserved. The prompt reserves editorial brackets for uncertain readings and asks for descriptions such as signatures/ink colour in annotation prose. Existing journal warning labels are translated for display without rewriting historical text. Markdown fences produce a warning; the parser tolerates some Markdown headings despite the prompt's plain-text rule. Detected LaTeX triggers a bounded rereading, not regex conversion into possibly wrong measurements.
+
+**Format review:** on sides with at least three recognized field starts, missing label colons and selected adjacent field pairs trigger `Format:` warnings. Checks exclude annotations/notes, accept grouped measurement sublabels and multiline continuations, and retain the response exactly. They do not trigger a corrective API call. Other forms may escape detection, and prose resembling a field can still cause review. The same hints are derived locally when reusing a matching cache entry.
 
 See [retry configuration](configuration.md#retry-policy) for the one corrective retry and total attempt ceiling. `SAVED RESPONSE (see error above):` does not mean the response was necessarily cut off; the error explains why it was not accepted.
 
@@ -119,16 +134,20 @@ Test output is `test_YYYYMMDD_HHMM_<model-tag>_t<temperature>.txt` in `tests/out
 
 Within each report, numbered groups precede uncatalogued groups; [filename rules](filename_rules.md) defines sorting. Normal headers start with 22 equals signs, `CM` and the catalogue digits, then enough equals signs for a 50-character line (minimum two on the right). CM begins in column 23, digits in column 25, with leading zeros preserved. A shared slip gets one banner per number and one body. Uncatalogued slips get one filename banner per supplied side, without an invented number; long filenames can exceed 50 characters.
 
-Headers contain `ID`, `STATUS`, a single optional `REVIEW` line, `FILES`, `MODEL`, then `TOKENS` with cost appended on the same line (` |  $0.0016`). Review reasons are separated by `    |    `; the notes warning renders as `Notes present`. The model line omits the provider prefix. Reused statuses append `(reused)`; their displayed usage/cost is historical and excluded from the new run totals. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
+Headers contain `ID`, `STATUS`, a single optional `REVIEW` line, `FILES`, `MODEL`, new-result provenance (described below), then `TOKENS` with cost appended on the same line (` |  $0.0016`). Review reasons are separated by `    |    `; the notes warning renders as `Notes present`. The model line omits the provider prefix. Reused statuses append `(reused)`; their displayed usage/cost is historical and excluded from the new run totals. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
 
 ```text
 ID: Serinus_sp_E2576
 STATUS: REVIEW
-REVIEW: 2 bracketed uncertain reading(s)    |    Notes present
+REVIEW: 2 bracketed passage(s)    |    Notes present
 FILES: Serinus_sp_E2576.jpg
 MODEL: gemini-3.5-flash-lite
 TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  $0.0041
 ```
+
+New card results include `BUILD` and `PROMPT` versions, a full `PROMPT SHA256` of the assembled initial prompt (including enabled hints), `INPUT SHA256` using the existing complete input/cache fingerprint, `SETTINGS` as JSON, and `MODEL VERSION` when the response supplies it (otherwise `unavailable`). Settings include the exact generation configuration, local maximum image edge, CSV-hint enablement, and OpenAI image detail when applicable. Omitted provider defaults are represented by absence from the generation configuration, not guessed values. Fingerprints identify the initial request; corrective retries append the existing bounded correction instructions.
+
+This metadata is checkpointed with normal results before reporting and also appears in fresh test/console results, including returned failed responses. It contains no raw hint values, images or credentials. Reused results retain the metadata of their original request, not the current build's labels. Older entries lacking metadata remain readable with the legacy shorter header; unknown historical settings are not fabricated. Merely changing a displayed version label does not invalidate the cache; actual prompt/configuration changes do.
 
 Card usage includes all its attempts, including rejected responses and retries. The console prints usage and estimated cost for each attempt, then cumulative usage after each card. Each report ends with token totals, averages, and a line such as `RUN: 147 calls | 576,830 tokens | $0.81`. A species report counts only fresh attempts made for that file; the console summary covers the whole invocation. A run using only cached results ends with zero new calls/tokens/cost.
 
@@ -138,12 +157,12 @@ Normal journals retain per-attempt `call_usage` (normalized tokens, provider/mod
 
 ## Journals and result identity
 
-Normal mode uses `<Species>_transcriptions_cache.jsonl` and `<Species>_transcriptions.lock` in the family directory. A SHA-256 key covers `CACHE_VERSION`, requested model, generation configuration, fully assembled prompt (including relevant hints/warnings), maximum edge setting, ordered source filenames/sections, and the bytes actually submitted. OpenAI adds provider and image detail; the original Gemini manifest shape is retained for compatibility.
+Normal mode uses `<Species>_transcriptions_cache.jsonl` in the family directory. Windows uses a system mutex for the species and quota locks; older `.lock` files for paths visited by a run are removed when the mutex is acquired. POSIX retains lock files to preserve inode-based `flock` safety. A SHA-256 key covers `CACHE_VERSION`, requested model, generation configuration, fully assembled prompt (including relevant hints/warnings), maximum edge setting, ordered source filenames/sections, and the bytes actually submitted. OpenAI adds provider and image detail; the original Gemini manifest shape is retained for compatibility.
 
 Changing images, names/order, prompt/hints, model, or generation settings makes a new key. Pacing, daily cap, timeout, retry count, script path/build number, output filenames, and cosmetic rendering changes do not. Switching back to a matching configuration can reuse that configuration's earlier result. Prompt changes naturally cost fresh requests; moving an unchanged prompt should not.
 
-The latest journal entry per key wins. Only matching `ok`/`review` entries with nonempty text and valid warning containers are reusable. Full validation is not rerun on cached text; validation-policy changes need deliberate compatibility handling. `--force` bypasses reuse; a failed forced attempt becomes the latest entry for its key, so the next run retries. Old readable reports are not imported as cache.
+The latest journal entry per key wins. Only matching `ok`/`review` entries with nonempty text, valid warning containers, and a `saved_at` timestamp no more than 48 hours old are reusable. The age is measured from each entry in UTC; exactly 48 hours is allowed. Missing, malformed, naive, or future timestamps are not reusable. Expired entries remain in the journal and old text reports are unchanged. Full completion validation is not rerun on cached text; empty-note cleanup and conservative field-format hints are derived locally without modifying the journal or requesting a new transcription. Other validation-policy changes need deliberate compatibility handling. `--force` bypasses reuse; a failed forced attempt becomes the latest entry for its key, so the next run retries. Old readable reports are not imported as cache.
 
-Each new result is journaled with flush/fsync **before** its report block is written. Corrupt journal lines are warned about and ignored; intact entries remain usable, and a partial last line is separated before appending. A crash between API completion and journal append can still require another request. Lock files may remain after exit; OS lock release, not file deletion, controls availability. These locks are not distributed coordination across Google Drive machines.
+Each new result is journaled with flush/fsync **before** its report block is written. Corrupt journal lines are warned about and ignored; intact entries remain usable, and a partial last line is separated before appending. A crash between API completion and journal append can still require another request. Windows mutexes release when the process exits and create no `.lock` files. POSIX lock files must remain: deleting one would let another process lock a new inode while the first run still holds the old one. Neither mechanism coordinates separate Google Drive machines.
 
 `test` never opens a journal, even when matching production entries exist. Console mode also makes fresh calls and has no transcription report/journal. Both still use the persistent request counter described in [configuration](configuration.md). Source scans and CSV are never changed by image preparation or output writing.

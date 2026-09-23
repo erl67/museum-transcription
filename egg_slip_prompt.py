@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
+PROMPT_VERSION = "2026-09-23.4"
+
+
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
 text. No Markdown, LaTeX, math delimiters, tables, introduction, summary, or invented
 fields. Write fractions as ordinary text, such as 5/4 or 1 1/2. Never evaluate,
@@ -40,9 +43,19 @@ sublabels and genuinely multiline values. A printed but empty field has value '-
 illegible or obscured writing is not blank. Do not invent fields on unlabelled
 narrative slips: retain their paragraphs and separate entries in reading order.
 
-A field is defined by its label and associated entry. A separate catalogue stamp
-belongs in ANNOTATIONS, not in an invented field or as a replacement for a nearby
-field value. Keep Set No. and Collector separate. Follow handwriting continuation
+A field is defined by its label and associated entry, including raised, lowered
+and multiline writing. Position alone does not make a continuation an annotation.
+Keep each set-mark component with Set mark, and each incubation line with Incubation.
+For example, two fields printed on one row must become separate lines:
+No. of eggs in set: <visible value>
+Set mark: <visible value>
+A multiline incubation entry stays together, for example:
+Incubation: Trace of red
+one infertile
+These examples demonstrate layout only; never copy their values unless visible.
+A separate catalogue stamp belongs once in that side's ANNOTATIONS, not in an
+invented field, repeated in the body, or substituted for a nearby field value.
+Keep Set No. and Collector separate. Follow handwriting continuation
 across lines and unused printed labels; do not assign continuous prose to an
 unrelated field just because it crosses that label. If its attachment is unclear,
 retain the passage in ANNOTATIONS with its location and explain the uncertainty.
@@ -66,12 +79,22 @@ there is no defensible reading, and [illegible number] for an unreadable number.
 Bracket the full uncertain portion, but not surrounding text that is clear. Do not
 turn speculation into unmarked text or prefer a fluent sentence over visible strokes.
 Do not add 'sic' or assert a source spelling error merely to defend a doubtful reading.
+Use editorial square brackets for uncertain readings, not descriptions such as
+'[signature]' or '[in pencil]'; put those descriptions in annotation prose.
+Preserve brackets actually written/printed on the source and identify them as
+source brackets in ANNOTATIONS when they could be mistaken for editorial uncertainty.
+The same evidence and uncertainty rules apply to ANNOTATIONS and TRANSCRIPTION NOTES.
+Do not use explanatory notes to turn a doubtful reading into a confident claim.
 
 Use visible letter shapes and supporting evidence on the supplied sides, together
 with any fallible catalogue hints, to interpret difficult handwriting or signatures.
 Do not stop at [illegible] when that evidence supports a defensible reading. If a
 signature remains inferred, bracket it and briefly identify the supporting evidence
 in TRANSCRIPTION NOTES. Collection ownership does not identify the collector.
+Distinguish collectors, dealers, former owners, donors and annotators; a signature
+elsewhere on a card must not overwrite the Collector field. Other cards or signature
+exemplars are evidence only if actually supplied with this request. A catalogue
+hint offering a plausible name never removes uncertainty in the visible initials.
 Do not fill blank fields, expand initials, identify annotators without evidence,
 or claim comparison with historical records or exemplars that were not supplied.
 Preserve differences between sides rather than rewriting one to agree with another.
@@ -83,8 +106,16 @@ alterations with locations and ink colour only when clear. Preserve readable
 deleted text and replacements, stating which characters are crossed out and their
 relationship to the replacement. Never silently merge active and deleted text or
 extend a deletion to adjacent words. Bracket uncertain deleted readings. Distinguish
-later corrections from original values. Do not invent an E prefix on a numeric stamp.
+later corrections from original values. Treat underlying text, cancellation strokes
+and added text as separate layers; do not combine them into a reconstructed taxon.
+Do not recover obscured letters solely from the expected species or a CSV hint.
+Separate later filing instructions, ownership notes and catalogue references from
+original field text when placement and handwriting clearly distinguish them.
+Record each stamp's text, colour and cancellation separately; do not confuse a
+coloured cancellation stroke with the ink of the underlying number. Omit uncertain
+colour descriptions. Do not invent an E prefix on a numeric stamp.
 A collection heading belongs at the top; annotations describe alterations to it.
+Include publisher/printer imprints in ANNOTATIONS, including vertical marginal text.
 Ordinary printed rules and punch holes do not need transcription.
 
 On a slip containing multiple entries, preserve their boundaries and order. Keep
@@ -106,6 +137,8 @@ or invent front fields. Do not omit repeated text just because another side has 
 empty unless there are unresolved readings, physical/interpretive issues, missing
 sides, meaningful discrepancies, source anomalies or multiple catalogue references
 to explain. Do not repeat ordinary annotations or report routine agreement with hints.
+Do not invent identities, intentions or historical explanations. A normal transfer
+date later than a collection date needs no explanatory note by itself.
 Reference filenames and CSV values are not visible card text.
 
 Preserve dates exactly as written. Check clearly readable dates for calendar
@@ -113,9 +146,13 @@ impossibilities; if impossible, explain why in TRANSCRIPTION NOTES without corre
 the date or guessing the intended one. Distinguish an impossible date from uncertain
 handwriting or ambiguous date order. Do not normalize historical date notation.
 
-Before finishing, recheck every panel and supplied side for omitted lines: the full
-heading, corner fields, all numbers and measurement subfields, alterations, dense
-bottom writing, marginal notes and word continuations. The output order is the
+Before finishing, reread dates, egg counts, set marks and catalogue numbers directly
+from the image, character by character, including Roman numerals and final year
+digits. A calendar-valid date may still have been misread. Preserve units and symbols
+as written, without expanding feet/inch marks into words. Recheck every panel and
+supplied side for omitted lines: the full heading, corner fields, measurement
+subfields, alterations, dense bottom writing, marginal imprints and word continuations.
+Check that separate printed fields have separate 'Label: value' lines. The output order is the
 visible front collection heading, front fields/narrative and ANNOTATIONS:, supplied
 BACK OF SLIP sections, then one final TRANSCRIPTION NOTES:.
 """
@@ -171,6 +208,10 @@ def output_requirements(card: Card) -> str:
         lines.append("Keep each back's annotations within its own back section.")
     else:
         lines.append("FRONT ONLY. Do not output a BACK OF SLIP heading or a blank-back placeholder.")
+    lines.append("Separate printed fields into 'Label: value' lines; keep multiline entries "
+                 "with their own labels, including raised set marks and incubation continuations.")
+    lines.append("Reread each date and number from the image; record alterations and marginal "
+                 "imprints, and explain only what the supplied evidence supports.")
     lines.append("Finish with exactly one TRANSCRIPTION NOTES: section for the whole card.")
     lines.append("Use plain text only, with ordinary fractions and separate labelled measurements; "
                  "no LaTeX commands, math delimiters, or equation environments.")

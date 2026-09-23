@@ -57,13 +57,13 @@ Test paths default to `tests/inputs/` and `tests/outputs/` beside the script, in
 
 ```text
 python transcribe.py tests --dry-run
-python transcribe.py tests --model gemini-3.5-flash-lite --temperature 0.1
-python transcribe.py tests --model gemini-3.5-flash-lite --temperature 1.0
+python transcribe.py tests --model gemini-3.5-flash-lite
+python transcribe.py tests --model gemini-3.8-flash
 ```
 
 The configured CSV path is used; `--csv` overrides it. Only the first command is offline. Review its card count/order before launching paid/quota-consuming runs. Substitute another configured model for the next comparison. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `tests` at its prompt (`test` is also accepted). Each launch runs one combination.
 
-For the four configured OpenAI models, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. For GPT-5.6, `TEST_TEMPERATURE` otherwise overrides the omitted normal temperature. Astra always omits temperature and rejects explicit numeric overrides. See [configuration](configuration.md) for the model IDs and parameter limitations. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
+For the four configured OpenAI models, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. Normal and test numeric defaults are now 1.0; `TEST_TEMPERATURE` remains an independent test-only setting. Astra always omits temperature and rejects explicit numeric overrides. See [configuration](configuration.md) for the model IDs and parameter limitations. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
 
 A non-dry test creates the input/output directories if absent. An empty folder causes no API calls or report and returns code 1 with instructions. A dry run creates nothing, does not decode the images or test credentials, and returns code 1 if its folder is absent. Test input and output cannot be the same resolved directory. `test --console-only` is invalid.
 
@@ -87,9 +87,9 @@ Daily accounting is shared with normal calls and retries. Twenty daily requests 
 ## Establishing a baseline before modularization
 
 1. Freeze the selected image set and relevant catalogue hints/settings for a comparison round. Record exact file hashes so later corrections are not mistaken for model changes.
-2. Finish Gemini model/temperature runs, then OpenAI comparisons. Evaluate missing lines, wrong readings/numbers, unsupported inference, side omissions, formatting, latency, and attempts. Avoid judging by tidy formatting alone.
+2. Use the chosen temperature of 1.0 for models whose profiles accept it; compare prompt/model changes without introducing an unnecessary temperature sweep. Evaluate missing lines, wrong readings/numbers, unsupported inference, side omissions, formatting, latency, and attempts. Avoid judging by tidy formatting alone.
 3. Human-review especially difficult readings. Distinguish acceptable uncertainty from an invented confident answer and from a harmless formatting variation.
-4. Retain a small reviewed reference set and representative provider responses locally or in explicitly publication-approved fixtures. No canonical gold transcriptions or scoring tool currently exists.
+4. Retain a small reviewed reference set and representative provider responses locally or in explicitly publication-approved fixtures. The [Fringilla review checklist](fringilla_review.md) records concrete checks and unresolved readings from the September 23 comparison; it is a partial visual-review reference, not a human-certified full gold transcription or an automatic accuracy scorer.
 5. Before moving domain code, capture deterministic expectations for grouping, prompt strings, ordered image bytes/labels, cache keys, validation, and rendered output. Existing mocks are useful; reviewed sample responses would strengthen them.
 6. During extraction, replay the same provider responses offline and compare those artifacts exactly where behavior is intended to be identical. Do not depend solely on new live calls: nondeterministic output could hide a code regression or falsely suggest one.
 7. After structural equivalence, use the same curated samples for authorized live spot comparisons if needed. Keep prompt tuning separate from architectural changes.
@@ -106,6 +106,14 @@ Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` l
 | Output/journal handling | Banners/order/spacing/status, collision safety, fsync ordering, interrupted writes, reuse/failure semantics. |
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
+
+## Fringilla refinement verification - build 2026-09-23.4
+
+Baseline: **133 tests, 131 passed, 2 expected skips**. After this update: **142 tests, 140 passed, 2 expected skips** (POSIX locking on Windows and the absent optional original three-image fixture). Both SDK transports ran against offline mocks.
+
+Nine new tests cover numeric defaults and overrides; format hints on front/back fields without altering narratives, notes or multiline measurements; no extra requests for those warnings; truthful bracket-count labels; derived legacy-cache review; request metadata checkpointing and retention across reuse; failed test output without journals; and provider-specific metadata/omitted settings. The existing prompt-policy test also covers the revised fidelity rules. A read-only replay flags formatting problems in all seven records in each supplied Fringilla report. This is format detection, not a semantic-accuracy measurement.
+
+No live requests were made. Source scans, CSV, existing reports and production journals were not edited. The new prompt and changed numeric defaults intentionally create new input fingerprints on future runs; the fingerprint algorithm itself is unchanged. The [review checklist](fringilla_review.md) keeps uncertain readings separate from the concrete comparison checks.
 
 ## Species routing verification - build 2026-09-23.2
 
@@ -137,6 +145,10 @@ Environment: Python 3.12.14/Linux; google-genai 2.23.0, Pillow 12.3.0, tzdata 20
 
 Production and test Python files are unchanged by this documentation task. An offline pass validates software behavior under its fixtures, not a claim of 99% reading accuracy or proof a newer model is better.
 
+
+## Cache age and lock cleanup - 23 September 2026
+
+Build 2026-09-23.5 adds deterministic boundary checks at 47, 48, and 49 hours; checks undated, malformed, naive and future timestamps; verifies a stale result makes a fresh offline request while preserving the previous journal entry; and exercises Windows mutex contention and cleanup of legacy lock files. The former Windows lock skip now runs with a second thread. `python -m unittest -v test_transcribe.py`: **145 tests, 144 passed, 1 expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture absent). No live requests were made.
 
 ## Usage/header regression update - 23 September 2026
 

@@ -26,7 +26,7 @@ import sys
 import time
 from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 from types import SimpleNamespace
@@ -37,12 +37,12 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-09-23.3"
+SCRIPT_VERSION = "2026-09-23.5"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
 
-TEST_TEMPERATURE = 1.0  # Tests only: try 0.1 or 1.0; None omits temperature.
+TEST_TEMPERATURE = 1.0  # Test-mode default; independent of normal profiles. None omits it.
 # OpenAI choices: gpt-5.6-luna, gpt-5.6-terra, gpt-5.6-sol, gpt-6-astra.
 # Astra does not accept temperature; its tests use auto (omitted).
 TEST_INPUT_DIR = Path(__file__).resolve().parent / "tests" / "inputs"
@@ -56,7 +56,7 @@ class ModelProfile:
     rpd: int | None            # Local daily attempt cap; None disables the cap.
     timeout: float = 180       # Seconds per request (not per entire batch).
     attempts: int = 5          # Total attempts per card, including the first.
-    temperature: float | None = 0.1  # None = omit; useful for reasoning models.
+    temperature: float | None = 1.0  # None = omit for models that do not accept it.
     max_output_tokens: int = 16384
     retry_base: float = 5      # Exponential backoff base, in seconds.
     max_retry_wait: float = 120  # Longer server delays pause the run instead.
@@ -85,13 +85,13 @@ MODEL_PROFILES = {
     # OpenAI profiles: these are conservative TEST caps, not your quota.
     # Add OPENAI_API_KEY to .env and install openai before selecting an OpenAI model.
     "gpt-5.6-luna": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
-                                  attempts=3, temperature=None, retry_base=15,
+                                  attempts=3, retry_base=15,
                                   quota_timezone="UTC"),
     "gpt-5.6-terra": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
-                                   attempts=3, temperature=None, retry_base=15,
+                                   attempts=3, retry_base=15,
                                    quota_timezone="UTC"),
     "gpt-5.6-sol": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
-                                 attempts=3, temperature=None, retry_base=15,
+                                 attempts=3, retry_base=15,
                                  quota_timezone="UTC"),
     "gpt-6-astra": ModelProfile("openai", rpm=5, rpd=20, timeout=300,
                                  attempts=3, temperature=None, retry_base=15,
@@ -105,6 +105,7 @@ REQUEST_USAGE_FILE = Path(__file__).resolve().with_name("transcribe_request_usag
 MAX_IMAGE_EDGE = 0            # 0 = original resolution; 2000 restores old cap.
 MAX_INLINE_REQUEST_BYTES = 19_000_000  # Leave room below the 20 MB API limit.
 CACHE_VERSION = 1
+CACHE_MAX_AGE = timedelta(hours=48)
 
 
 # --- API key lookup: independent of the directory VS Code launches from ---
@@ -502,6 +503,22 @@ def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
     return key, [{"role": "user", "parts": parts}]
 
 
+def request_metadata(prompt: str, args, key: str) -> dict:
+    """Save initial request provenance, never credentials or source hint values."""
+    metadata = {
+        "script_version": SCRIPT_VERSION,
+        "prompt_version": egg_slip_prompt.PROMPT_VERSION,
+        "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "input_sha256": key,
+        "generation": generation_config(args),
+        "max_edge": args.max_edge,
+        "csv_hints": not args.no_csv_hints,
+    }
+    if args.provider == "openai":
+        metadata["image_detail"] = args.image_detail
+    return metadata
+
+
 # --- 6. Rate limiting, retry handling, and response completeness checks ---
 class RateLimiter:
     def __init__(self, rpm: float, clock=time.monotonic, sleep=time.sleep):
@@ -708,6 +725,59 @@ def notes_have_content(notes: str) -> bool:
     return notes.strip().casefold() not in {"", "-", "none", "none.", "n/a", "n/a."}
 
 
+# These are format hints for familiar egg-slip labels, not a field schema. Require
+# several field starts on a side before warning so narrative backs stay narrative.
+FIELD_START = re.compile(
+    r"^\s*(?P<label>No\.?\s+of\s+eggs(?:\s+in\s+(?:set|nest))?|"
+    r"Set\s+(?:mark|no\.?)|Collected\s+by|Collector|Identity|Identification|"
+    r"Incubation|Locality|Species|NAME|Ref\.?\s*No\.?|"
+    r"A\.?\s*O\.?\s*U\.?(?:\s*No\.?)?|No\.?|Date|Nest|Remarks)"
+    r"(?=\s|:|$)\s*(?P<colon>:)?", re.I
+)
+MERGED_FIELD_PAIRS = (
+    (r"No\.?\s+of\s+eggs(?:\s+in\s+(?:set|nest))?", r"Set\s+mark|Collected\s+by"),
+    (r"Set\s+No\.?", r"Collector|Collected\s+by"),
+    (r"Identity|Identification", r"Incubation"),
+    (r"Incubation", r"Identity|Identification"),
+    (r"Date", r"Incubation|Nest"),
+    (r"Collected\s+by", r"on"),
+    (r"No\.?", r"Species"),
+)
+
+
+def field_format_warnings(text: str) -> list[str]:
+    """Conservative, non-destructive hints; cannot validate handwriting or all forms."""
+    sides: list[list[tuple[str, re.Match]]] = [[]]
+    in_fields = True
+    for line in text.splitlines():
+        heading = SECTION_HEADING.match(line)
+        if heading:
+            in_fields = heading["label"].upper().startswith("BACK")
+            if in_fields:
+                sides.append([])
+            continue
+        if in_fields and (match := FIELD_START.match(line)):
+            sides[-1].append((line, match))
+    missing = merged = 0
+    for fields in sides:
+        if len(fields) < 3:
+            continue
+        for line, match in fields:
+            missing += match["colon"] is None
+            for first, second in MERGED_FIELD_PAIRS:
+                if (re.fullmatch(first, match["label"], re.I)
+                        and re.search(r"\s+(?:" + second + r")(?=\s|:|$)",
+                                      line[match.end():], re.I)):
+                    merged += 1
+                    break
+    warnings = []
+    if missing:
+        warnings.append(f"Format: {missing} field line(s) may be missing a label colon.")
+    if merged:
+        warnings.append(f"Format: {merged} line(s) may merge separate labelled fields.")
+    return warnings
+
+
 def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
     candidates = getattr(response, "candidates", None) or []
     candidate = candidates[0] if candidates else None
@@ -790,7 +860,8 @@ def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
             raise ResponseProblem(f"{label}: is empty; a truly blank supplied back must say [blank].", text, True)
     uncertain = [match for match in re.findall(r"\[([^\]\n]+)\]", text) if match.lower() != "blank"]
     if uncertain:
-        warnings.append(f"{len(uncertain)} bracketed uncertain reading(s).")
+        warnings.append(f"{len(uncertain)} bracketed passage(s).")
+    warnings.extend(field_format_warnings(text))
     if "```" in text:
         warnings.append("Model returned Markdown fences; inspect formatting.")
     notes = text[notes_headers[0][2]:].strip()
@@ -1032,35 +1103,65 @@ class Transcriber:
 # --- 7. Durable per-species progress journal and readable text output ---
 @contextmanager
 def species_lock(path: Path):
-    """OS locks release automatically after a crash; no stale-lock deletion needed."""
-    with path.open("a+b") as handle:
-        handle.seek(0, os.SEEK_END)
-        if handle.tell() == 0:
-            handle.write(b"0")
-            handle.flush()
-        handle.seek(0)
+    """Serialize by path. Windows mutexes need no persistent lock file."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.ReleaseMutex.argtypes = (wintypes.HANDLE,)
+        kernel32.ReleaseMutex.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        identity = str(path.resolve()).casefold().encode("utf-8")
+        name = "Local\\egg-slip-" + hashlib.sha256(identity).hexdigest()
+        handle = kernel32.CreateMutexW(None, False, name)
+        if not handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        acquired = False
         try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            outcome = kernel32.WaitForSingleObject(handle, 0)
+            if outcome not in (0, 0x80):  # WAIT_OBJECT_0 or WAIT_ABANDONED
+                if outcome == 0x102:  # WAIT_TIMEOUT
+                    raise RuntimeError(f"Cannot lock {path.name}; another run may be using it.")
+                raise ctypes.WinError(ctypes.get_last_error())
+            acquired = True
+            # Remove files left by older versions, but never disrupt an open file.
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                print(f"WARNING: Could not remove obsolete lock file {path}: {exc}")
+            yield
+        finally:
+            try:
+                if acquired:
+                    kernel32.ReleaseMutex(handle)
+            finally:
+                kernel32.CloseHandle(handle)
+        return
+
+    # POSIX flock is attached to the inode. Deleting its path would allow a
+    # second process to lock a new inode while the first still holds this one.
+    with path.open("a+b") as handle:
+        import fcntl
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             raise RuntimeError(f"Cannot lock {path.name}; another run may be using it.") from exc
         try:
             yield
         finally:
-            if os.name == "nt":
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class Journal:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, now=None):
         self.path = path
+        self.now = now or (lambda: datetime.now(timezone.utc))
         self.entries: dict[str, dict] = {}
         self.handle = None
 
@@ -1093,9 +1194,22 @@ class Journal:
             self.handle.close()
             raise
 
+    def recent(self, entry: dict) -> bool:
+        stamp = entry.get("saved_at")
+        if not isinstance(stamp, str):
+            return False  # Journal mtime cannot date an individual entry.
+        try:
+            saved = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            if saved.tzinfo is None:
+                return False
+            age = self.now() - saved.astimezone(timezone.utc)
+            return timedelta(0) <= age <= CACHE_MAX_AGE
+        except (ValueError, TypeError, OverflowError):
+            return False
+
     def reusable(self, key: str) -> dict | None:
         entry = self.entries.get(key)
-        if (entry and entry.get("cache_version") == CACHE_VERSION
+        if (entry and self.recent(entry) and entry.get("cache_version") == CACHE_VERSION
                 and entry.get("status") in {"ok", "review"}
                 and isinstance(entry.get("text"), str) and entry["text"].strip()
                 and isinstance(entry.get("warnings"), list)):
@@ -1109,6 +1223,13 @@ class Journal:
                 warnings = [item for item in entry["warnings"]
                             if item != "Transcription notes are present."]
                 entry = {**entry, "warnings": warnings, "status": "review" if warnings else "ok"}
+            # New format hints are derived locally, without refreshing paid results.
+            warnings = list(entry["warnings"])
+            for warning in field_format_warnings(entry["text"]):
+                if warning not in warnings:
+                    warnings.append(warning)
+            if warnings != entry["warnings"]:
+                entry = {**entry, "warnings": warnings, "status": "review"}
             return entry
         return None
 
@@ -1125,7 +1246,8 @@ class Journal:
 
 def review_line(warnings):
     reasons = ["Notes present" if item == "Transcription notes are present." else
-               item.removesuffix(".") for item in warnings]
+               item.removesuffix(".").replace("bracketed uncertain reading(s)", "bracketed passage(s)")
+               for item in warnings]
     return "REVIEW: " + "    |    ".join(reasons) if reasons else ""
 
 
@@ -1151,6 +1273,15 @@ def output_block(card: Card, result: dict, cached: bool = False) -> str:
     lines.append("FILES: " + "; ".join(path.name for path in card.paths))
     if result.get("model"):
         lines.append(f"MODEL: {result['model']}")
+    metadata = result.get("request_metadata")
+    if metadata:
+        lines.append(f"BUILD: {metadata['script_version']} | PROMPT: {metadata['prompt_version']}")
+        lines.append(f"PROMPT SHA256: {metadata['prompt_sha256']}")
+        lines.append(f"INPUT SHA256: {metadata['input_sha256']}")
+        settings = {name: metadata[name] for name in
+                    ("generation", "max_edge", "csv_hints", "image_detail") if name in metadata}
+        lines.append("SETTINGS: " + json.dumps(settings, ensure_ascii=False, sort_keys=True))
+        lines.append("MODEL VERSION: " + (result.get("model_version") or "unavailable"))
     calls = result.get("call_usage")
     if calls is not None:
         usage = token_usage.aggregate(calls)
@@ -1305,6 +1436,7 @@ def run(args, engine=None) -> int:
                         reused = result is not None
                         if result is None:
                             result = engine.transcribe(card, contents)
+                            result = {**result, "request_metadata": request_metadata(prompt, args, key)}
                     except (OSError, ValueError) as exc:
                         result = {"status": "failed", "error": f"Local error: {exc}", "text": ""}
                     result = {**result, "provider": args.provider, "model": args.model}

@@ -1,6 +1,6 @@
 # Configuration, providers, and request control
 
-Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-22.1`; they are not independently verified provider quotas or model-availability promises.
+Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-23.4`; they are not independently verified provider quotas or model-availability promises.
 
 ## Profiles and temperature
 
@@ -8,17 +8,17 @@ Change `MODEL` near the top of the script or pass `--model`. The exact ID must h
 
 | Configured model ID | Provider | RPM | Local daily attempt cap | Request timeout | Total attempts/card | Normal temperature | Test filename tag |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
-| `gemini-3.5-flash-lite` (default) | Gemini | 15 | 500 | 180 s | 5 | 0.1 | `g3.5-f-l` |
-| `gemini-3.6-flash` | Gemini | 5 | 20 | 300 s | 3 | 0.1 | `g3.6f` |
-| `gemini-3.8-flash` | Gemini | 5 | 20 | 300 s | 3 | 0.1 | `g3.8f` |
-| `gpt-5.6-luna` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
-| `gpt-5.6-terra` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
-| `gpt-5.6-sol` | OpenAI | 5 | 20 | 300 s | 3 | Omitted | Full model ID |
+| `gemini-3.5-flash-lite` (default) | Gemini | 15 | 500 | 180 s | 5 | 1.0 | `g3.5-f-l` |
+| `gemini-3.6-flash` | Gemini | 5 | 20 | 300 s | 3 | 1.0 | `g3.6f` |
+| `gemini-3.8-flash` | Gemini | 5 | 20 | 300 s | 3 | 1.0 | `g3.8f` |
+| `gpt-5.6-luna` | OpenAI | 5 | 20 | 300 s | 3 | 1.0 | Full model ID |
+| `gpt-5.6-terra` | OpenAI | 5 | 20 | 300 s | 3 | 1.0 | Full model ID |
+| `gpt-5.6-sol` | OpenAI | 5 | 20 | 300 s | 3 | 1.0 | Full model ID |
 | `gpt-6-astra` | OpenAI | 5 | 20 | 300 s | 3 | Unsupported / omitted | Full model ID |
 
 The Gemini caps came from the maintainer's stated allowances. OpenAI's values are conservative local testing caps, not an account entitlement. Confirm model IDs and supported parameters against the intended account when running live comparisons. The default reflects the established working workflow and available request allowance, not a measured quality ranking.
 
-`TEST_TEMPERATURE = 1.0` directly below `MODEL` overrides the profile's temperature for `test` only. Explicit `--temperature 1.0` overrides either mode; `--temperature auto` or a Python setting of `None` omits the parameter. GPT-5.6 tests also receive `TEST_TEMPERATURE`; use `--temperature auto` for the initial OpenAI comparison with the model's defaults. Numeric temperature acceptance for GPT-5.6 has not been established by live tests or the fetched model guide. Astra does not support temperature: it automatically omits the code-level test setting and rejects explicit numeric overrides. An omitted parameter is recorded as `tauto`, never labelled as a temperature that was not sent. Numeric temperatures must be finite and between 0 and 2; local validation is not proof every provider/model accepts every value.
+`ModelProfile.temperature` and `TEST_TEMPERATURE` now default to **1.0**, following the maintainer's chosen operating setting. `TEST_TEMPERATURE` applies only to tests and does not alter normal profiles. Explicit `--temperature` overrides either mode; `--temperature auto` or a Python setting of `None` omits the parameter. Astra retains its unsupported/omitted setting and rejects explicit numeric overrides. An omitted parameter is recorded as `tauto`, never labelled as a temperature that was not sent. Numeric temperatures must be finite and between 0 and 2. Both SDK transports are checked offline; live parameter acceptance for the configured OpenAI models has not been established by these tests.
 
 Profiles also hold `max_output_tokens` (16,384 by default), retry base (5 s for Flash-Lite, 15 s for the other entries), maximum retry wait (120 s), quota timezone, and optional provider generation settings. Explicit CLI options override their corresponding profile values. There is no automatic parameter sweep.
 
@@ -99,7 +99,7 @@ Backoff is the maximum of the server hint, 60 s for a retryable 429, and `min(60
 
 ## Usage and limits
 
-Successful normal journal entries retain the response's available prompt/answer/thought/total token counts and model version. OpenAI answer tokens are normalized as output tokens minus reasoning tokens. This is **not** full cost accounting: failed/retried calls' token usage is not comprehensively aggregated, test reports have no full token ledger, and prices are not stored.
+Normal journals checkpoint per-attempt token/cost accounting and initial request provenance before readable output. Reports include the effective generation configuration, image settings, CSV-hint flag, build/prompt versions and SHA-256 fingerprints, plus the returned model version when available. Metadata contains no credentials or raw catalogue hints. Reuse preserves original provenance; unavailable legacy metadata is not reconstructed. See [report details](transcription_rules.md#reports-and-ordering) and [usage accounting](#token-usage-and-estimated-cost).
 
 Both providers currently share a conservative estimated 19,000,000-byte inline request budget. Original JPEG bytes are retained when possible; EXIF correction or requested resizing creates in-memory bytes only. Payload limits, token-per-minute limits, account entitlement, latency, and handwriting accuracy are not guaranteed by these settings. See [testing](testing.md) and [handoff limitations](../PROJECT_HANDOFF.md#known-issues-and-technical-debt).
 
