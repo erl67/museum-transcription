@@ -979,6 +979,50 @@ class DatasetTest(unittest.TestCase):
         db.by_enum["E4268"][0].pop("Collector")
         self.assertNotIn("COLLECTOR READING GUIDANCE", prompts.build_prompt(card, db, True))
 
+    def test_steinbach_guidance_matches_csv_collector_substring(self):
+        card = self.cards({"E4268"})[0]
+        db = self.db()
+        selected_text = "CSV Collector value for this record contains Steinbach"
+        for name, expected in (("Steinbach, Jose", True),
+                               ("  STEINBACH,  Jose  ", True),
+                               ("Jose Steinbach; assistant collector", True),
+                               ("J. Steinbach", True),
+                               ("Steinback, Jose", False), ("Jose", False),
+                               ("", False), ("Reference Collector", False)):
+            with self.subTest(name=name):
+                db.by_enum["E4268"][0]["Collector"] = name
+                prompt = prompts.build_prompt(card, db, True)
+                self.assertEqual(selected_text in prompt, expected)
+                self.assertEqual("COLLECTOR READING GUIDANCE" in prompt, expected)
+
+        db.by_enum["E4268"][0]["Collector"] = "Steinbach, Jose"
+        prompt = prompts.build_prompt(card, db, False)
+        self.assertNotIn(selected_text, prompt)
+        self.assertNotIn("CATALOGUE REFERENCE HINTS", prompt)
+        self.assertIn("visible card identifies Jose Steinbach", prompt)
+
+        shared = t.Card("shared", ("E4268", "E4927"), card.paths, ("FRONT",))
+        db.by_enum["E4927"][0]["Collector"] = "Other Collector"
+        prompt = prompts.build_prompt(shared, db, True)
+        guidance_line = "The " + selected_text
+        self.assertIn("For catalogue record(s) E4268:\n" + guidance_line, prompt)
+        self.assertNotIn("For catalogue record(s) E4268, E4927:\n" + guidance_line, prompt)
+        db.by_enum["E4927"][0]["Collector"] = "Steinbach, Jose"
+        prompt = prompts.build_prompt(shared, db, True)
+        self.assertIn("For catalogue record(s) E4268, E4927:\n" + guidance_line, prompt)
+
+    def test_steinbach_rule_preserves_german_and_discloses_translation(self):
+        prompt = prompts.BASE_PROMPT
+        for rule in ("visible card identifies Jose Steinbach",
+                     "inset or pasted note", "original\nGerman first",
+                     "English\ntranslation in parentheses",
+                     "German text translated\ninto English in parentheses.",
+                     "Do not add that disclosure when no German was translated"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, prompt)
+        self.assertIn("required disclosure when German text was translated",
+                      prompts.output_requirements(self.cards({"E4268"})[0]))
+
     def test_no_csv_hints_disables_collector_guidance_too(self):
         card = self.cards({"E4268"})[0]
         db = self.db()
@@ -1036,6 +1080,14 @@ class DatasetTest(unittest.TestCase):
         with patch.dict(prompts.COLLECTOR_PROMPTS, {"Unrelated Collector": "Unused rule."}):
             self.assertEqual(original, prompts.build_prompt(card, db, True))
         self.assertEqual(key, t.prepare_card(card, prompts.build_prompt(card, db, True), self.args)[0])
+
+        db.by_enum["E4268"][0]["Collector"] = "Steinbach, Jose"
+        steinbach = prompts.build_prompt(card, db, True)
+        steinbach_key = t.prepare_card(card, steinbach, self.args)[0]
+        with patch.object(prompts, "COLLECTOR_CONTAINS_PROMPTS",
+                          {"Steinbach": "Revised German translation rule."}):
+            revised = prompts.build_prompt(card, db, True)
+            self.assertNotEqual(steinbach_key, t.prepare_card(card, revised, self.args)[0])
 
     def test_prompt_rules_preserve_source_errors_symbols_and_entry_boundaries(self):
         # Policy checks protect these reviewed requirements, not model accuracy.

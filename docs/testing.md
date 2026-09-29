@@ -107,6 +107,18 @@ Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` l
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
 
+## Steinbach German translation rule - build 2026-09-29.4
+
+The pre-edit offline baseline completed **148 tests: 147 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). Read-only inspection of the production CSV found 564 records whose Collector value contains `Steinbach`; the current spelling is consistently `Steinbach, José`, and all five supplied catalogue numbers resolve to it.
+
+The final `python -m unittest -v test_transcribe.py` run completed **150 tests: 149 passed, one expected skip**, including both mocked provider SDK transports. New cases cover case/whitespace-insensitive surname containment, unmatched names, shared-slip catalogue scoping and deduplication, the visible-name fallback with CSV hints disabled, required German/parenthetical/disclosure instructions, and prompt/cache identity when containment guidance changes. Offline tests establish prompt assembly and execution behavior, not translation or handwriting accuracy.
+
+No live API requests were made. The source scans, production CSV, existing reports, journals, and quota state were not modified. Existing cache entries and reports remain available; changed prompt bytes intentionally produce fresh fingerprints for future selected requests.
+
+## Active catalogue numbers and E8157 reading - build 2026-09-29.3
+
+The pre-edit offline baseline completed **148 tests: 147 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). This update changes prompt wording and version labels only. Read-only inspection of the supplied E9551 and E8157 images identified active catalogue numbers and supported “long” in the latter nest sentence. The post-edit suite also completed **148 tests: 147 passed, one expected skip**, including both mocked provider SDK transports. Offline tests confirm software behavior, not the next model reading. No live API requests or saved report edits were made.
+
 ## Further specimen-reading refinements - build 2026-09-29.2
 
 Both the pre-edit baseline and final `python -m unittest -v test_transcribe.py` run completed **148 tests: 147 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). This update changes prompt wording and version labels only, retaining the earlier validator changes. Existing policy, fingerprint, request metadata and token-rendering tests pass. No model responses were generated; improvements in reading accuracy remain to be assessed on subsequent authorized runs.

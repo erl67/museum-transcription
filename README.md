@@ -123,9 +123,9 @@ See [transcription rules](docs/transcription_rules.md) for preservation, ditto m
 
 ## Prompt customization
 
-The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules and `COLLECTOR_PROMPTS` for instructions selected by exact CSV Collector names (case and whitespace are normalized). The existing Brandt signature guidance is the first collector entry. `--no-csv-hints` disables collector guidance as well as reference hints.
+The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules, `COLLECTOR_PROMPTS` for exact CSV Collector names, and `COLLECTOR_CONTAINS_PROMPTS` only for reviewed substring cases. Case and whitespace are normalized. Brandt uses exact-name guidance; Steinbach uses the approved surname-containment rule. `--no-csv-hints` disables CSV-selected guidance as well as reference hints, while the shared visible-Steinbach rule remains available from the card itself.
 
-The revised prompt asks for concise annotations and substantive notes only, preserves genuine alterations without inventing crossouts, separates punctuation from dirt, and checks calendar validity without judging breeding seasons or collector history. It also checks for repeated facts across annotations/notes, retains cancelled catalogue numbers once, uses egg context for ambiguous word boundaries, ignores routine punch holes, and distinguishes visible field borders from actual cropping. Earlier rules for sex symbols, stamps versus fields, multiline entries, marginal imprints and shared slips remain. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
+The revised prompt asks for concise annotations and substantive notes only, preserves genuine alterations without inventing crossouts, separates punctuation from dirt, and checks calendar validity without judging breeding seasons or collector history. It also checks for repeated facts across annotations/notes, retains clearly cancelled catalogue numbers once, checks an apparent strike against digit strokes and matching catalogue hints, uses egg context for ambiguous word boundaries, ignores routine punch holes, and distinguishes visible field borders from actual cropping. For a visibly identified or CSV-selected Steinbach record, visible German is preserved and followed by an English translation in parentheses, including inset notes, with the translation disclosed in `TRANSCRIPTION NOTES`. Earlier rules for sex symbols, stamps versus fields, multiline entries, marginal imprints and shared slips remain. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
 
 ## Development and documentation
 
@@ -133,10 +133,10 @@ The revised prompt asks for concise annotations and substantive notes only, pres
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-09-29.2** passes **147 offline tests, with 1 expected skip** (148 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+Build **2026-09-29.4** passes **149 offline tests, with 1 expected skip** (150 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-29.2
+transcribe.py                  Current application; build 2026-09-29.4
 egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
 token_usage.py                Provider usage normalization and cost estimates
 test_transcribe.py             Offline unittest suite

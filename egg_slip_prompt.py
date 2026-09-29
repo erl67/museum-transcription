@@ -1,6 +1,7 @@
 """Egg-slip reading policy and prompt assembly; no provider or filesystem work.
 
-Edit BASE_PROMPT for shared rules and COLLECTOR_PROMPTS for CSV-selected guidance.
+Edit BASE_PROMPT for shared rules and COLLECTOR_PROMPTS or
+COLLECTOR_CONTAINS_PROMPTS for CSV-selected guidance.
 The complete assembled prompt participates in transcription cache identity.
 """
 
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-09-29.2"
+PROMPT_VERSION = "2026-09-29.4"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -60,10 +61,11 @@ A multiline incubation entry stays together, for example:
 Incubation: Trace of red
 one infertile
 These examples demonstrate layout only; never copy their values unless visible.
-An uncancelled catalogue stamp belongs once in that side's ANNOTATIONS, not in an
+A catalogue number or stamp belongs once in that side's ANNOTATIONS, not in an
 invented field, repeated in the body, or substituted for a nearby field value.
-A genuinely cancelled catalogue number is recorded once in TRANSCRIPTION NOTES
-as specified below; do not omit it because a current number is also present.
+Only a number visibly struck through by a separate cancellation mark belongs in
+TRANSCRIPTION NOTES instead, as specified below. Do not omit a clearly cancelled
+older number because a current number is also present.
 Keep Set No. and Collector separate. Follow handwriting continuation
 across lines and unused printed labels; do not assign continuous prose to an
 unrelated field just because it crosses that label. If its attachment is unclear,
@@ -104,7 +106,9 @@ sides, together with any fallible catalogue hints, to interpret difficult handwr
 or signatures. Check word boundaries and numeral 1 versus letters l/I: a visible
 quantity and egg-condition note can read '1 egg cracked', not 'legs cracked'. Use
 context to choose a reading supported by the strokes, never to fill missing text or
-rewrite a clearly different source word. This example is not text to copy elsewhere.
+rewrite a clearly different source word. Reread each letter of narrative adjectives;
+do not substitute a familiar word such as 'cosy' when the handwriting reads 'long'.
+These examples are reading checks, not text to copy elsewhere.
 Do not stop at [illegible] when that evidence supports a defensible reading. If a
 signature remains inferred, bracket it; add a note only if it supplies necessary
 context beyond that uncertainty marker. Collection ownership does not identify the collector.
@@ -117,6 +121,19 @@ or claim comparison with historical records or exemplars that were not supplied.
 Preserve differences between sides rather than rewriting one to agree with another.
 An address beneath a signature does not by itself establish the collecting locality.
 
+Special Jose Steinbach language rule: when the visible card identifies Jose Steinbach
+as the collector, or collector guidance says the relevant CSV Collector value contains
+Steinbach, inspect all handwriting for German. This includes an inset or pasted note
+on the main card. For each passage that is actually German, transcribe the original
+German first, preserving its wording and uncertainty, then immediately put an English
+translation in parentheses. Do not replace or silently normalize the German, and do
+not make the translation more certain than the source reading. Keep the passage with
+its associated field when clear; otherwise put it in ANNOTATIONS with a concise inset-
+note location. Do not translate names, localities, taxonomic text or non-German writing
+merely because Steinbach is associated with the record. If any German is translated,
+write exactly one concise disclosure in the final section: 'German text translated
+into English in parentheses.' Do not add that disclosure when no German was translated.
+
 4. Include ANNOTATIONS: after the front fields whenever a FRONT is supplied.
 Record unlabelled additions, stamps, marginal numbers and meaningful alterations
 concisely, with a short location only as needed to identify the source text. Transcribe
@@ -124,7 +141,12 @@ each item once; do not inventory every stroke, describe horizontal/vertical dire
 or narrate routine underlining, letter flourishes, spacing or ordinary marks.
 Describe a crossing-out only when the image clearly shows intentional cancellation.
 A stroke through a word may be part of handwriting, a neighbouring letter, a flourish
-or a printed rule; it is not by itself evidence of deletion. Do not invent a deleted
+or a printed rule; it is not by itself evidence of deletion. For catalogue numbers,
+check whether any supposed strike is independent of the digit strokes, an overlapping
+printed heading, a stamp impression, or an underline. A legible number that agrees
+with its filename and fallible CSV reference should normally be read as active when
+no clear independent cancellation is visible. Neither that agreement nor a colour
+change overrides a cancellation actually visible on the card. Do not invent a deleted
 word, an illegible replacement or a correction when none is visible. When cancellation
 is clear, briefly distinguish the readable deleted text and replacement. Never silently merge active and deleted text
 or extend a deletion to adjacent words. Bracket uncertain deleted readings. Treat underlying text, cancellation strokes
@@ -148,7 +170,9 @@ card designs. Mention physical card damage only for major rips, tears or missing
 pieces; mark genuinely obscured writing as uncertain without inventing missing text.
 Source notes about specimen damage, such as a cracked egg, must still be transcribed.
 A catalogue stamp's placement alone needs no transcription note; if it obscures a
-reading, bracket that reading and explain only the unresolved problem.
+reading, bracket that reading and explain only the unresolved problem. If an ordinary
+catalogue number has already been recorded in ANNOTATIONS, do not redescribe it as
+cancelled in TRANSCRIPTION NOTES without clear visual evidence of cancellation.
 
 On a slip containing multiple entries, preserve their boundaries and order. Keep
 each stamp associated with its entry when the layout supports this; otherwise note
@@ -168,8 +192,9 @@ or invent front fields. Do not omit repeated text just because another side has 
 6. Finish with exactly one TRANSCRIPTION NOTES: section, always present. Leave it
 empty unless a substantive unresolved issue needs explanation: an obscured reading,
 an ambiguous attachment/ditto mark, a missing side, a genuine conflicting reference,
-or a clearly impossible calendar date. Also retain genuinely cancelled catalogue
-numbers here in one concise note giving the readable number, cancellation and short
+or a clearly impossible calendar date. The required Steinbach translation disclosure
+is an explicit exception when German text was translated. Also retain clearly
+crossed-out catalogue numbers here in one concise note giving the readable number, cancellation and short
 location, with colour only when clear and useful. Bracket only uncertain digits; do
 not reconstruct an obliterated number from catalogue hints. Do not repeat this same
 cancelled stamp in ANNOTATIONS. Use the shortest useful explanation. A bracketed
@@ -212,8 +237,8 @@ BACK OF SLIP sections, then one final TRANSCRIPTION NOTES:.
 
 
 # Keys are explicit CSV Collector spellings. Matching ignores case and repeated
-# whitespace only: no surname substrings, fuzzy matches, or inferred aliases.
-# Add other reviewed collector guidance here; unknown/blank names use BASE_PROMPT.
+# whitespace only: no fuzzy matches or inferred aliases. Add other reviewed
+# exact-name guidance here; unknown/blank names use BASE_PROMPT.
 COLLECTOR_PROMPTS = {
     "Brandt, Herbert W.": (
         "A known stylized collector signature may read H. W. Brandt. Consider that "
@@ -223,16 +248,35 @@ COLLECTOR_PROMPTS = {
     ),
 }
 
+# Substring matching is reserved for reviewed cases that explicitly require it.
+# Keys are normalized like exact names; values remain trusted local instructions.
+COLLECTOR_CONTAINS_PROMPTS = {
+    "Steinbach": (
+        "The CSV Collector value for this record contains Steinbach. Apply the special "
+        "Jose Steinbach language rule to visible German text, including inset or pasted "
+        "notes, even if the signature is unclear. The CSV is fallible: do not override "
+        "a visibly conflicting collector, invent German text, or translate non-German text."
+    ),
+}
+
 
 def collector_instructions(hints: list[dict[str, str]]) -> str:
     """Select trusted local rules, scoped to matching records on a shared slip."""
-    rules = {" ".join(name.split()).casefold(): text
-             for name, text in COLLECTOR_PROMPTS.items()}
-    matched: dict[str, list[str]] = {}
+    exact_rules = {" ".join(name.split()).casefold(): text
+                   for name, text in COLLECTOR_PROMPTS.items()}
+    contains_rules = {" ".join(fragment.split()).casefold(): text
+                      for fragment, text in COLLECTOR_CONTAINS_PROMPTS.items()}
+    matched: dict[str, tuple[str, list[str]]] = {}
     for hint in hints:
         name = " ".join(hint.get("Collector", "").split()).casefold()
-        if name in rules:
-            enums = matched.setdefault(name, [])
+        selected: list[tuple[str, str]] = []
+        if name in exact_rules:
+            selected.append(("exact:" + name, exact_rules[name]))
+        selected.extend(("contains:" + fragment, text)
+                        for fragment, text in contains_rules.items()
+                        if fragment and fragment in name)
+        for rule_id, text in selected:
+            _, enums = matched.setdefault(rule_id, (text, []))
             if hint["catalogNumber"] not in enums:
                 enums.append(hint["catalogNumber"])
     if not matched:
@@ -240,8 +284,8 @@ def collector_instructions(hints: list[dict[str, str]]) -> str:
     lines = ["\nCOLLECTOR READING GUIDANCE (selected from fallible CSV hints):",
              "Apply each rule only to the listed records when visible evidence agrees.",
              "It does not override the source-fidelity rules or resolve conflicting collectors."]
-    for name, enums in matched.items():
-        lines.extend(["For catalogue record(s) " + ", ".join(enums) + ":", rules[name]])
+    for text, enums in matched.values():
+        lines.extend(["For catalogue record(s) " + ", ".join(enums) + ":", text])
     return "\n".join(lines) + "\n"
 
 
@@ -267,7 +311,9 @@ def output_requirements(card: Card) -> str:
                  "clearly evidenced alterations, and preserve marginal text and imprints.")
     lines.append("Finish with exactly one TRANSCRIPTION NOTES: section for the whole card; "
                  "use it only for substantive issues or relevant cancelled catalogue numbers, "
-                 "without repeating fields or annotations. Otherwise leave it empty.")
+                 "plus the required disclosure when German text was translated under the "
+                 "Steinbach rule, without otherwise repeating fields or annotations. "
+                 "Otherwise leave it empty.")
     lines.append("Use plain text only, with ordinary fractions and separate labelled measurements; "
                  "no LaTeX commands, math delimiters, or equation environments.")
     return "\n".join(lines)
