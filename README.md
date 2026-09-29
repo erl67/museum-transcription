@@ -117,7 +117,7 @@ The known wollweberi/ultramarina filename mismatch does not prevent the test: ca
 
 Normal reports and per-species progress journals are written in the **family directory**. Each record has aligned CM banners (or filenames for uncatalogued material), source filenames, model, status, and any review reasons. New records also retain the build/prompt versions, full prompt and input fingerprints, effective generation/image settings, CSV-hint setting, and available returned model version. Reused records retain their original metadata; legacy records are not assigned invented settings. Two blank lines separate records. Failed responses retain available text for inspection. These are text reports, not spreadsheet updates or a machine-enforced field schema.
 
-`OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. The bracket count says "bracketed passages" because literal source brackets can also trigger review. Suspected merged fields and missing label colons produce format warnings without rewriting text or making extra requests.
+`OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. The bracket count says "bracketed passages" because literal source brackets can also trigger review, except recognized printed form codes such as `form A291 [3-14-32-1m]`. Missing label colons and fields sharing a line do not trigger review. Genuine uncertainty, substantive notes and completeness problems still do.
 
 See [transcription rules](docs/transcription_rules.md) for preservation, ditto marks, signatures, and front/back handling. Model instructions encourage fidelity but cannot prove that all handwriting was read correctly.
 
@@ -125,7 +125,7 @@ See [transcription rules](docs/transcription_rules.md) for preservation, ditto m
 
 The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules and `COLLECTOR_PROMPTS` for instructions selected by exact CSV Collector names (case and whitespace are normalized). The existing Brandt signature guidance is the first collector entry. `--no-csv-hints` disables collector guidance as well as reference hints.
 
-The revised prompt addresses dates, sex symbols, stamps versus fields, layered alterations, raised/multiline entries, marginal imprints, shared slips, and unsupported inference in both readings and notes. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
+The revised prompt asks for concise annotations and substantive notes only, preserves genuine alterations without inventing crossouts, separates punctuation from dirt, and checks calendar validity without judging breeding seasons or collector history. It also checks for repeated facts across annotations/notes, retains cancelled catalogue numbers once, uses egg context for ambiguous word boundaries, ignores routine punch holes, and distinguishes visible field borders from actual cropping. Earlier rules for sex symbols, stamps versus fields, multiline entries, marginal imprints and shared slips remain. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
 
 ## Development and documentation
 
@@ -133,10 +133,10 @@ The revised prompt addresses dates, sex symbols, stamps versus fields, layered a
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-09-23.4** passes **140 offline tests, with 2 expected skips** (142 total): the POSIX lock test on Windows and the optional older three-image fixture. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+Build **2026-09-29.2** passes **147 offline tests, with 1 expected skip** (148 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-23.4
+transcribe.py                  Current application; build 2026-09-29.2
 egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
 token_usage.py                Provider usage normalization and cost estimates
 test_transcribe.py             Offline unittest suite

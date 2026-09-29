@@ -37,7 +37,7 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-09-23.5"
+SCRIPT_VERSION = "2026-09-29.2"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
@@ -725,57 +725,25 @@ def notes_have_content(notes: str) -> bool:
     return notes.strip().casefold() not in {"", "-", "none", "none.", "n/a", "n/a."}
 
 
-# These are format hints for familiar egg-slip labels, not a field schema. Require
-# several field starts on a side before warning so narrative backs stay narrative.
-FIELD_START = re.compile(
-    r"^\s*(?P<label>No\.?\s+of\s+eggs(?:\s+in\s+(?:set|nest))?|"
-    r"Set\s+(?:mark|no\.?)|Collected\s+by|Collector|Identity|Identification|"
-    r"Incubation|Locality|Species|NAME|Ref\.?\s*No\.?|"
-    r"A\.?\s*O\.?\s*U\.?(?:\s*No\.?)?|No\.?|Date|Nest|Remarks)"
-    r"(?=\s|:|$)\s*(?P<colon>:)?", re.I
+# Exempt only recognizable form/printer codes, not arbitrary source brackets or
+# uncertain readings. Require a numbered form immediately before a numeric code.
+PRINTED_FORM_CODE = re.compile(
+    r"\bform[ \t]+[A-Z\u25b2\u25b3\u0394]?[ \t]*\d+[ \t]*"
+    r"(?P<code>\[\d+(?:[ \t]*[-\u2013][ \t]*\d+){2,}[a-z]*\])", re.I
 )
-MERGED_FIELD_PAIRS = (
-    (r"No\.?\s+of\s+eggs(?:\s+in\s+(?:set|nest))?", r"Set\s+mark|Collected\s+by"),
-    (r"Set\s+No\.?", r"Collector|Collected\s+by"),
-    (r"Identity|Identification", r"Incubation"),
-    (r"Incubation", r"Identity|Identification"),
-    (r"Date", r"Incubation|Nest"),
-    (r"Collected\s+by", r"on"),
-    (r"No\.?", r"Species"),
+BRACKET_WARNING = re.compile(r"\d+ bracketed (?:passage|uncertain reading)\(s\)\.")
+LEGACY_FIELD_WARNING = re.compile(
+    r"Format: \d+ (?:field line\(s\) may be missing a label colon|"
+    r"line\(s\) may merge separate labelled fields)\."
 )
 
 
-def field_format_warnings(text: str) -> list[str]:
-    """Conservative, non-destructive hints; cannot validate handwriting or all forms."""
-    sides: list[list[tuple[str, re.Match]]] = [[]]
-    in_fields = True
-    for line in text.splitlines():
-        heading = SECTION_HEADING.match(line)
-        if heading:
-            in_fields = heading["label"].upper().startswith("BACK")
-            if in_fields:
-                sides.append([])
-            continue
-        if in_fields and (match := FIELD_START.match(line)):
-            sides[-1].append((line, match))
-    missing = merged = 0
-    for fields in sides:
-        if len(fields) < 3:
-            continue
-        for line, match in fields:
-            missing += match["colon"] is None
-            for first, second in MERGED_FIELD_PAIRS:
-                if (re.fullmatch(first, match["label"], re.I)
-                        and re.search(r"\s+(?:" + second + r")(?=\s|:|$)",
-                                      line[match.end():], re.I)):
-                    merged += 1
-                    break
-    warnings = []
-    if missing:
-        warnings.append(f"Format: {missing} field line(s) may be missing a label colon.")
-    if merged:
-        warnings.append(f"Format: {merged} line(s) may merge separate labelled fields.")
-    return warnings
+def bracket_warnings(text: str) -> list[str]:
+    """Count passages needing review, retaining literal printed form codes as text."""
+    form_codes = {match.span("code") for match in PRINTED_FORM_CODE.finditer(text)}
+    count = sum(match[1].lower() != "blank" and match.span() not in form_codes
+                for match in re.finditer(r"\[([^\]\n]+)\]", text))
+    return [f"{count} bracketed passage(s)."] if count else []
 
 
 def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
@@ -858,10 +826,7 @@ def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
         section_text = SECTION_HEADING.sub("", text[end:stop]).strip()
         if not section_text:
             raise ResponseProblem(f"{label}: is empty; a truly blank supplied back must say [blank].", text, True)
-    uncertain = [match for match in re.findall(r"\[([^\]\n]+)\]", text) if match.lower() != "blank"]
-    if uncertain:
-        warnings.append(f"{len(uncertain)} bracketed passage(s).")
-    warnings.extend(field_format_warnings(text))
+    warnings.extend(bracket_warnings(text))
     if "```" in text:
         warnings.append("Model returned Markdown fences; inspect formatting.")
     notes = text[notes_headers[0][2]:].strip()
@@ -1213,23 +1178,20 @@ class Journal:
                 and entry.get("status") in {"ok", "review"}
                 and isinstance(entry.get("text"), str) and entry["text"].strip()
                 and isinstance(entry.get("warnings"), list)):
-            # Older builds flagged the model's "None." as an actual note. Fix
-            # that derived status locally without discarding a paid transcription.
+            # Recompute only derived review hints; preserve raw text, other warnings,
+            # request provenance, age checks and the append-only journal history.
+            warnings = [item for item in entry["warnings"]
+                        if not (isinstance(item, str) and
+                                (LEGACY_FIELD_WARNING.fullmatch(item)
+                                 or BRACKET_WARNING.fullmatch(item)))]
+            warnings.extend(bracket_warnings(entry["text"]))
             notes_headers = [header for header in section_headers(entry["text"])
                              if header[0] == "TRANSCRIPTION NOTES"]
             if (len(notes_headers) == 1
-                    and not notes_have_content(entry["text"][notes_headers[0][2]:])
-                    and "Transcription notes are present." in entry["warnings"]):
-                warnings = [item for item in entry["warnings"]
-                            if item != "Transcription notes are present."]
-                entry = {**entry, "warnings": warnings, "status": "review" if warnings else "ok"}
-            # New format hints are derived locally, without refreshing paid results.
-            warnings = list(entry["warnings"])
-            for warning in field_format_warnings(entry["text"]):
-                if warning not in warnings:
-                    warnings.append(warning)
+                    and not notes_have_content(entry["text"][notes_headers[0][2]:])):
+                warnings = [item for item in warnings if item != "Transcription notes are present."]
             if warnings != entry["warnings"]:
-                entry = {**entry, "warnings": warnings, "status": "review"}
+                entry = {**entry, "warnings": warnings, "status": "review" if warnings else "ok"}
             return entry
         return None
 

@@ -107,6 +107,20 @@ Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` l
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
 
+## Further specimen-reading refinements - build 2026-09-29.2
+
+Both the pre-edit baseline and final `python -m unittest -v test_transcribe.py` run completed **148 tests: 147 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). This update changes prompt wording and version labels only, retaining the earlier validator changes. Existing policy, fingerprint, request metadata and token-rendering tests pass. No model responses were generated; improvements in reading accuracy remain to be assessed on subsequent authorized runs.
+
+Read-only inspection confirms the pasted CM1537 example matches the September 23 report, whereas the September 29 report includes token counts and the complete common name. The current renderer includes a token line even for legacy results lacking usage, displaying `unknown` instead of inventing counts. Reports were not rewritten.
+
+## Concise annotations and review policy - build 2026-09-29.1
+
+Baseline: **145 tests, 144 passed, 1 expected skip**. After this update, `python -m unittest -v test_transcribe.py`: **148 tests, 147 passed, 1 expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). Both installed provider SDK transports ran against offline mocks.
+
+The revised cases accept missing colons, shared field lines, multiline measurements and narrative backs without layout warnings. New cases preserve recognized form codes without review or retry, retain genuine uncertain text and other brackets alongside them, and update derived cached warnings without changing source text, provenance or journal bytes. Existing completeness, side-order, failed-text retention, quota/retry, prompt-fingerprint, cache-age and lock tests pass.
+
+No live requests were made. Scans, CSV, existing reports and production journals were not edited. The revised prompt intentionally changes cache fingerprints for future requests; the 48-hour age limit is unchanged. Offline tests establish software behavior, not an improvement in model reading accuracy. The older field-format heuristics documented below are superseded by this revision.
+
 ## Fringilla refinement verification - build 2026-09-23.4
 
 Baseline: **133 tests, 131 passed, 2 expected skips**. After this update: **142 tests, 140 passed, 2 expected skips** (POSIX locking on Windows and the absent optional original three-image fixture). Both SDK transports ran against offline mocks.

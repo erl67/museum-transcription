@@ -553,43 +553,69 @@ class DatasetTest(unittest.TestCase):
         self.assertNotIn("estimated USD", block)
         self.assertTrue(block.endswith("body\n\n\n"))
 
-    def test_field_format_review_retains_text_and_does_not_retry(self):
+    def test_shared_field_lines_and_missing_colons_are_accepted_without_retry(self):
         card = self.cards({"E4927"})[0]
         body = ("Name Finch\nNo. of eggs in set 5 Set mark 378 A\n"
                 "Identity Sure Incubation fresh\nANNOTATIONS:\nTRANSCRIPTION NOTES:")
         engine, client, _ = self.engine([response(body)])
         result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
-        self.assertEqual(result["status"], "review")
+        self.assertEqual(result["status"], "ok")
         self.assertEqual(result["text"], body)
-        self.assertIn("Format: 3 field line(s) may be missing a label colon.", result["warnings"])
-        self.assertIn("Format: 2 line(s) may merge separate labelled fields.", result["warnings"])
+        self.assertEqual(result["warnings"], [])
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(engine.requests, 1)
 
-    def test_field_format_checks_backs_but_excludes_annotation_and_note_prose(self):
+    def test_back_field_layout_and_annotation_prose_do_not_trigger_review(self):
+        card = self.cards({"E4268"})[0]
         body = ("Name: Finch\nIdentity: Sure\nIncubation: fresh\nANNOTATIONS:\n"
                 "Name copied\nIdentity Sure Incubation fresh\nDate yesterday\n"
                 "BACK OF SLIP:\nName Finch\nIdentity Sure Incubation fresh\nDate 1/1/20\n"
-                "ANNOTATIONS:\nCollected by another person on the reverse\n"
-                "TRANSCRIPTION NOTES:\nName uncertain\nIdentity Sure Incubation fresh\nDate uncertain")
-        warnings = t.field_format_warnings(body)
-        self.assertEqual(warnings, ["Format: 3 field line(s) may be missing a label colon.",
-                                    "Format: 1 line(s) may merge separate labelled fields."])
-        self.assertEqual(t.field_format_warnings(body.split("BACK OF SLIP:")[0]), [])
+                "ANNOTATIONS:\nCollected by another person on the reverse\nTRANSCRIPTION NOTES:")
+        text, warnings, _ = t.validate_response(response(body), card)
+        self.assertEqual(text, body)
+        self.assertEqual(warnings, [])
 
-    def test_multiline_measurements_and_unlabelled_narratives_are_not_format_errors(self):
+    def test_multiline_measurements_and_unlabelled_narratives_are_accepted(self):
         examples = (
             "Name: Finch\nSet mark: att\n5/36\nMC\nIncubation: Trace of red\none infertile",
             "Name: Finch\nNest: Diameter: Inside: 7 inches; Outside: 24 inches\n"
             "Depth: Inside: 3 inches; Outside: 12 inches\nDate: 25. V. 1935",
             "Nest: 4' up. Incubation unknown to the writer.\n"
             "Identity: Bird on nest\nDate: 25. V. 1935",
-            "BACK OF SLIP:\nCollected by a friend on a journey.\n"
-            "Date uncertain.\nSent to the museum.\nTRANSCRIPTION NOTES:",
+            "Collected by a friend on a journey.\nDate uncertain.\nSent to the museum.",
         )
-        for body in examples:
-            with self.subTest(body=body):
-                self.assertEqual(t.field_format_warnings(body), [])
+        for narrative in examples:
+            with self.subTest(body=narrative):
+                body = narrative + "\nANNOTATIONS:\nTRANSCRIPTION NOTES:"
+                text, warnings, _ = t.validate_response(response(body), self.cards({"E4927"})[0])
+                self.assertEqual(text, body)
+                self.assertEqual(warnings, [])
+
+    def test_printed_form_codes_are_preserved_without_review_or_retry(self):
+        card = self.cards({"E4927"})[0]
+        for code in ("form A291 [3-14-32-1m]", "Form A291 [9-28-33-2m]",
+                     "form \u25b2291 [3-14-32-1m]", "FORM 291 [3 - 14 - 32 - 1m]"):
+            with self.subTest(code=code):
+                body = transcript().replace("ANNOTATIONS:", "ANNOTATIONS:\nBottom margin: " + code)
+                engine, client, _ = self.engine([response(body)])
+                result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["text"], body)
+                self.assertEqual(result["warnings"], [])
+                self.assertEqual(len(client.calls), 1)
+
+    def test_form_code_exemption_keeps_genuine_uncertainty_and_other_brackets(self):
+        card = self.cards({"E4927"})[0]
+        for passage in ("Signature: [illegible]", "form A291 [illegible number]",
+                        "form A291 [3-14-32-?m]", "Date: [3-14-32-1m]",
+                        "form A291: date [1928]", "form [A291] [3-14-32-1m]"):
+            with self.subTest(passage=passage):
+                body = transcript().replace("ANNOTATIONS:",
+                    "ANNOTATIONS:\nform A291 [3-14-32-1m]\n" + passage)
+                text, warnings, _ = t.validate_response(response(body), card)
+                count = 2 if passage.startswith("form [A291]") else 1
+                self.assertEqual(text, body)
+                self.assertEqual(warnings, [f"{count} bracketed passage(s)."])
 
     def test_bracket_count_does_not_claim_source_brackets_are_uncertainty(self):
         card = self.cards({"E4927"})[0]
@@ -602,22 +628,47 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(t.review_line(["2 bracketed uncertain reading(s)."]),
                          "REVIEW: 2 bracketed passage(s)")
 
-    def test_legacy_cache_gets_format_review_without_rewriting_text_or_provenance(self):
-        path = self.root / "legacy_format.jsonl"
-        body = "Name Finch\nIdentity Sure Incubation fresh\nDate 1/1/20\nANNOTATIONS:\nTRANSCRIPTION NOTES:"
-        original = dict(key="legacy", cache_version=t.CACHE_VERSION, status="ok", text=body,
-                        warnings=[], saved_at=datetime.now(timezone.utc).isoformat())
+    def test_cached_layout_and_form_warnings_are_removed_without_rewriting_history(self):
+        path = self.root / "legacy_review.jsonl"
+        body = ("Name Finch\nIdentity Sure Incubation fresh\nDate 1/1/20\n"
+                "ANNOTATIONS:\nform A291 [3-14-32-1m]\nTRANSCRIPTION NOTES:")
+        old_warnings = ["Format: 3 field line(s) may be missing a label colon.",
+                        "Format: 1 line(s) may merge separate labelled fields.",
+                        "1 bracketed passage(s)."]
+        original = dict(key="legacy", cache_version=t.CACHE_VERSION, status="review", text=body,
+                        warnings=old_warnings, saved_at=datetime.now(timezone.utc).isoformat(),
+                        request_metadata={"script_version": "old", "prompt_sha256": "original"})
         with t.Journal(path) as journal:
             journal.append(original)
             saved = path.read_bytes()
             for _ in range(2):
                 result = journal.reusable("legacy")
-                self.assertEqual(result["status"], "review")
+                self.assertEqual(result["status"], "ok")
                 self.assertEqual(result["text"], body)
-                self.assertEqual(len(result["warnings"]), 2)
-                self.assertNotIn("request_metadata", result)
+                self.assertEqual(result["warnings"], [])
+                self.assertEqual(result["request_metadata"], original["request_metadata"])
             self.assertEqual(path.read_bytes(), saved)
-        self.assertEqual(original["warnings"], [])
+        self.assertEqual(original["warnings"], old_warnings)
+
+    def test_cached_form_exemption_preserves_other_review_reasons_and_notes(self):
+        path = self.root / "mixed_review.jsonl"
+        body = ("Name [uncertain]\nANNOTATIONS:\nform A291 [3-14-32-1m]\n"
+                "TRANSCRIPTION NOTES:\nLower edge obscures the locality.")
+        original = dict(key="mixed", cache_version=t.CACHE_VERSION, status="review", text=body,
+                        warnings=["2 bracketed uncertain reading(s).", "Transcription notes are present.",
+                                  "Missing side.", "Format: unexpected custom issue."],
+                        saved_at=datetime.now(timezone.utc).isoformat())
+        with t.Journal(path) as journal:
+            journal.append(original)
+            saved = path.read_bytes()
+            result = journal.reusable("mixed")
+            self.assertEqual(result["status"], "review")
+            self.assertEqual(result["text"], body)
+            self.assertCountEqual(result["warnings"], ["1 bracketed passage(s).",
+                "Transcription notes are present.", "Missing side.", "Format: unexpected custom issue."])
+            self.assertEqual(journal.reusable("mixed"), result)
+            self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual(original["warnings"][0], "2 bracketed uncertain reading(s).")
 
     def test_request_metadata_is_checkpointed_and_preserved_on_reuse(self):
         engine, client, _ = self.engine()
@@ -996,7 +1047,7 @@ class DatasetTest(unittest.TestCase):
                      "Do not repeat ordinary annotations", "An address beneath a signature",
                      "Incubation: Trace of red\none infertile", "source brackets in ANNOTATIONS",
                      "Treat underlying text, cancellation strokes", "separate layers",
-                     "publisher/printer imprints", "A calendar-valid date may still have been misread",
+                     "publisher/printer\nimprints", "A calendar-valid date may still have been misread",
                      "Distinguish collectors, dealers, former owners, donors and annotators",
                      "Do not invent identities, intentions or historical explanations"):
             with self.subTest(rule=rule):
@@ -1188,12 +1239,14 @@ class DatasetTest(unittest.TestCase):
         for other_flags in ([], ["1 bracketed uncertain reading(s)."]):
             with self.subTest(other_flags=other_flags), t.Journal(path) as journal:
                 text = transcript() + "\nNone."
+                if other_flags:
+                    text = text.replace("TEST FIXTURE ONLY", "[uncertain]")
                 original = {"key": "old", "cache_version": t.CACHE_VERSION, "status": "review",
                             "text": text, "warnings": ["Transcription notes are present.", *other_flags],
                             "saved_at": datetime.now(timezone.utc).isoformat()}
                 journal.append(original)
                 entry = journal.reusable("old")
-                self.assertEqual(entry["warnings"], other_flags)
+                self.assertEqual(entry["warnings"], ["1 bracketed passage(s)."] if other_flags else [])
                 self.assertEqual(entry["status"], "review" if other_flags else "ok")
                 self.assertEqual(entry["text"], text)
                 self.assertIn("Transcription notes are present.", original["warnings"])

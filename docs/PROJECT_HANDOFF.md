@@ -2,6 +2,22 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Further specimen-reading refinements - 29 September 2026
+
+Build and prompt **2026-09-29.2** refine the existing policy without changing validation or token accounting. Notes must not paraphrase fields or annotations. Genuinely cancelled catalogue numbers are retained once in notes, an explicit exception to the ordinary stamp-in-annotations rule. Word boundaries use visible strokes and egg/specimen context; field rules/borders are distinguished from actual cropping; routine punch holes are excluded; and scientific-name alterations must not cancel neighbouring common names or reverse the observed correction direction. No card-specific number was hard-coded.
+
+The reported missing tokens were traced to older output: pasted CM1537 matches `Leucosticte_arctoa_transcriptions_20260923_1520.txt`. The September 29 11:31 report includes `TOKENS: 3,947 in | 97 out | 0 think | 4,044 total`. The current renderer always includes a token line, using `unknown` for absent legacy metadata. No usage repair was necessary; old reports remain untouched. The Linaria example identifies E3713, whose supplied-on-disk scan shows active Linnet and Carduelis cancelled with Acanthis above.
+
+Baseline and final offline verification: **148 tests, 147 passed, one optional scan-fixture skip**. Both SDK transports were mocked; no live calls or source/report/journal changes. Prompt bytes intentionally change future request fingerprints; the previous edits remain in place.
+
+## Concise annotations and review policy - 29 September 2026
+
+Build and prompt **2026-09-29.1** address the maintainer's Accipitridae examples. `egg_slip_prompt.py` still owns reading policy: concise annotations, clearly evidenced cancellation only, optional necessary colour descriptions, no stroke/orientation/fraction-layout narration, no dirt-derived numeric punctuation, and short substantive notes. Calendar impossibility is strictly day/month validity, never breeding season, geography or presumed collector history. Crooked digits must be reread before claiming a source discrepancy. No specimen-specific readings were hard-coded.
+
+`transcribe.py` removes the two field-format warning heuristics introduced in 2026-09-23.4. `bracket_warnings` exempts recognizable numeric printer codes immediately following numbered forms, retaining all text and continuing to flag uncertain code characters and other bracketed readings. Eligible matching cached entries get derived warning cleanup without changing response text, provenance or journal bytes. Other warnings and substantive model notes remain. The new prompt intentionally changes input fingerprints; the existing 48-hour cache limit and lock behavior are preserved. No responsibilities moved.
+
+Verification: **148 offline tests, 147 passed, 1 expected skip** (optional original scan fixture not configured), including both mocked SDK transports. No live API calls or scan/CSV/report/journal edits. See [testing](testing.md) and [transcription policy](transcription_rules.md). Earlier format-review guidance below is historical and superseded.
+
 ## 48-hour cache reuse and lock cleanup - 23 September 2026
 
 Build **2026-09-23.5** limits normal journal reuse to matching completed entries saved at most 48 hours ago. `Journal.recent` checks each entry's timezone-aware `saved_at` in UTC; invalid, absent, or future dates cause a fresh request. No journal history or readable reports are deleted. Test and console modes remain fresh by design; cache fingerprints and checkpoint ordering are unchanged.
