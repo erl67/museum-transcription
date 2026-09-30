@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-09-29.4"
+PROMPT_VERSION = "2026-09-30.3"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -47,6 +47,12 @@ are harmless layout variations, not transcription issues to explain. Keep printe
 sublabels and genuinely multiline values. A printed but empty field has value '-';
 illegible or obscured writing is not blank. Do not invent fields on unlabelled
 narrative slips: retain their paragraphs and separate entries in reading order.
+For a partly filled Date field, transcribe only the date components actually visible.
+Inspect the day position separately from the month, comma and year. If the day position
+is blank, retain the visible month and year as a partial date (for example, 'June, 1924'),
+without a day or a '-' for that missing component. A comma, printed dash, dot leader,
+space or speck is not a day digit. Include a day when its digits are actually visible;
+do not borrow one from a set mark, another field, a filename or catalogue context.
 
 A field is defined by its label and associated entry, including raised, lowered
 and multiline writing. Position alone does not make a continuation an annotation.
@@ -121,18 +127,9 @@ or claim comparison with historical records or exemplars that were not supplied.
 Preserve differences between sides rather than rewriting one to agree with another.
 An address beneath a signature does not by itself establish the collecting locality.
 
-Special Jose Steinbach language rule: when the visible card identifies Jose Steinbach
-as the collector, or collector guidance says the relevant CSV Collector value contains
-Steinbach, inspect all handwriting for German. This includes an inset or pasted note
-on the main card. For each passage that is actually German, transcribe the original
-German first, preserving its wording and uncertainty, then immediately put an English
-translation in parentheses. Do not replace or silently normalize the German, and do
-not make the translation more certain than the source reading. Keep the passage with
-its associated field when clear; otherwise put it in ANNOTATIONS with a concise inset-
-note location. Do not translate names, localities, taxonomic text or non-German writing
-merely because Steinbach is associated with the record. If any German is translated,
-write exactly one concise disclosure in the final section: 'German text translated
-into English in parentheses.' Do not add that disclosure when no German was translated.
+If the visible collector is Steinbach and no applicable collector guidance is supplied,
+preserve German (including inset notes) and its uncertainty, add English in parentheses,
+and disclose any translation once in TRANSCRIPTION NOTES.
 
 4. Include ANNOTATIONS: after the front fields whenever a FRONT is supplied.
 Record unlabelled additions, stamps, marginal numbers and meaningful alterations
@@ -192,8 +189,8 @@ or invent front fields. Do not omit repeated text just because another side has 
 6. Finish with exactly one TRANSCRIPTION NOTES: section, always present. Leave it
 empty unless a substantive unresolved issue needs explanation: an obscured reading,
 an ambiguous attachment/ditto mark, a missing side, a genuine conflicting reference,
-or a clearly impossible calendar date. The required Steinbach translation disclosure
-is an explicit exception when German text was translated. Also retain clearly
+or a clearly impossible calendar date. Include required translation disclosures.
+Also retain clearly
 crossed-out catalogue numbers here in one concise note giving the readable number, cancellation and short
 location, with colour only when clear and useful. Bracket only uncertain digits; do
 not reconstruct an obliterated number from catalogue hints. Do not repeat this same
@@ -240,22 +237,60 @@ BACK OF SLIP sections, then one final TRANSCRIPTION NOTES:.
 # whitespace only: no fuzzy matches or inferred aliases. Add other reviewed
 # exact-name guidance here; unknown/blank names use BASE_PROMPT.
 COLLECTOR_PROMPTS = {
-    "Brandt, Herbert W.": (
-        "A known stylized collector signature may read H. W. Brandt. Consider that "
-        "candidate only when visible strokes agree; it is not a supplied exemplar. "
-        "Preserve a clearly written full name as written. Ownership by a Brandt "
-        "collection never justifies replacing another collector or filling a blank."
-    ),
+    "Brandt, Herbert W.": """Brandt cards include typed copies, block capitals, faint
+pencil and dense cursive, sometimes in different hands. Use the checks relevant to
+the supplied card. For handwritten passages, silently make a second visual reading
+before finalizing the transcription:
+- Trace each line through to its end and follow continuations across unused or
+crossed-out printed labels. A flora passage beside Flight, a behavior passage beside
+Other Data, or nest prose beside Lining may still belong to the preceding entry.
+Keep continuous prose with that entry; preserve separate entries when actually present.
+Check dense bottom lines, margins, insertions, signatures and small measurement fields
+for omissions. Faint writing is not a blank, and a nearby catalogue stamp does not fill
+an empty identification or other field.
+- Recheck doubtful words by their beginning, ending, internal strokes and word boundaries.
+Compare repeated letters or words in the same hand on the supplied card/sides; do not
+claim access to other cards or exemplars. Check short words, negations, adjectives,
+names, localities and bird lists closely. Context can distinguish readings supported
+by strokes, but must not supply a more familiar phrase or an expected species name.
+Preserve rambling anecdotes, unusual comparisons, opinions, repetition and awkward
+grammar verbatim. Do not summarize, improve his prose, or replace it with typical nest
+or bird behavior. Bracket unresolved words or phrases rather than inventing fluent text.
+- Audit the numeric fields separately: A.O.U., set marks, dates, distances, incubation,
+and each nest measurement. Distinguish a whole set-mark numerator from a mixed number,
+and x, fraction bars, feet/inch marks and degree signs from digits. A raised degree
+sign is not a terminal zero; a dimension is not a fraction merely because spacing is
+uneven. Inspect handwritten changes to a preprinted year prefix before combining the
+digits; retain a truly incomplete date instead of borrowing a year from context.
+Preserve clearly visible check marks as check marks, attached to the selected option.
+- A known stylized collector signature may read H. W. Brandt. Consider that candidate
+only when visible strokes agree; it is not a supplied exemplar. Preserve a clearly
+written full name or initials as written, without adding initials from the CSV. Keep
+other signers distinct. Ownership by a Brandt collection never justifies replacing
+another collector or filling a blank.
+Output only the transcription in the required sections. Do not narrate these checks,
+claim accuracy from the collector hint, or repeat readings in TRANSCRIPTION NOTES.
+""",
 }
 
 # Substring matching is reserved for reviewed cases that explicitly require it.
 # Keys are normalized like exact names; values remain trusted local instructions.
 COLLECTOR_CONTAINS_PROMPTS = {
     "Steinbach": (
-        "The CSV Collector value for this record contains Steinbach. Apply the special "
-        "Jose Steinbach language rule to visible German text, including inset or pasted "
-        "notes, even if the signature is unclear. The CSV is fallible: do not override "
-        "a visibly conflicting collector, invent German text, or translate non-German text."
+        "The CSV Collector value for this record contains Steinbach. Inspect all "
+        "handwriting for German, including inset or pasted notes on the main card, "
+        "even if the signature is unclear. For each passage that is actually German, "
+        "transcribe the original German first, preserving its wording and uncertainty, "
+        "then immediately put an English translation in parentheses. Do not replace "
+        "or silently normalize the German, or make the translation more certain than "
+        "the source reading. Keep each passage with its associated field when clear; "
+        "otherwise put it in ANNOTATIONS with a concise location. Do not translate "
+        "names, localities, taxonomic text or non-German writing merely because "
+        "Steinbach is associated with the record. The CSV is fallible: do not override "
+        "a visibly conflicting collector or invent German text. If any German is "
+        "translated, include exactly one disclosure in TRANSCRIPTION NOTES: "
+        "'German text translated into English in parentheses.' Do not add that "
+        "disclosure when no German was translated."
     ),
 }
 
@@ -311,8 +346,7 @@ def output_requirements(card: Card) -> str:
                  "clearly evidenced alterations, and preserve marginal text and imprints.")
     lines.append("Finish with exactly one TRANSCRIPTION NOTES: section for the whole card; "
                  "use it only for substantive issues or relevant cancelled catalogue numbers, "
-                 "plus the required disclosure when German text was translated under the "
-                 "Steinbach rule, without otherwise repeating fields or annotations. "
+                 "or required translation disclosures, without repeating fields or annotations. "
                  "Otherwise leave it empty.")
     lines.append("Use plain text only, with ordinary fractions and separate labelled measurements; "
                  "no LaTeX commands, math delimiters, or equation environments.")

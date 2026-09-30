@@ -999,7 +999,7 @@ class DatasetTest(unittest.TestCase):
         prompt = prompts.build_prompt(card, db, False)
         self.assertNotIn(selected_text, prompt)
         self.assertNotIn("CATALOGUE REFERENCE HINTS", prompt)
-        self.assertIn("visible card identifies Jose Steinbach", prompt)
+        self.assertIn("visible collector is Steinbach", prompt)
 
         shared = t.Card("shared", ("E4268", "E4927"), card.paths, ("FRONT",))
         db.by_enum["E4927"][0]["Collector"] = "Other Collector"
@@ -1012,16 +1012,28 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("For catalogue record(s) E4268, E4927:\n" + guidance_line, prompt)
 
     def test_steinbach_rule_preserves_german_and_discloses_translation(self):
-        prompt = prompts.BASE_PROMPT
-        for rule in ("visible card identifies Jose Steinbach",
-                     "inset or pasted note", "original\nGerman first",
-                     "English\ntranslation in parentheses",
-                     "German text translated\ninto English in parentheses.",
-                     "Do not add that disclosure when no German was translated"):
+        card = self.cards({"E4268"})[0]
+        db = self.db()
+        detail = prompts.COLLECTOR_CONTAINS_PROMPTS["Steinbach"]
+        for collector, use_hints, included in (
+                ("Steinbach, Jos\u00e9", True, True),
+                ("Brandt, Herbert W.", True, False),
+                ("", True, False), ("Steinbach, Jos\u00e9", False, False)):
+            with self.subTest(collector=collector, use_hints=use_hints):
+                db.by_enum["E4268"][0]["Collector"] = collector
+                prompt = prompts.build_prompt(card, db, use_hints)
+                self.assertEqual(prompt.count(detail), int(included))
+                self.assertIn("visible collector is Steinbach", prompt)
+                self.assertIn("preserve German (including inset notes) and its uncertainty", prompt)
+                self.assertIn("disclose any translation once in TRANSCRIPTION NOTES", prompt)
+        for rule in ("inset or pasted notes", "original German first",
+                     "English translation in parentheses",
+                     "German text translated into English in parentheses.",
+                     "disclosure when no German was translated"):
             with self.subTest(rule=rule):
-                self.assertIn(rule, prompt)
-        self.assertIn("required disclosure when German text was translated",
-                      prompts.output_requirements(self.cards({"E4268"})[0]))
+                self.assertIn(rule, detail)
+        self.assertNotIn("Steinbach", prompts.output_requirements(card))
+        self.assertNotIn("Steinbach", prompts.format_correction(card, "Missing annotations"))
 
     def test_no_csv_hints_disables_collector_guidance_too(self):
         card = self.cards({"E4268"})[0]

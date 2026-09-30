@@ -107,6 +107,22 @@ Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` l
 | Provider/API/retry/quota | Both transport tests, no hidden SDK retries, per-attempt reservations, pacing, reset/error classification, timeout and stop behavior. |
 | Test mode or future domain boundary | Fresh calls, no journal access, production-temperature/cache stability, mixed metadata, file paths, original prompt/output/cache equivalence. |
 
+## Brandt reading checklist - build 2026-09-30.3
+
+Both baseline and final offline suites ran **150 tests: 149 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured), including both mocked provider transports. Existing collector-selection, disabled-hint, shared-record scoping and prompt/cache tests cover the expanded exact Brandt entry. A read-only before/after assembly check against the actual CSV confirmed changed prompt hashes and exactly one guidance block for E4443-E4447, E7466 and E6785. Base-prompt bytes and control prompts for another collector, Steinbach, a blank collector and disabled hints were unchanged.
+
+The source images and supplied reports were reviewed for recurring failures; the checklist does not embed corrected specimen text. There was no fresh live transcription run, so these checks do not measure handwriting accuracy or demonstrate that the model obeys the new reread instructions. Existing scans, CSV, reports, journals and quota state were not edited.
+
+## Partial-date prompt - build 2026-09-30.2
+
+The baseline and final offline suites each ran **150 tests: 149 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). Inspection of Gavia E4431-E4434 confirmed that the day position is visibly empty in each image, while the source CSV's collected-date field is blank. `build_prompt` includes no CSV date columns, so no day was provided as a hint. The current prompt explicitly distinguishes a blank day slot from a visible day and from punctuation or set-mark digits. These are prompt and source inspections, not a live model accuracy test; no API request, source scan, CSV, historical report or journal was changed.
+
+## Conditional collector detail - build 2026-09-30.1
+
+Both baseline and final `python -m unittest -v test_transcribe.py` runs completed **150 tests: 149 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). Both provider SDK transports ran against mocks. Updated coverage checks that full Steinbach guidance appears exactly once for matching hints and is absent for Brandt, blank collectors and disabled hints; the compact visible-name fallback remains. Shared-slip selection, collector-rule cache fingerprints and initial/retry side requirements remain covered. Retry requirements contain no Steinbach-specific text.
+
+The base prompt shrank by 133 words / 855 characters compared with build 2026-09-29.4, with additional savings in shared output requirements. No live API calls were made, so reading quality and billed token savings were not measured. This prompt change intentionally produces fresh fingerprints for future selected runs.
+
 ## Steinbach German translation rule - build 2026-09-29.4
 
 The pre-edit offline baseline completed **148 tests: 147 passed, one expected skip** (optional `EGG_SLIP_SAMPLE_DIR` fixture not configured). Read-only inspection of the production CSV found 564 records whose Collector value contains `Steinbach`; the current spelling is consistently `Steinbach, José`, and all five supplied catalogue numbers resolve to it.

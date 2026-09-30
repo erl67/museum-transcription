@@ -2,6 +2,26 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Brandt reading checklist - 30 September 2026
+
+Build and prompt **2026-09-30.3** expand the existing exact-name `COLLECTOR_PROMPTS["Brandt, Herbert W."]` entry. Comparison of the supplied Gavia E4443-E4447 reports (2026-09-29.3 and 2026-09-30.2) with their scans exposed misplaced continuations, invented identification text, stamp/field confusion, altered signatures and small numeric-mark errors. Cinclus E7466 and Columbina E6785 provide further dense-prose and marginal-writing examples. The new checklist requests a silent second visual reading, letter/word comparison within the same supplied hand, faithful unusual prose, complete continuations and a separate numeric audit. The original conditional signature guidance is retained.
+
+Read-only CSV inspection found 3,332 exact Brandt rows (about 32.7% of 10,190 rows); all seven supplied records match. Six joint Maguire/Brandt rows use a different existing collector string and are not silently aliased. No matching algorithm, base prompt, provider setting, validator or execution behavior changed. The seven sample prompts each contain the new guidance once. Control prompts for another collector, Steinbach, blank collectors and disabled hints are byte-identical to their pre-edit values. Only affected assembled prompts receive new cache fingerprints; saved history remains intact.
+
+Offline baseline and final suites each ran **150 tests: 149 passed, one optional fixture skip**, with both provider transports mocked. No live requests or source-data changes were made. This verifies integration and scope, not a measured improvement in model reading accuracy. See [transcription rules](transcription_rules.md#brandt-handwriting-and-dense-narratives).
+
+## Partial dates on typed Carnegie forms - 30 September 2026
+
+Build and prompt **2026-09-30.2** add a shared partial-date rule after reviewing Gavia E4431-E4434. Those Form I-252 images show a typed month and year with no day between the month and comma. Three dated report versions alternated between preserving the missing day and supplying unsupported 2, 7 or 9; structural `OK` could not certify the reading. The master CSV rows have month/year but an empty collected-date field, and the assembled prompt deliberately excludes all CSV date columns. The observed failure is consistent with model completion of a familiar date layout or confusion with nearby marks; its internal cause is not observable.
+
+The prompt now directs a slot-by-slot check: keep a genuinely partial date without a day, but retain a day when visible on another card. No semantic date rewrite, source-data change or validator heuristic was added. Existing reports remain historical output. Offline tests verify software behavior only; a future authorized fresh model run is needed to measure whether transcription accuracy improved. The changed prompt bytes intentionally change future cache fingerprints while preserving journal history.
+
+## Conditional collector detail - 30 September 2026
+
+Build and prompt **2026-09-30.1** move the full German/inset/translation/disclosure rule out of `BASE_PROMPT` into the existing CSV-selected `COLLECTOR_CONTAINS_PROMPTS["Steinbach"]` entry. The base retains one short sentence for a visible Steinbach collector when no applicable guidance was supplied. Shared side/retry requirements permit translation disclosures generically. Detailed instructions are included once only for matching enabled hints; existing collector matching and shared-record scoping remain in use.
+
+The base prompt is 133 words / 855 characters shorter than build 2026-09-29.4; shared output requirements are also shorter. This is a text-size comparison, not a tokenizer or billing estimate. The changed base and assembled prompt bytes intentionally generate new fingerprints on future selected runs; existing reports and journal history remain intact. Both baseline and final offline suites ran **150 tests: 149 passed, one optional fixture skip**, including both mocked provider transports. No live requests or source-data changes were made.
+
 ## Steinbach German translation rule - 29 September 2026
 
 Build and prompt **2026-09-29.4** add a reviewed José Steinbach edge case. When the collector is visibly Steinbach, or the relevant fallible CSV Collector value contains `Steinbach`, German source text is retained first and followed immediately by an English translation in parentheses. The rule explicitly includes inset or pasted notes on the main card, preserves uncertainty, excludes non-German names/localities/taxonomy, and requires the final disclosure `German text translated into English in parentheses.` only when a translation was supplied. That nonempty note intentionally produces `REVIEW` under the existing validator.
