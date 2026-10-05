@@ -2,6 +2,26 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Flash-Lite high-thinking default - 5 October 2026
+
+Build **2026-10-05.3** sets only the Gemini 3.5 Flash-Lite profile to `thinking_level="high"`, as requested after review of E5344. Normal, test, and single-card runs inherit it; explicit CLI overrides including `auto` remain available. Other model defaults, temperature, and request caps are unchanged. Prompt bytes remain unchanged; generation settings intentionally change the input fingerprint, preventing reuse of old default-setting results without deleting saved history. No responsibilities moved.
+
+Baseline and final offline suites: **159 tests, 158 passed, one optional scan-fixture skip**, including both mocked provider transports. Sandbox temporary-fixture permission failures required running the suite outside the sandbox. Explicit `auto`/`medium` overrides and the unchanged 3.8 shortcut default were checked locally. No live requests were made.
+
+## Strong-model single-card shortcut - 5 October 2026
+
+Build **2026-10-05.2** adds `E9323@` to force the configured Gemini 3.8 Flash profile for a fresh terminal reading and individual family-folder report. Single-card filenames now include the actual model: `E9323_g38f_Hylopezus_perspicillatus_20261005_1045.txt` for `@`, and `E9323_g35fl_Hylopezus_perspicillatus_20261005_1045.txt` for `!` with 3.5 Flash Lite. Old untagged reports remain intact; combined-test names are unchanged. Both suffixes keep all sides together and bypass transcription journals.
+
+Profile application/validation moved from `parse_args` into the shared `configure_model_profile` helper so interactive selection can resolve the complete profile before limiter, quota and client initialization. Original explicit CLI overrides are retained and revalidated against the selected profile. `@` uses the existing persistent 3.8 counter and its default 20-attempt daily cap, including retries. Normal model selection, prompts, cache fingerprints, source data and provider/retry implementations are unchanged.
+
+Baseline: 155 offline tests (154 passed, one optional scan-fixture skip). Final: **159 tests (158 passed, the same skip)**, with both mocked provider transports. A production `E9323@ --dry-run` confirmed the one-image card and 3.8 profile without API calls or output writes. No live requests were made. The untagged filename examples in the earlier build note below are historical and superseded for new single-card reports.
+
+## Individual fresh card reports - 5 October 2026
+
+Build **2026-10-05.1** adds the exact E-number `!` suffix, such as `E9323!`, for a fresh terminal reading plus a timestamped individual report in the CSV-routed family directory: `E9323_Hylopezus_perspicillatus_20261005_1045.txt`. It uses the existing discovery, prompt, image, provider, validation, quota and report-writing paths, without opening a transcription journal. Normal settings apply; `TEST_TEMPERATURE` still applies only to the mixed-species test target. Existing `*` console-only behavior and normal cache reuse remain intact. All sides/shared numbers stay together; same-minute report collisions get counters and failed answer text remains visible and saved.
+
+No responsibilities moved, prompt bytes or cache fingerprints changed, or source collection data was edited. The baseline ran 150 offline tests (149 passed, one optional scan-fixture skip); the final suite ran **155 tests (154 passed, the same skip)** with both provider transports mocked. Initial sandbox fixture-write errors were resolved by running the offline suite outside the sandbox. No live requests were made. See [testing](testing.md#single-card-fresh-checks).
+
 ## Brandt reading checklist - 30 September 2026
 
 Build and prompt **2026-09-30.3** expand the existing exact-name `COLLECTOR_PROMPTS["Brandt, Herbert W."]` entry. Comparison of the supplied Gavia E4443-E4447 reports (2026-09-29.3 and 2026-09-30.2) with their scans exposed misplaced continuations, invented identification text, stamp/field confusion, altered signatures and small numeric-mark errors. Cinclus E7466 and Columbina E6785 provide further dense-prose and marginal-writing examples. The new checklist requests a silent second visual reading, letter/word comparison within the same supplied hand, faithful unusual prose, complete continuations and a separate numeric audit. The original conditional signature guidance is retained.

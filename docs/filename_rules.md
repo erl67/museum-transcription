@@ -40,10 +40,12 @@ The defaults are machine-specific Windows paths under `G:\My Drive\Egg Slip Scan
 | `Accipiter_cooperii` or `"Accipiter cooperii"` | Every recognized group in that species JPEG folder, including uncatalogued groups. Family mapping still requires CSV data. |
 | `E4268` | Exact number, case-insensitive; it must exist in the CSV to route to its species. |
 | `E4268*` | Same selection, fresh console output; `*` is a mode suffix, not a glob. |
+| `E4268!` | Same selection with the selected model, fresh console output plus a model-tagged timestamped report in the family directory; no transcription cache access. |
+| `E4268@` | Same fresh console/report behavior, forcing the configured Gemini 3.8 Flash profile and `g38f` filename tag. |
 | `2-1000` | Inclusive spreadsheet-style row range; first row must be at least 2. Select corresponding E-numbers, plus uncatalogued groups in every visited species folder. |
 | `tests` (or `test`) | Every recognized group in the one test input directory, regardless of species. Case-insensitive with surrounding whitespace ignored. |
 
-Invalid targets, descending ranges, species/range targets with `*`, and path strings used as species names are rejected. `--console-only` is available for normal species/range selections; `test --console-only` is rejected. There is no E-number numeric range or general wildcard search.
+Invalid targets, descending ranges, species/range targets with `*`, `!` or `@`, combined/repeated mode suffixes, and path strings used as species names are rejected. `--console-only` is available for normal species/range selections; `test --console-only`, `E4268! --console-only` and `E4268@ --console-only` are rejected. There is no E-number numeric range or general wildcard search.
 
 In normal species mode, a numbered filename absent from the CSV is still transcribed without matching hints; the special missing-CSV review warning is currently added only in test mode. A species consisting solely of uncatalogued records cannot route without a CSV family mapping; use the mixed test folder for such material until a requested routing enhancement exists.
 

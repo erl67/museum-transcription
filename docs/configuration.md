@@ -1,10 +1,10 @@
 # Configuration, providers, and request control
 
-Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-23.4`; they are not independently verified provider quotas or model-availability promises.
+Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-23.4`; they are not independently verified provider quotas or model-availability promises.
 
 ## Profiles and temperature
 
-Change `MODEL` near the top of the script or pass `--model`. The exact ID must have a `MODEL_PROFILES` entry. Unknown profiles fail locally; the application never substitutes a different model/provider after a failure.
+Change `MODEL` near the top of the script or pass `--model`. The exact ID must have a `MODEL_PROFILES` entry. The single-card `@` suffix forces `gemini-3.8-flash`, applying the full profile before engine initialization even when entered interactively. Its default cap is 20 daily attempts, sharing the existing persistent 3.8 counter across normal/test/single-card runs and retries. Compatible explicit CLI overrides remain effective; incompatible provider/generation options are rejected. `!` continues to use the selected model. Compact tags for individual card reports are maintained separately in `SINGLE_CARD_MODEL_TAGS`; combined-test tags remain unchanged. Unknown profiles fail locally; the application never substitutes a different model/provider after a failure.
 
 | Configured model ID | Provider | RPM | Local daily attempt cap | Request timeout | Total attempts/card | Normal temperature | Test filename tag |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
@@ -24,7 +24,7 @@ Profiles also hold `max_output_tokens` (16,384 by default), retry base (5 s for 
 
 | Setting/flag | Current scope |
 | --- | --- |
-| `--thinking-level auto/minimal/low/medium/high` | Gemini; omitted by default. The configured 3.8 profile permits only low/medium/high or auto. This is a local profile restriction. |
+| `--thinking-level auto/minimal/low/medium/high` | Gemini; Flash-Lite defaults to high in normal, test and single-card runs; other profiles omit it by default. Explicit levels override the profile; auto omits the setting. The configured 3.8 profile permits only low/medium/high or auto. This is a local profile restriction. |
 | `--media-resolution auto/low/medium/high` | Gemini; omitted by default. |
 | `--reasoning-effort auto/none/minimal/low/medium/high/xhigh/max` | OpenAI; omitted by default. GPT-5.6 allows none/low/medium/high/xhigh/max; Astra allows low/medium/high/xhigh/max. Unsupported efforts fail locally. |
 | `--image-detail auto/low/high/original` | OpenAI; `original` in the current profile. |

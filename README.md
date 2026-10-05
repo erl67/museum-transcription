@@ -65,12 +65,14 @@ Run `python transcribe.py` for the interactive target prompt, or supply a target
 | `python transcribe.py Accipiter_cooperii` | Save a species report, including uncatalogued cards. |
 | `python transcribe.py E4268` | Select the exact catalogue number; shared slips are submitted once. |
 | `python transcribe.py "E4268*"` | Fresh console reading of that card. The star is **not a wildcard**. |
+| `python transcribe.py "E9323!"` | Fresh reading with the selected model, printed in the terminal and saved with a model tag in its family folder. |
+| `python transcribe.py "E9323@"` | Fresh reading with Gemini 3.8 Flash, printed and saved with the `g38f` tag; its profile caps daily attempts at 20. |
 | `python transcribe.py "2-1000"` | Select inclusive CSV row numbers; row 1 is the header. Includes uncatalogued cards in visited species folders. |
 | `python transcribe.py Accipiter_cooperii --dry-run` | Preview grouping and side order without API calls or output files. |
 | `python transcribe.py E4268 --force` | Refresh a normally cached reading. |
 | `python transcribe.py tests` | Run fresh comparisons on the handpicked test folder. |
 
-Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches and the saved result is no more than 48 hours old. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. `--help` lists the remaining options.
+Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches and the saved result is no more than 48 hours old. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. Enter `E9323!` at the prompt for a fresh reading plus a saved file such as `E9323_g35fl_Hylopezus_perspicillatus_20261005_1045.txt` with Gemini 3.5 Flash Lite. Enter `E9323@` to select Gemini 3.8 Flash and save `E9323_g38f_Hylopezus_perspicillatus_20261005_1045.txt`. Both save in the family directory and never read or write transcription caches. `!` uses the selected model; `@` applies the complete 3.8 Flash profile (5 RPM, 20 daily attempts, including retries). Explicit compatible CLI overrides still apply. Same-minute repeats get `_2`, `_3`, etc. `--help` lists the remaining options.
 
 ## Model comparisons
 
@@ -82,6 +84,8 @@ TEST_TEMPERATURE = 1.0
 ```
 
 Normal and test runs default to temperature **1.0** for profiles that accept it. Astra continues to omit it.
+
+Gemini 3.5 Flash-Lite defaults to **high thinking**, including interactive and single-card runs. Override with `--thinking-level medium` or use `--thinking-level auto` for the provider default. This setting changes the input fingerprint, so old results without high thinking are not reused; saved history remains intact. Request caps are unchanged, but thinking can increase token cost and latency.
 
 `MODEL_PROFILES` contains the configured model IDs and their provider, limits, generation settings, and retry budgets. These are project settings, not a guarantee of current model availability or account quota. See [configuration](docs/configuration.md).
 
@@ -133,10 +137,10 @@ The prompt now treats a Date field with a visible month and year but no day as a
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-09-30.3** passes **149 offline tests, with 1 expected skip** (150 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+Build **2026-10-05.3** passes **158 offline tests, with 1 expected skip** (159 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-09-30.3
+transcribe.py                  Current application; build 2026-10-05.3
 egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
 token_usage.py                Provider usage normalization and cost estimates
 test_transcribe.py             Offline unittest suite

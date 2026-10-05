@@ -344,9 +344,27 @@ class ProfileAndQuotaTest(unittest.TestCase):
                 self.assertEqual((args.rpm, args.rpd, args.timeout, args.attempts), values)
                 self.assertEqual(args.provider, "gemini")
                 self.assertEqual(args.temperature, 1.0)
-                self.assertNotIn("thinking_config", t.generation_config(args))
+                if model == "gemini-3.5-flash-lite":
+                    self.assertEqual(t.generation_config(args)["thinking_config"], {"thinking_level": "HIGH"})
+                else:
+                    self.assertNotIn("thinking_config", t.generation_config(args))
         args = t.parse_args(["--model", "gemini-3.8-flash"])
         self.assertEqual((args.rpm, args.rpd), (5, 20))
+
+    def test_at_selects_full_strong_profile_and_validates_explicit_overrides(self):
+        args = t.parse_args(["E4268@", "--model", "gpt-6-astra"])
+        self.assertEqual(args.model, "gemini-3.8-flash")
+        self.assertEqual(args.provider, "gemini")
+        self.assertEqual((args.rpm, args.rpd, args.timeout, args.attempts), (5, 20, 300, 3))
+        self.assertEqual(args.retry_base, 15)
+        self.assertEqual(args.quota_timezone, "America/Los_Angeles")
+        self.assertEqual(args.temperature, 1.0)
+        self.assertEqual(args.thinking_levels, ("low", "medium", "high"))
+        args = t.parse_args(["E4268@", "--temperature", "0.4", "--attempts", "1", "--timeout", "350"])
+        self.assertEqual((args.temperature, args.attempts, args.timeout), (0.4, 1, 350))
+        for options in (["--thinking-level", "minimal"], ["--reasoning-effort", "high"]):
+            with self.subTest(options=options), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                t.parse_args(["E4268@", *options])
 
     def test_supported_profile_temperatures_default_to_one_with_explicit_overrides(self):
         for model, profile in t.MODEL_PROFILES.items():
@@ -928,7 +946,9 @@ class DatasetTest(unittest.TestCase):
 
     def test_invalid_targets_do_not_silently_save_batch(self):
         db = self.db()
-        for target in ("", "5-2", "1-3", "Accipiter_gentilis*", "../Accipiter_gentilis", "E999"):
+        for target in ("", "5-2", "1-3", "Accipiter_gentilis*", "../Accipiter_gentilis", "E999",
+                       "Accipiter_gentilis!", "2-3!", "tests!", "E4268*!", "E4268!!", "!", "Accipiter_gentilis@", "2-3@", "tests@",
+                       "E4268!@", "E4268@@", "E4268@*", "@"):
             with self.subTest(target=target), self.assertRaises(ValueError):
                 t.select_targets(db, target)
 
@@ -1491,7 +1511,7 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("ID: Accipiter_gentilis_Uncatalogued01", report)
         self.assertNotIn("ID: Accipiter_gentilis_E4927", report)
         self.args.force = True
-        for target in ("E4268", "E4268*"):
+        for target in ("E4268", "E4268*", "E4268!"):
             with self.subTest(target=target):
                 self.args.target = target
                 engine, client, _ = self.engine()
@@ -1531,6 +1551,165 @@ class DatasetTest(unittest.TestCase):
         usage_after = json.loads((self.root / "usage.json").read_text())
         key = self.args.provider + "/" + self.args.model
         self.assertEqual(usage_after["models"][key]["attempts"], usage_before["models"][key]["attempts"] + 1)
+
+    def test_bang_interactive_is_fresh_prints_and_saves_without_touching_cache(self):
+        t.run(self.args, self.engine()[0])
+        before = self.snapshot(include_usage=False)
+        usage_before = json.loads((self.root / "usage.json").read_text())
+        self.args.target = None
+        for number in (1, 2):
+            engine, client, _ = self.engine()
+            with patch("builtins.input", return_value=" e4268! "), patch.object(t, "datetime") as clock, \
+                    patch.object(t, "Journal", side_effect=AssertionError("cache access")), \
+                    contextlib.redirect_stdout(io.StringIO()) as captured:
+                clock.now.return_value = datetime(2026, 10, 5, 10, 45, tzinfo=timezone.utc)
+                self.assertEqual(t.run(self.args, engine), 0)
+            self.assertEqual(len(client.calls), 1)
+            suffix = "" if number == 1 else "_2"
+            report = self.family / f"E4268_g35fl_Accipiter_gentilis_20261005_1045{suffix}.txt"
+            saved = report.read_text(encoding="utf-8")
+            self.assertIn("STATUS: OK", saved)
+            self.assertIn("TEST FIXTURE BACK", saved)
+            self.assertIn("TOKENS:", saved)
+            self.assertIn("RUN:", saved)
+            self.assertIn("TEST FIXTURE BACK", captured.getvalue())
+            self.assertIn("ID: Accipiter_gentilis_E4268", captured.getvalue())
+            self.assertNotIn("(reused)", saved)
+            self.assertNotIn("ID: Accipiter_gentilis_E4927", saved)
+            submitted = str(client.calls[0]["contents"])
+            self.assertLess(submitted.index("E4268(A).jpg"), submitted.index("E4268(B).jpg"))
+        after = self.snapshot(include_usage=False)
+        self.assertEqual({key: after[key] for key in before}, before)
+        self.assertEqual(len(set(after) - set(before)), 2)
+        usage_after = json.loads((self.root / "usage.json").read_text())
+        key = self.args.provider + "/" + self.args.model
+        self.assertEqual(usage_after["models"][key]["attempts"], usage_before["models"][key]["attempts"] + 2)
+
+    def test_bang_shared_slip_preserves_requested_number_and_all_sides(self):
+        self.card_image("Accipiter_gentilis_E187_E001(B).jpg")
+        self.card_image("Accipiter_gentilis_E187_E001(A).jpg")
+        self.card_image("Accipiter_gentilis_Uncatalogued01.jpg")
+        self.args.target = " e001! "
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 1)
+        report = next(self.family.glob("E001_g35fl_Accipiter_gentilis_*.txt")).read_text()
+        self.assertIn("CM187", report)
+        self.assertIn("CM001", report)
+        self.assertNotIn("Uncatalogued", report)
+        self.assertEqual(len(list(self.family.glob("*_cache.jsonl"))), 0)
+
+    def test_bang_dry_run_and_console_conflict_spend_no_requests(self):
+        self.args.target = "E4268!"
+        before = self.snapshot()
+        self.args.dry_run = True
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.snapshot(), before)
+        self.args.dry_run = False
+        self.args.console_only = True
+        engine, client, _ = self.engine()
+        with self.assertRaisesRegex(ValueError, "--console-only"):
+            t.run(self.args, engine)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_bang_saves_failed_response_text_and_prints_it(self):
+        self.args.target = "E4927!"
+        engine, client, _ = self.engine([response("partial reading", "MAX_TOKENS")])
+        with contextlib.redirect_stdout(io.StringIO()) as captured:
+            self.assertEqual(t.run(self.args, engine), 1)
+        self.assertEqual(len(client.calls), 1)
+        report = next(self.family.glob("E4927_g35fl_Accipiter_gentilis_*.txt")).read_text()
+        for output in (report, captured.getvalue()):
+            self.assertIn("STATUS: FAILED", output)
+            self.assertIn("partial reading", output)
+            self.assertIn("SAVED RESPONSE", output)
+        self.assertEqual(len(list(self.family.glob("*_cache.jsonl"))), 0)
+
+    def test_bang_opens_report_before_spending_requests(self):
+        self.args.target = "E4927!"
+        engine, client, _ = self.engine()
+        with patch.object(t, "open_output_report", side_effect=OSError("disk unavailable")), \
+                self.assertRaisesRegex(OSError, "disk unavailable"):
+            t.run(self.args, engine)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(len(list(self.family.glob("*_cache.jsonl"))), 0)
+
+    def test_at_interactive_switches_before_engine_and_keeps_cached_work(self):
+        t.run(self.args, self.engine()[0])
+        before = self.snapshot(include_usage=False)
+        self.args.target = None
+        transcriber = t.Transcriber
+        for number in (1, 2):
+            client = FakeClient()
+            engines = []
+            clock = Clock()
+            def make_engine(effective_args):
+                engine = transcriber(effective_args, client=client, clock=clock.time, sleep=clock.sleep)
+                engines.append(engine)
+                return engine
+            with patch("builtins.input", return_value=" e4268@ "), \
+                    patch.object(t, "Transcriber", side_effect=make_engine), \
+                    patch.object(t, "Journal", side_effect=AssertionError("cache access")), \
+                    patch.object(t, "datetime") as wall_clock, contextlib.redirect_stdout(io.StringIO()) as captured:
+                wall_clock.now.return_value = datetime(2026, 10, 5, 10, 45, tzinfo=timezone.utc)
+                self.assertEqual(t.run(self.args), 0)
+            engine = engines[0]
+            self.assertEqual((engine.args.model, engine.quota.key, engine.quota.limit),
+                             ("gemini-3.8-flash", "gemini/gemini-3.8-flash", 20))
+            self.assertEqual((engine.args.rpm, engine.args.attempts, engine.args.retry_base), (5, 3, 15))
+            self.assertEqual(len(client.calls), 1)
+            self.assertEqual(client.calls[0]["model"], "gemini-3.8-flash")
+            submitted = str(client.calls[0]["contents"])
+            self.assertLess(submitted.index("E4268(A).jpg"), submitted.index("E4268(B).jpg"))
+            self.assertEqual(self.args.model, "gemini-3.5-flash-lite")
+            suffix = "" if number == 1 else "_2"
+            saved = (self.family / f"E4268_g38f_Accipiter_gentilis_20261005_1045{suffix}.txt").read_text()
+            for output in (saved, captured.getvalue()):
+                self.assertIn("MODEL: gemini-3.8-flash", output)
+                self.assertIn("TEST FIXTURE BACK", output)
+                self.assertNotIn("(reused)", output)
+        after = self.snapshot(include_usage=False)
+        self.assertEqual({key: after[key] for key in before}, before)
+        self.assertEqual(len(set(after) - set(before)), 2)
+        usage = json.loads((self.root / "usage.json").read_text())["models"]
+        self.assertEqual(usage["gemini/gemini-3.8-flash"]["attempts"], 2)
+        self.assertEqual(usage["gemini/gemini-3.5-flash-lite"]["attempts"], 2)
+
+    def test_at_counts_retry_against_existing_twenty_attempt_cap(self):
+        self.args = t.parse_args(["E4927@", "--csv", str(self.csv),
+                                  "--base-dir", str(self.root / "Family"),
+                                  "--quota-file", str(self.root / "usage.json")])
+        quota = t.DailyQuota(self.args)
+        for _ in range(19):
+            quota.update()
+        engine, client, _ = self.engine([FakeAPIError(503)])
+        self.assertEqual(t.run(self.args, engine), 1)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(engine.requests, 1)
+        usage = json.loads((self.root / "usage.json").read_text())["models"]
+        self.assertEqual(usage["gemini/gemini-3.8-flash"]["attempts"], 20)
+        self.assertNotIn("gemini/gemini-3.5-flash-lite", usage)
+        saved = next(self.family.glob("E4927_g38f_Accipiter_gentilis_*.txt")).read_text()
+        self.assertIn("STATUS: PAUSED", saved)
+        self.assertFalse(list(self.family.glob("*_cache.jsonl")))
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 1)
+        self.assertEqual(client.calls, [])
+
+    def test_at_dry_run_and_console_conflict_are_read_only(self):
+        self.args.target = "E4268@"
+        self.args.dry_run = True
+        before = self.snapshot()
+        self.assertEqual(t.run(self.args), 0)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.args.model, "gemini-3.5-flash-lite")
+        self.args.console_only = True
+        with self.assertRaisesRegex(ValueError, "--console-only"):
+            t.run(self.args)
+        self.assertEqual(self.snapshot(), before)
 
     def test_failed_result_is_retried_on_next_run(self):
         self.args.target = "E4927"

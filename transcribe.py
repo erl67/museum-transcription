@@ -37,7 +37,7 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-09-30.3"
+SCRIPT_VERSION = "2026-10-05.3"
 CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
@@ -76,7 +76,7 @@ class ModelProfile:
 # Optional generation settings belong in that entry; unrelated settings are not
 # sent to the other provider. No model/provider is ever substituted on failure.
 MODEL_PROFILES = {
-    "gemini-3.5-flash-lite": ModelProfile("gemini", rpm=15, rpd=500, filename_tag="g3.5-f-l"),
+    "gemini-3.5-flash-lite": ModelProfile("gemini", rpm=15, rpd=500, thinking_level="high", filename_tag="g3.5-f-l"),
     "gemini-3.6-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
                                       attempts=3, retry_base=15, filename_tag="g3.6f"),
     "gemini-3.8-flash": ModelProfile("gemini", rpm=5, rpd=20, timeout=300,
@@ -97,6 +97,14 @@ MODEL_PROFILES = {
                                  attempts=3, temperature=None, retry_base=15,
                                  quota_timezone="UTC", supports_temperature=False,
                                  reasoning_efforts=("low", "medium", "high", "xhigh", "max")),
+}
+
+# Individual card reports use these compact tags; combined-test tags stay unchanged.
+SINGLE_CARD_STRONG_MODEL = "gemini-3.8-flash"
+SINGLE_CARD_MODEL_TAGS = {
+    "gemini-3.5-flash-lite": "g35fl",
+    "gemini-3.6-flash": "g36f",
+    "gemini-3.8-flash": "g38f",
 }
 
 # Daily counts cover all targets/restarts using this script and this state file.
@@ -277,14 +285,15 @@ def enum_species(db: Database, enum: str) -> str:
 
 def select_targets(db: Database, target: str) -> tuple[dict, bool]:
     target = target.strip()
+    suffix = target[-1:] if target.endswith(("*", "!", "@")) else ""
     console_only = target.endswith("*")
-    if console_only:
+    if suffix:
         target = target[:-1].strip()
     if not target:
         raise ValueError("Enter a species, an E-number, or a CSV row range.")
     enum_match = re.fullmatch(r"E\d+", target, flags=re.I)
-    if console_only and not enum_match:
-        raise ValueError("The * suffix requires one E-number, for example E4268*.")
+    if suffix and not enum_match:
+        raise ValueError(f"The {suffix} suffix requires one E-number, for example E4268{suffix}.")
     if enum_match:
         enum = target.upper()
         return {enum_species(db, enum): {enum}}, console_only
@@ -1304,16 +1313,27 @@ def temperature_tag(args) -> str:
 def run(args, engine=None) -> int:
     db = load_database(Path(args.csv))
     target = args.target if args.target is not None else input(
-        "Enter target (e.g., tests, Lagopus_lagopus, E2695, E2695*, or 2-1000): ")
+        "Enter target (e.g., tests, Lagopus_lagopus, E2695, E2695*, E2695!, E2695@, or 2-1000): ")
     test_mode = target.strip().casefold() in {"test", "tests"}
+    single_card_test = target.strip().endswith(("!", "@"))
     if test_mode:
         configure_test_run(args)
         targets, star_mode = {"tests": None}, False
     else:
         targets, star_mode = select_targets(db, target)
+    if single_card_test and args.console_only:
+        raise ValueError("The ! and @ suffixes save a card report; --console-only cannot be used with them.")
+    if target.strip().endswith("@"):
+        # Interactive targets arrive after CLI parsing. Resolve the full profile
+        # before constructing the limiter/quota/client, without changing the caller.
+        args = argparse.Namespace(**vars(args))
+        configure_model_profile(args, SINGLE_CARD_STRONG_MODEL)
+        print(f"Single-card model: {args.model}; {args.rpm:g} RPM; "
+              f"{args.rpd if args.rpd is not None else 'uncapped'} local daily attempts.")
     # Include unnumbered scans in each visited batch folder, but keep a targeted
-    # E-number lookup scoped to that card (including the console-only * form).
-    include_uncatalogued = re.fullmatch(r"E\d+", target.strip().removesuffix("*").strip(), re.I) is None
+    # E-number lookup scoped to that card (including the *, ! and @ forms).
+    lookup_target = target.strip().removesuffix("*").removesuffix("!").removesuffix("@").strip()
+    include_uncatalogued = re.fullmatch(r"E\d+", lookup_target, re.I) is None
     console_only = star_mode or args.console_only
     engine = engine or Transcriber(args)
     totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0}
@@ -1365,7 +1385,10 @@ def run(args, engine=None) -> int:
                 journal = None
                 output = None
                 if not console_only:
-                    if test_mode:
+                    if single_card_test:
+                        tag = safe_component(SINGLE_CARD_MODEL_TAGS.get(args.model, args.filename_tag or args.model))
+                        output_path, handle = open_output_report(family_dir, f"{lookup_target.upper()}_{tag}_{species}")
+                    elif test_mode:
                         family_dir.mkdir(parents=True, exist_ok=True)
                         tag = safe_component(args.filename_tag or args.model)
                         output_path, handle = open_output_report(
@@ -1416,13 +1439,14 @@ def run(args, engine=None) -> int:
                     block = output_block(card, result, reused)
                     if output:
                         durable_write(output, block)
-                        print("    " + result["status"].upper() + (" (reused; no API call)" if reused else ""))
-                        if result.get("error"):
-                            print("    " + result["error"])
-                        review = review_line(result.get("warnings", []))
-                        if review:
-                            print("    " + review)
-                    else:
+                        if not single_card_test:
+                            print("    " + result["status"].upper() + (" (reused; no API call)" if reused else ""))
+                            if result.get("error"):
+                                print("    " + result["error"])
+                            review = review_line(result.get("warnings", []))
+                            if review:
+                                print("    " + review)
+                    if output is None or single_card_test:
                         print(block)
                     print("    " + token_usage.summary(getattr(engine, "call_usage", [])))
                     if result.get("fatal"):
@@ -1435,7 +1459,7 @@ def run(args, engine=None) -> int:
                                   f"{totals['failed']} failed; {totals['discovery_issues']} file issues; "
                                   f"{engine.requests} API attempt(s).\n")
     except KeyboardInterrupt:
-        print("\nInterrupted. Completed test output is saved; the next test starts fresh." if test_mode else
+        print("\nInterrupted. Completed test output is saved; the next test starts fresh." if test_mode or single_card_test else
               "\nInterrupted. Completed saved cards can be reused by running the same target again.")
         return 130
     finally:
@@ -1459,10 +1483,56 @@ def run(args, engine=None) -> int:
 
 
 # --- 9. Command-line options; original interactive launch still works ---
+def configure_model_profile(args, model: str | None = None):
+    """Apply one full profile and validate the original explicit CLI overrides."""
+    if model is not None:
+        args.model = model
+    args.model = args.model.strip()
+    profile = MODEL_PROFILES.get(args.model)
+    if profile is None:
+        raise ValueError(f"No profile for {args.model!r}. Add its exact model ID, provider, RPM and RPD "
+                     "to MODEL_PROFILES in the settings section. Use --list-models to see configured models.")
+    explicit = args.profile_overrides
+    args.temperature_explicit = "temperature" in explicit
+    for name, value in vars(profile).items():
+        if name not in explicit:
+            setattr(args, name, value)
+    for name in ("media_resolution", "thinking_level", "reasoning_effort"):
+        if getattr(args, name) == "auto":
+            setattr(args, name, None)
+    if args.rpd == 0:
+        args.rpd = None
+    for label, value in (("rpm", args.rpm), ("timeout", args.timeout), ("temperature", args.temperature),
+                         ("max-retry-wait", args.max_retry_wait), ("retry_base", args.retry_base)):
+        if value is not None and not math.isfinite(value):
+            raise ValueError(f"--{label} must be finite.")
+    if args.rpm <= 0 or args.timeout <= 0 or args.attempts < 1 or args.max_output_tokens < 1 or args.max_edge < 0:
+        raise ValueError("RPM, timeout, attempts and output tokens must be positive; max-edge must be >= 0.")
+    if args.temperature is not None and not 0 <= args.temperature <= 2:
+        raise ValueError("Temperature must be between 0 and 2.")
+    if args.rpd is not None and (type(args.rpd) is not int or args.rpd < 1):
+        raise ValueError("RPD must be a positive integer, or 0/None to disable the local cap.")
+    if args.retry_base <= 0 or args.max_retry_wait < 60:
+        raise ValueError("retry_base must be positive; --max-retry-wait must be at least 60 seconds.")
+    if args.provider not in {"gemini", "openai"}:
+        raise ValueError("ModelProfile.provider must be gemini or openai.")
+    if args.provider == "gemini":
+        if args.reasoning_effort is not None or "image_detail" in explicit:
+            raise ValueError("--reasoning-effort and --image-detail are OpenAI settings.")
+        if args.thinking_level and args.thinking_level not in args.thinking_levels:
+            raise ValueError(f"{args.model} thinking levels: {', '.join(args.thinking_levels)} (or auto).")
+    elif args.thinking_level is not None or args.media_resolution is not None:
+        raise ValueError("--thinking-level and --media-resolution are Gemini settings.")
+    if not args.supports_temperature and args.temperature is not None:
+        raise ValueError(f"{args.model} does not support temperature; use --temperature auto.")
+    if args.provider == "openai" and args.reasoning_effort and args.reasoning_effort not in args.reasoning_efforts:
+        raise ValueError(f"{args.model} reasoning efforts: {', '.join(args.reasoning_efforts)} (or auto).")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"Egg-slip transcriber {SCRIPT_VERSION}")
-    parser.add_argument("target", nargs="?", help="tests, species, E-number, E-number*, or CSV row range")
+    parser.add_argument("target", nargs="?", help="tests, species, E-number, E-number* (console), E-number! (fresh console + report), E-number@ (3.8 Flash console + report), or CSV row range")
     parser.add_argument("--csv", default=CSV_PATH, help="Master CSV path")
     parser.add_argument("--base-dir", default=BASE_FAMILY_DIR, help="Root Family directory")
     parser.add_argument("--test-input-dir", default=str(TEST_INPUT_DIR), help="Flat sample JPEG folder; default: tests/inputs beside script")
@@ -1498,46 +1568,11 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.list_models:
         return args
-    args.model = args.model.strip()
-    profile = MODEL_PROFILES.get(args.model)
-    if profile is None:
-        parser.error(f"No profile for {args.model!r}. Add its exact model ID, provider, RPM and RPD "
-                     "to MODEL_PROFILES in the settings section. Use --list-models to see configured models.")
-    explicit = set(vars(args))
-    args.temperature_explicit = "temperature" in explicit
-    for name, value in vars(profile).items():
-        if not hasattr(args, name):
-            setattr(args, name, value)
-    for name in ("media_resolution", "thinking_level", "reasoning_effort"):
-        if getattr(args, name) == "auto":
-            setattr(args, name, None)
-    if args.rpd == 0:
-        args.rpd = None
-    for label, value in (("rpm", args.rpm), ("timeout", args.timeout), ("temperature", args.temperature),
-                         ("max-retry-wait", args.max_retry_wait), ("retry_base", args.retry_base)):
-        if value is not None and not math.isfinite(value):
-            parser.error(f"--{label} must be finite.")
-    if args.rpm <= 0 or args.timeout <= 0 or args.attempts < 1 or args.max_output_tokens < 1 or args.max_edge < 0:
-        parser.error("RPM, timeout, attempts and output tokens must be positive; max-edge must be >= 0.")
-    if args.temperature is not None and not 0 <= args.temperature <= 2:
-        parser.error("Temperature must be between 0 and 2.")
-    if args.rpd is not None and (type(args.rpd) is not int or args.rpd < 1):
-        parser.error("RPD must be a positive integer, or 0/None to disable the local cap.")
-    if args.retry_base <= 0 or args.max_retry_wait < 60:
-        parser.error("retry_base must be positive; --max-retry-wait must be at least 60 seconds.")
-    if args.provider not in {"gemini", "openai"}:
-        parser.error("ModelProfile.provider must be gemini or openai.")
-    if args.provider == "gemini":
-        if args.reasoning_effort is not None or "image_detail" in explicit:
-            parser.error("--reasoning-effort and --image-detail are OpenAI settings.")
-        if args.thinking_level and args.thinking_level not in args.thinking_levels:
-            parser.error(f"{args.model} thinking levels: {', '.join(args.thinking_levels)} (or auto).")
-    elif args.thinking_level is not None or args.media_resolution is not None:
-        parser.error("--thinking-level and --media-resolution are Gemini settings.")
-    if not args.supports_temperature and args.temperature is not None:
-        parser.error(f"{args.model} does not support temperature; use --temperature auto.")
-    if args.provider == "openai" and args.reasoning_effort and args.reasoning_effort not in args.reasoning_efforts:
-        parser.error(f"{args.model} reasoning efforts: {', '.join(args.reasoning_efforts)} (or auto).")
+    args.profile_overrides = frozenset(vars(args))
+    try:
+        configure_model_profile(args, SINGLE_CARD_STRONG_MODEL if args.target and args.target.strip().endswith("@") else None)
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 
