@@ -1,6 +1,31 @@
 # Project handoff: museum transcription
 
-Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **7 October 2026**, application build **2026-10-07.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Production choice and documentation update - 7 October 2026
+
+The maintainer intends to process the collection with **`gemini-3.5-flash-lite`** and is satisfied with its current readings. Retain the existing temperature 1.0 and high-thinking defaults. Paid GPT/OpenAI comparisons are not planned and are not a prerequisite for maintenance or modularization. Keep the optional adapter and offline transport coverage intact. The earlier roadmap calling for OpenAI comparisons is superseded by this decision.
+
+The README now leads with museum records, source fidelity, collection review, and practical operation. It avoids overt AI/large-language-model framing while accurately describing the configured Gemini service, transmitted images and hints, request accounting, and the limits of structural validation. Maintainer satisfaction must not become an invented benchmark or accuracy percentage.
+
+This pass changes documentation only. It corrects setup paths, sample inventory, tracked-report descriptions, stale implementation claims, relative links, and the development sequence. Existing code, prompts, default settings, source data, saved reports, journals, and quota state are unchanged. The existing README's Apache License 2.0 declaration is retained; no standalone `LICENSE` file is present, and software licensing does not establish rights over collection materials.
+
+## Current state and verification
+
+The application currently provides:
+
+- Species, exact E-number, and CSV-row selection; both supported family/species folder layouts; complete-number matching and ordered physical-card groups, including shared and uncatalogued slips.
+- Normal per-species reports with 48-hour matching-result reuse, fresh `*` console checks, fresh `!` individual reports, and the complete alternate Gemini profile selected by `@`.
+- CSV-only `(MISSING)` blocks for selected catalogue records without JPEGs, preserving selected fields, duplicate rows, and partial dates without spending quota.
+- Separate egg-slip reading instructions, scoped Brandt and Steinbach guidance, partial-date and alteration rules, flexible side-section validation, and preserved uncertainty/failed response text.
+- Per-attempt pacing, persistent daily accounting, bounded service/format retries, request provenance, token/cost estimates, durable checkpoints, collision-safe reports, and local locking.
+- Fresh mixed-species sample runs independent of transcription journals, plus offline regression tests using generated fixtures and simulated service transports.
+
+The actual curated folder now contains **11 cards / 19 JPEGs**, verified by read-only discovery with no grouping issues. Several reference reports and two files named manual transcriptions are already tracked in `tests/outputs/`; these need deliberate review before becoming a complete regression reference. The synthetic ten-card/eighteen-image test remains valid as its own fixture.
+
+The dependency manifest is `docs/requirements.txt`. Root `requirements.txt`, `requirements-openai.txt`, and `.env.example` are absent; follow the README for Gemini-only setup and create a local `.env` directly. Earlier handoff claims about those root files describe the old snapshot, not this checkout.
+
+Verification for this documentation update: **169 offline tests, 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` skip**, on Windows/Python 3.14, including both SDK transport tests with mocked HTTP. Sandbox fixture permissions required execution outside the sandbox. No live service calls were made. The current task began with a clean Git working tree. All 69 local documentation links and heading targets were checked.
 
 ## Repository CSV and missing-card output - 7 October 2026
 
@@ -154,20 +179,20 @@ The longer-term intent is a reusable system for other museum records, field note
 
 | File | Role |
 | --- | --- |
-| [README.md](README.md) | Public overview, setup, commands, honest current scope. |
-| [AGENTS.md](AGENTS.md) | Concise durable operational instructions for coding agents. |
+| [README.md](../README.md) | Public overview, setup, commands, honest current scope. |
+| [AGENTS.md](../AGENTS.md) | Concise durable operational instructions for coding agents. |
 | This handoff | Execution map, decisions, limitations, invariants, and future extraction plan. |
-| [docs/filename_rules.md](docs/filename_rules.md) | Authoritative human explanation of current CSV, targets, paths, filenames, and grouping. |
-| [docs/configuration.md](docs/configuration.md) | Current profiles, key loading, API adapters, pacing, quotas, and retries. |
-| [docs/transcription_rules.md](docs/transcription_rules.md) | Current egg-slip SOP, validator boundaries, statuses, reports, and cache semantics. |
-| [docs/testing.md](docs/testing.md) | Offline verification, real-image fixture, live comparisons, and baseline strategy. |
+| [docs/filename_rules.md](filename_rules.md) | Authoritative human explanation of current CSV, targets, paths, filenames, and grouping. |
+| [docs/configuration.md](configuration.md) | Current profiles, key loading, API adapters, pacing, quotas, and retries. |
+| [docs/transcription_rules.md](transcription_rules.md) | Current egg-slip SOP, validator boundaries, statuses, reports, and cache semantics. |
+| [docs/testing.md](testing.md) | Offline verification, real-image fixture, live comparisons, and baseline strategy. |
 | [transcribe_notes.md](transcribe_notes.md) | Preserved revision history; older instructions are superseded where noted. |
 
 Do not duplicate an entire rule table across documents. Update its focused document and link it from overview/handoff material. Prompt changes must update the actual executable prompt, not just prose documentation.
 
-## Current state and verification
+## Historical Work snapshot and verification - 22 September 2026
 
-The authoritative implementation for this pass was the current Work `transcribe.py` and `test_transcribe.py`, not the public GitHub version. Their SHA-256 values are recorded to make this snapshot unambiguous:
+The following records the original Work environment, not the current checkout. The authoritative implementation for this pass was the current Work `transcribe.py` and `test_transcribe.py`, not the public GitHub version. Their SHA-256 values are recorded to make this snapshot unambiguous:
 
 ```text
 transcribe.py       85b1e15887b6ee9ab7eacec15a783443012690a07f466a0d365f4743766bcea3
@@ -178,7 +203,7 @@ The public checkout used only as the repository/layout baseline was commit `4887
 
 Working capabilities include normal species/exact-number/CSV-row selection, both supported folder layouts, shared slips, ordered multiple sides, front-only inputs, explicit uncatalogued groups, conservative prompt rules, output/status validation, durable journals, model profiles, persistent daily counters, bounded service/format retries, an optional OpenAI adapter, and independent mixed-species model/temperature tests.
 
-Baseline and final post-documentation verification each ran **115 offline tests, all passing with zero skips**, using both installed SDKs and the original three-image fixture. A separate fresh-checkout-style run without the optional image directory discovered 115 tests: **114 passed, one expected sample-fixture skip**. Documentation links/anchors, CLI option names, ignore rules, whitespace, and credential-pattern checks passed. The application and test-file hashes above remained unchanged. The environment and exact commands/skip conditions are in [testing](docs/testing.md). No live requests were made. The application version remains unchanged because this pass does not change its behavior.
+Baseline and final post-documentation verification each ran **115 offline tests, all passing with zero skips**, using both installed SDKs and the original three-image fixture. A separate fresh-checkout-style run without the optional image directory discovered 115 tests: **114 passed, one expected sample-fixture skip**. Documentation links/anchors, CLI option names, ignore rules, whitespace, and credential-pattern checks passed. The application and test-file hashes above remained unchanged. The environment and exact commands/skip conditions are in [testing](testing.md). No live requests were made. The application version remains unchanged because this pass does not change its behavior.
 
 Newly prepared documentation/configuration includes the README, this handoff, concise agent instructions, four focused docs, direct dependency pins, a blank credential example, ignore rules, and input/output folder READMEs. The previous revision notes are retained verbatim below a supersession notice. No source photographs, catalogue export, credentials, generated results, or quota state were added.
 
@@ -186,38 +211,39 @@ The maintainer will add a hand-selected 10–15-card sample set before Codex tak
 
 ## Likely development sequence
 
-1. Finish Gemini model/temperature comparisons using the test target.
-2. Begin OpenAI vision/model comparisons using the implemented adapter and verified account settings.
-3. Establish a reviewed representative egg-slip baseline, including deterministic request/response fixtures.
-4. Extract egg-specific configuration, prompts, discovery/parsing/grouping, validation, and output from reusable execution machinery.
-5. Confirm the offline suite and sample baseline retain current behavior; distinguish nondeterministic model changes from code changes.
-6. Continue targeted egg-slip improvements on the separated architecture.
-7. Much later, try a second real historical-document collection to test whether the boundary is useful.
+1. Continue the established Gemini production workflow and review records against their source scans.
+2. Curate a small reviewed baseline from existing reports and supplied scans; capture deterministic request/response fixtures without new paid provider comparisons.
+3. When extraction is requested, separate remaining egg-specific configuration, discovery/parsing/grouping, validation, and output from reusable execution machinery.
+4. Check each step against offline tests and frozen prompt/image/cache/output expectations.
+5. Continue focused egg-slip improvements, keeping prompt or quality changes separate from architectural moves.
+6. Consider a second archival collection only when a real use case calls for it.
 
-This is a roadmap, not permission for an agent to start every step or launch live comparisons on its own. The first Codex orientation should inspect and report without editing. Model testing precedes a major refactor so there is a stable, understandable baseline; do not tune prompts, change models, and reorganize execution in one unreviewable change.
+This roadmap does not authorize live requests or an unsolicited refactor. Additional Gemini spot checks can be useful when specifically requested; they are not a substitute for deterministic replay during behavior-preserving extraction.
 
 ## Architecture: current execution flow
 
-There are two application modules: `transcribe.py` and the egg-specific `egg_slip_prompt.py`, plus the standard-library `unittest` module `test_transcribe.py`. There is no package/domain registry, database server, UI, background worker, or concurrency pool. Numbered source comments identify nine broad sections. Imports do not call APIs; SDK/image imports are mostly delayed until needed.
+There are three runtime modules: `transcribe.py`, the egg-specific `egg_slip_prompt.py`, and the domain-independent usage/accounting module `token_usage.py`, plus the standard-library `unittest` suite `test_transcribe.py`. There is no package/domain registry, database server, graphical UI, background worker, or concurrency pool. Numbered source comments identify nine broad sections. Imports do not call APIs; SDK/image imports are mostly delayed until needed.
 
 | Phase and actual symbols | Current behavior | Boundary observation |
 | --- | --- | --- |
-| `main`, `parse_args`, `ModelProfile` | Resolve CLI/profile defaults; print build, script, interpreter, selected limits. `--version`, `--help`, `--list-models`, and `--check-config` have early paths. | CLI combines execution settings with museum paths and test orchestration. |
+| `main`, `parse_args`, `configure_model_profile`, `ModelProfile` | Resolve CLI/profile defaults and interactive alternate-model selection; print build, script, interpreter, selected limits. `--version`, `--help`, `--list-models`, and `--check-config` have early paths. | CLI combines execution settings with museum paths and test orchestration. |
 | `run`, `load_database`, `Database` | Load CSV before the target prompt; index E-numbers, row numbers, species/family mappings, retaining duplicate rows. | Strong egg-slip assumptions; even test mode requires a CSV. |
-| `select_targets`, `enum_species`, `species_name` | Resolve species, exact E-number, console-star, or inclusive row selection. `test` is recognized separately in `run`. | Domain selection and generic run mode are intertwined. |
+| `select_targets`, `enum_species`, `species_name` | Resolve species, exact E-number with optional `*`/`!`/`@` mode, or inclusive row selection. `test` is recognized separately in `run`. | Domain selection and generic run mode are intertwined. |
 | `resolve_folders`, `child_directory` | Find exactly one JPEG directory using CSV family/species mapping and either supported layout. | Source organization policy, not engine policy. |
 | `discover_cards`, `side_number`, `Card` | Parse JPEG names; group physical slips; order/label sides; collect file warnings; append uncatalogued groups. Test mode adds unmatched-CSV warnings. | `Card.enums` and literal FRONT/BACK labels make the record object domain-specific. |
+| `missing_catalogue_numbers`, `missing_collection_date`, `missing_output_block` | Identify selected catalogue entries absent from JPEG filenames and render current CSV-only blocks in numerical order. | Egg-specific fields, dates, and output; bypasses provider requests and transcription journals. |
 | `egg_slip_prompt`: `build_prompt`, `output_requirements`, `format_correction`, `BASE_PROMPT`, `COLLECTOR_PROMPTS`, `COLLECTOR_CONTAINS_PROMPTS` | Assemble reading rules, exact-name and reviewed-containment collector guidance, actual side requirements, warnings, shared-record references, and optional CSV hints. | Extracted egg-slip prompt policy; structural validation remains in `transcribe.py`. |
 | `prepare_image`, `prepare_card` | Decode JPEGs; preserve bytes if possible; apply EXIF orientation/optional resize in memory; calculate payload estimate and a SHA-256 fingerprint; construct ordered labelled request parts. | Image handling is reusable; labels/manifests and Gemini-shaped parts mix other concerns. |
-| `species_lock`, `Journal`, `open_output_report` | In normal saved mode, acquire a species lock, open journal and new report before spending requests. Test mode opens a report but never a journal. | Generic safety primitives have domain naming/storage and success policy embedded. |
-| `Journal.reusable` | Accept latest matching `ok`/`review` entry; correct the historical empty-notes warning locally. | Storage code knows domain statuses and section headings. |
+| `species_lock`, `Journal`, `open_output_report` | In normal saved mode, acquire a species lock, open journal and new report before spending requests. Test and individual fresh-report modes open a report but never a journal; all-missing normal selections also skip the journal. | Generic safety primitives have domain naming/storage and success policy embedded. |
+| `Journal.reusable` | Accept latest matching `ok`/`review` entry within 48 hours; derive empty-note and obsolete-layout/bracket-warning cleanup locally. | Storage code knows domain statuses and section headings. |
 | `Transcriber.ensure_client` | Lazy provider import, key lookup, explicit endpoint, timeout, SDK retry disabling. No credential is requested for all-cache reuse. | Mostly reusable; key search still depends on CSV/Family settings and `__file__`. |
 | `RateLimiter`, `DailyQuota`, `Transcriber.transcribe` | Pace, reserve quota, issue request, normalize OpenAI, validate, correct format once, retry service errors within budget, classify failures/stops. | Core execution directly invokes egg-specific validation and retry instructions. |
+| `Transcriber.request`, `token_usage` | Record per-attempt usage before response normalization/validation; normalize tokens, estimate costs, aggregate card/report/run totals. | `token_usage.py` has no egg-specific dependencies; the existing request lifecycle supplies attempts. |
 | `validate_response`, `section_headers`, `notes_have_content` | Exclude thought text, check completion/sections/plain-text constraints, derive warnings and token usage. | Provider completion validation and egg-slip grammar share one function. |
 | `Journal.append`, `durable_write`, `output_block` | Save a new result durably before readable report text; render CM/file banners/status/reviews; preserve failed answer text. | Journal durability is reusable; rendering/status interpretation is largely domain policy. |
 | `run` cleanup/exit | Close client, retain completed writes, print totals, stop on fatal errors/quota, return nonzero on failures/discovery issues. | Job lifecycle remains mixed with species report aggregation and test footers. |
 
-`--dry-run` performs CSV/routing/group discovery and lists sides, without image decoding, API/key lookup, journals, reports, quota files, or folder creation. It can reveal names/order issues but does not establish scan integrity or credentials.
+`--dry-run` performs CSV/routing/group discovery, lists sides and selected missing-card entries, without image decoding, API/key lookup, journals, reports, quota files, or folder creation. It can reveal names/order issues but does not establish scan integrity or credentials.
 
 Console-only normal runs make fresh API calls with no report or transcription journal. They still write the persistent quota state/lock. This supersedes early chat/notes statements that console mode writes no files at all.
 
@@ -227,12 +253,12 @@ Exit code 0 means no recorded failed/paused/discovery issues; accepted review re
 
 ## Configuration and model system
 
-The exact profile table, parameter precedence, lookup paths, and retry rules are maintained in [configuration](docs/configuration.md). Important orientation points:
+The exact profile table, parameter precedence, lookup paths, and retry rules are maintained in [configuration](configuration.md). Important orientation points:
 
-- Current default: `gemini-3.5-flash-lite`, normal temperature 0.1, 15 RPM / 500 local daily attempts. Configured `gemini-3.6-flash` and `gemini-3.8-flash` use 5 RPM / 20 daily attempts. These were the maintainer's allowances, not general provider guarantees.
-- Optional OpenAI `gpt-5.6-luna` profile: implemented Responses adapter, 5 RPM / 20 local test cap, normal temperature omitted. Its existence in a dictionary is not proof of current account access.
+- Current default: `gemini-3.5-flash-lite`, temperature 1.0, high thinking, 15 RPM / 500 local daily attempts. Configured `gemini-3.6-flash` and `gemini-3.8-flash` use 5 RPM / 20 daily attempts. These were the maintainer's allowances, not general provider guarantees.
+- Optional OpenAI profiles share one implemented Responses adapter and 5 RPM / 20 local test caps. The three GPT-5.6 profiles use temperature 1.0; Astra omits it. They remain available in code, but the maintainer does not want paid comparison runs. A configured entry is not proof of account access.
 - `MODEL` chooses the entire profile. Unknown IDs fail locally. A model switch should not accidentally retain the previous model's timing or generation options.
-- Test temperature is a separate code setting immediately below model selection; an explicit CLI temperature wins. **OpenAI tests need `--temperature auto` if they should omit temperature**, because `TEST_TEMPERATURE` otherwise overrides that profile default.
+- Test temperature is a separate code setting immediately below model selection; an explicit CLI temperature wins. Supported profiles inherit `TEST_TEMPERATURE=1.0` for test mode unless explicitly overridden; Astra omits temperature automatically. `--temperature auto` omits it for other profiles too.
 - Gemini and OpenAI receive the same evidence/instructions, with provider-specific serialization and generation options. Both clients disable their hidden automatic retries so the script controls and accounts for every call.
 - Daily state persists beside the script by default and is shared across normal/test/console runs and restarts. It is keyed by provider/model, not key/project. It is not a server quota meter or distributed scheduler.
 - A 503 means service unavailable; it does not prove the daily cap was reached. The reported “one card then 503” motivated better configuration and bounded waits, not a fabricated diagnosis.
@@ -241,11 +267,11 @@ The exact profile table, parameter precedence, lookup paths, and retry rules are
 
 The code has a dated Gemini 401 migration hint inherited from troubleshooting. It should be treated as historical provider guidance and checked against current official documentation if that error returns. The exact cause of the maintainer's earlier rejected credential was not established. Do not promise that an `.env` change repairs an API-rejected key.
 
-The source still uses the maintainer's Windows CSV/Family defaults. Moving `transcribe.py` changes its default `.env` and quota-file location: deliberately retain or point `--quota-file` to the existing state. Do not use a new counter to pretend earlier requests never happened. No live credentials or source catalogue were needed for this documentation pass.
+The CSV defaults to its named export beside the script; the Family root retains the maintainer's Windows path. Moving `transcribe.py` changes its default `.env` and quota-file location: deliberately retain or point `--quota-file` to the existing state. Do not use a new counter to pretend earlier requests never happened. No live credentials or source catalogue were needed for this documentation pass.
 
 ## Input and filesystem conventions
 
-[Filename rules](docs/filename_rules.md) owns the complete grammar and selection table. The essentials to retain during extraction are:
+[Filename rules](filename_rules.md) owns the complete grammar and selection table. The essentials to retain during extraction are:
 
 - Real scans live under a CSV-derived family/species directory, optionally with a genus directory, then `JPEG`. Only direct JPG/JPEG files are read. Folder matching is case-insensitive and rejects ambiguity.
 - The master file is a CSV export with exact `catalogNumber`, `Scientific Name`, and `Family` headers, not arbitrary project spreadsheet columns or `.xlsx` parsing. Other museum graphing/indexing tools discussed elsewhere are not part of this repository.
@@ -254,29 +280,29 @@ The source still uses the maintainer's Windows CSV/Family defaults. Moving `tran
 - `_exchanged` is accepted after the optional side suffix and excluded from group identity, while original filenames remain in output. Other arbitrary suffixes are not quietly accepted.
 - Explicit `Uncatalogued`/`Uncataloged` patterns permit scans absent from the sheet. Species and visited row-range folders include them; exact E-number targets do not. They appear after numbered groups.
 - `E123*` means one fresh console-only E-number reading, **not a wildcard**. `2-1000` means CSV row numbers, **not an E-number range**.
-- Test paths default to `tests/inputs` and `tests/outputs` beside the configured Family directory. They are not inherently repository-relative. Explicit overrides make the checkout's prepared folders usable.
+- Test paths default to `tests/inputs` and `tests/outputs` beside `transcribe.py`, independent of the Family setting and launch directory. Explicit path overrides remain available.
 
 All of these selection/record/folder rules are domain behavior. Safe path checks, image decoding, in-memory transforms, file locks, and durable writes are potential reusable mechanisms. Even image discovery has two parts: generic filesystem enumeration and domain-specific admissible paths/names/grouping. Avoid placing the latter in a supposedly generic loader.
 
 ## Prompt and transcription architecture
 
-`BASE_PROMPT` is a substantial literal string in source section 2. `build_prompt` appends `output_requirements(card)`, file warnings, multi-number references, and JSON catalogue hints for each matched record. Missing and uncatalogued records receive no invented reference values. `--no-csv-hints` is an ablation option, not a no-CSV execution mode.
+`BASE_PROMPT` and prompt assembly live in `egg_slip_prompt.py`. `build_prompt` appends `output_requirements(card)`, file warnings, multi-number references, and JSON catalogue hints for each matched record. Missing and uncatalogued records receive no invented reference values. `--no-csv-hints` is an ablation option, not a no-CSV execution mode.
 
 `prepare_card` places a filename and explicit section label immediately before each image. The model is told how many front/back images were actually supplied and which back headings are expected, so a generic template cannot require a nonexistent back. The format retry adds a correction to the original evidence; it does not use the faulty answer as source truth or mutate the original request contents.
 
-The detailed SOP is in [transcription rules](docs/transcription_rules.md): visible collection headings first; dynamic `Label: value`; separate stamps/fields; original spelling/units; carefully scoped ditto expansion; readable brace-group dimensions; plain fractions; uncertain/inferred readings in brackets; meaningful annotations; one final notes section; all supplied sides. These are primarily domain rules, not universal archival grammar.
+The detailed SOP is in [transcription rules](transcription_rules.md): visible collection headings first; dynamic `Label: value`; separate stamps/fields; original spelling/units; carefully scoped ditto expansion; readable brace-group dimensions; plain fractions; uncertain/inferred readings in brackets; meaningful annotations; one final notes section; all supplied sides. These are primarily domain rules, not universal archival grammar.
 
 The hand-written Hanna sample supplied a formatting model, not permission to modernize or normalize every word. The user later corrected a collector reading on a difficult Brandt slip to H. W. Brandt. The prompt permits that candidate only when visible strokes and context support it, rather than unconditionally substituting collection ownership for collector identity.
 
-The backend should eventually receive an already-built domain prompt and validation/correction policy. A second collection should be able to replace these without modifying API execution. Initially move the existing prompt **byte for byte**: even a whitespace change changes its fingerprint and may spend quota retranscribing every selected normal card.
+Prompt policy has already been extracted to `egg_slip_prompt.py`. The eventual backend boundary should accept the assembled domain prompt and validation/correction policy. Further behavior-preserving moves must retain the prompt **byte for byte**: even a whitespace change changes its fingerprint and may spend quota retranscribing every selected normal card.
 
 ## Output architecture and review philosophy
 
-[Transcription rules](docs/transcription_rules.md#reports-and-ordering) owns the exact report, banner, section, spacing, and cache conventions. In brief, normal runs write one report per visited species in its family folder, with matching successful journal reuse. Test runs write one independent mixed-species report with model/temperature suffixes and no journal. Both use minute timestamps with collision counters, UTF-8, durable incremental writes, and retained failed answer text.
+[Transcription rules](transcription_rules.md#reports-and-ordering) owns the exact report, banner, section, spacing, and cache conventions. In brief, normal runs write one report per visited species in its family folder, with matching successful journal reuse. Test runs write one independent mixed-species report with model/temperature suffixes and no journal. Both use minute timestamps with collision counters, UTF-8, durable incremental writes, and retained failed answer text.
 
 `output_block` knows CM labels, catalogue-number lists, filename banners for uncatalogued material, model/source metadata, review lines, and two blank lines. This is egg-slip rendering. `open_output_report` and `durable_write` contain reusable file safety, but the calling code supplies domain naming/location/aggregation. Another domain should eventually choose its own renderer and storage plan without reimplementing fsync/collision handling.
 
-`OK` is structurally accepted, not human-verified. `REVIEW` is accepted with warnings and is reusable normally. `FAILED` and `PAUSED` are not completed cache results. “Annotations” are artifact content; “transcription notes” explain reading/physical problems. Empty/None notes do not imply a problem. The current bracket heuristic still misclassifies some literal printed brackets as uncertainty.
+`OK` is structurally accepted, not human-verified. `REVIEW` is accepted with warnings and is reusable normally. `FAILED` and `PAUSED` are not completed cache results. “Annotations” are artifact content; “transcription notes” explain reading/physical problems. Empty/None notes do not imply a problem. The bracket heuristic counts bracketed passages, with narrow exemptions for `[blank]` and recognized printed form codes; other literal source brackets can still trigger review.
 
 Provider completeness checks should eventually be generic. The presence/order of ANNOTATIONS/BACK OF SLIP/TRANSCRIPTION NOTES, CM banners, specific note sentinels, and uncertainty interpretations should be domain policy. Success/storage should not require a generic journal to understand an egg-slip heading, as `Journal.reusable` currently does for the legacy notes fix.
 
@@ -308,7 +334,7 @@ The table records classes of cases, not a specimen-by-specimen transcript. “Do
 | Valid response used `SECTION: BACK OF SLIP` without colon (reported E4936). | Recognize standalone heading variants, preserve text, still require expected side sequence. | New exotic headings may fail; do not replace with strict colon-only checks. Domain. |
 | Front and back each have annotations; one side repeats the heading. | Per-side annotations allowed; same-side repetition retained with review. | The reported E4933 response was not supplied; the pasted E15 example was a different card. Do not invent an exact diagnosis. Domain. |
 | Notes say `None.` but old output said notes were present. | Empty sentinel detection, including cached-warning correction without paid rereading. | Old reports remain unchanged; literal brackets can independently cause REVIEW. Domain normalization in generic journal is debt. |
-| Printed bracketed form code looks like model uncertainty. | Regex flags it for review. | Confirmed false-positive class; no source-safe provenance distinction yet. Domain policy. |
+| Printed bracketed form code looks like uncertainty. | Recognized numeric printer codes after numbered forms are preserved without a review flag. | Other literal source brackets can still trigger review; uncertain form/code characters must remain flagged. Domain policy. |
 | Shared E186/E187-style slip is selected through its second number. | Full-token matching across all numbers, one group/request, separate hints and banners. | Different prefixes/base IDs with the same number can still be separate groups; no cross-folder deduplication. Domain. |
 | A/B plus unlettered front, or `_exchanged` duplicate. | Reject ambiguous group; tag itself is recognized and not another side. | Do not choose a scan arbitrarily. Domain parsing. |
 | Missing front, numeric suffix gap, or extra supplied sides. | Keep back-only identity, warn gaps, number supplied back sections in order. | Side count is not proof an unknown missing scan exists. Domain. |
@@ -344,11 +370,11 @@ The table records classes of cases, not a specimen-by-specimen transcript. “Do
 
 **Centralize model settings and disable SDK retries.** Models available to the maintainer had substantially different request allowances. One selector should change timing/timeouts/attempts together. Hidden SDK retries would escape the script's counter and pacing. Persisting local daily counts across restarts is conservative protection, not a replacement for provider quota enforcement.
 
-**Keep the working default until measured comparisons exist.** Flash-Lite's request allowance made large batches practical. Temperature 0.1 was retained to separate workflow repairs from quality tuning; 1.0 was discussed as a comparison candidate. No evidence in this project establishes one temperature/model as universally superior, nor a cost winner. Do not convert past provider recommendations into benchmark results.
+**Keep the established production choice.** Flash-Lite's request allowance made large batches practical, and the maintainer is satisfied with its current readings. The earlier temperature 0.1 setting was superseded by 1.0 on 23 September; high thinking became the Flash-Lite default on 5 October. On 7 October the maintainer chose to continue with Flash-Lite without paid GPT comparisons. This is an operating decision, not evidence of universal superiority or a measured cost/accuracy ranking.
 
 **Preserve original image detail and journal exact inputs.** Automatic 2,000-pixel shrinking was removed as the default so optional resolution loss is explicit. Orientation/resize changes operate on copies in memory. Fingerprints include what was actually sent, avoiding stale reuse after a scan or prompt changes. The original Gemini manifest shape was deliberately preserved when provider profiles were added.
 
-**Bypass caches for comparisons, retain them for production.** Reusing a prior answer invalidates a model/temperature experiment. Test mode always rerequests, including after interruption. Normal mode avoids paying again for matching completed work. Changing only rate settings should not invalidate that work.
+**Bypass caches for comparisons, retain them for production.** Reusing a prior answer invalidates a model/temperature experiment. Test mode always rerequests, including after interruption. Normal mode avoids new requests for matching completed work within its 48-hour reuse window. Changing only rate settings should not invalidate that work.
 
 **Checkpoint before readable output and avoid collisions.** Users need completed work to survive interruptions and text-write failures. Journals are synced first; minute timestamps remain readable and counters preserve repeat runs without seconds/microseconds or accidental appending.
 
@@ -381,9 +407,9 @@ The September 18 signature/layout/plain-text prompt update intentionally changed
 
 | Classification | Current issue / implication |
 | --- | --- |
-| **Confirmed false-positive behavior** | Literal bracketed print is counted as uncertain, except `[blank]`. It can cause REVIEW without an actual uncertain reading. No text-safe disambiguation fix has been implemented. |
+| **Remaining review limitation** | Literal bracketed print outside the recognized form-code and `[blank]` exemptions can still cause REVIEW. Counts are labelled bracketed passages; no full source/editorial provenance distinction exists. |
 | **Known limitation** | Structural validation cannot detect every omission, incorrect word, false blank back, invented field, or misassigned dimension. The plain-text prompt is stronger than the implemented Markdown checks. |
-| **Known limitation** | No human-reviewed gold set, repeatable accuracy metric, full test-run manifest, cost estimator, or automatic model ranking. Success token usage is stored in normal journals, not comprehensive failed-attempt/cost accounting. |
+| **Known limitation** | Existing manual/reference reports have not been established as a complete, versioned gold set with a repeatable accuracy metric. Request provenance and per-attempt token/cost estimates are implemented; a full replay manifest and automatic accuracy scoring are not. |
 | **Known limitation** | CSV + folder assumptions are required for normal routing; test still requires a readable compatible CSV. No `.xlsx`, PDF, TIFF, arbitrary recursive discovery, or cross-folder physical-card deduplication. |
 | **Known limitation** | The special unmatched-CSV review warning exists only in test mode. Front-only species scans absent from CSV still run if their species folder can be routed. |
 | **Known limitation** | No automatic comparison sweep or partial-test resume/subset selector. A repeat test spends requests again from the start; a low daily allowance can make large comparisons awkward. |
@@ -394,16 +420,16 @@ The September 18 signature/layout/plain-text prompt update intentionally changed
 | **Architectural coupling** | `prepare_card` returns Gemini-shaped content; OpenAI normalizes back to a Gemini-shaped completion object. `generation_config` and test temperature rely on a large shared argparse namespace. |
 | **Architectural coupling** | `Journal.reusable` parses egg-slip notes to fix a historical warning; `species_lock` is reused as a generic quota lock despite its name. `Card` and `output_block` know E/CM/side/uncatalogued semantics. |
 | **Architectural coupling** | `load_api_key` searches domain CSV/Family directories; script `__file__` determines credential and quota locations. A naive module move could change effective configuration without changing CLI flags. |
-| **Verification gap** | Windows locking/Drive sync, full production catalogue, live SDK/API/model compatibility, provider quotas, and live handwriting/signature improvements were not verified here. Mocked request serialization is useful but narrower evidence. |
+| **Verification gap** | Windows mutex behavior has offline coverage and some production selections were checked read-only. Cross-machine Drive coordination is unsupported. Live API compatibility, provider quotas, and measured handwriting/signature accuracy were not established by this documentation pass. |
 | **Test infrastructure tradeoff** | Optional SDK/scan tests skip when unavailable; the original-image test expects exactly three specific matching JPEGs. Curated live samples are not yet a deterministic baseline. Several tests import a monolithic `transcribe` facade, constraining first extraction. |
-| **Public-repository decision pending** | No licence selected, no sample publication provenance established, original exposed-key rotation not verifiable. Bulk dataset should remain local; review actual staged content before pushing. |
-| **Future ideas, not requirements** | A second document domain, better uncertainty provenance, a full run manifest, token/cost reporting, reviewed response fixtures, and eventual concurrency can be considered after the comparison/baseline/extraction sequence. |
+| **Repository hygiene** | The README declares Apache License 2.0, but a standalone licence file is absent. Collection-material rights and the historical exposed-key rotation are not established by this documentation pass. Existing tracked reports remain tracked despite ignore rules; review staged content before publishing. |
+| **Future ideas, not requirements** | A second document domain, better uncertainty provenance, a full replay manifest, reviewed response fixtures, and eventual concurrency can be considered after baseline/extraction work. Token/cost reporting already exists. |
 
 Do not fold these into this documentation task as surprise functional changes. If a later task addresses a bug, distinguish the intentional behavior change from a behavior-preserving extraction.
 
 ## Architectural direction: reusable backend versus domain layer
 
-**Current:** a single egg-slip module with two provider paths and reusable mechanisms embedded in it. **Intended:** a small collection layer supplies record discovery/grouping, metadata, prompt, validation, and rendering; execution infrastructure handles requests and safe result lifecycle. Neither a generic domain interface nor a `core/` package exists yet.
+**Current:** `transcribe.py` contains most domain and execution behavior with two provider paths; prompt policy is in `egg_slip_prompt.py` and usage accounting is in `token_usage.py`. **Intended:** a small collection layer supplies record discovery/grouping, metadata, prompt, validation, and rendering; execution infrastructure handles requests and safe result lifecycle. Neither a generic domain interface nor a `core/` package exists yet.
 
 | Responsibility | Likely home and seam based on current code |
 | --- | --- |
@@ -416,13 +442,14 @@ Do not fold these into this documentation task as surprise functional changes. I
 | Journal append/durability, atomic counters, locks, file collision handling | Reusable storage mechanisms with domain success/reuse normalization injected or handled above storage. Avoid moving the existing legacy note parser into a generic journal unchanged. |
 | Generic run status, request attempts, model version, usage, completion vs retryable validation result | Candidate small common result types once usage sites are clear. Do not start with a large universal field schema. |
 | Test execution, fake clocks/transports, reusable lifecycle assertions | Generic test support; specimen filenames, CSV fixtures, section rules, expected transcriptions remain domain tests. |
-| Usage/cost accounting, concurrency, generic logging | Future opportunities, not complete existing subsystems. Present token fields/print calls are the actual starting point. |
+| Usage/cost accounting | Already extracted to `token_usage.py`. Preserve its domain-independent usage normalization, estimates, and aggregation; keep attempt reservation in the existing executor. |
+| Concurrency, generic logging | Future opportunities, not implemented subsystems; print-based progress and sequential execution remain the current behavior. |
 
-The tightest seams are between **record policy and execution**, and within validation between **provider completion** and **egg-slip grammar**. Moving only a prompt string would help visibility but would leave most coupling intact. Conversely, a universal filesystem/discovery module that understands `E` numbers, Family folders, or BACK OF SLIP would just relocate the same coupling under a misleading name.
+The tightest seams are between **record policy and execution**, and within validation between **provider completion** and **egg-slip grammar**. The prompt extraction improves visibility but leaves selection, validation, rendering, and orchestration coupling to address. Conversely, a universal filesystem/discovery module that understands `E` numbers, Family folders, or BACK OF SLIP would just relocate the same coupling under a misleading name.
 
 ## Generalization philosophy
 
-**Extract the egg-specific assumptions now; generalize only as far as the current code naturally supports.** Here “now” means the first refactor after model comparisons and a baseline, not a request to redesign during this handoff.
+**Extract the egg-specific assumptions now; generalize only as far as the current code naturally supports.** Here “now” means the next requested refactor after a reviewed Gemini baseline, not permission for unsolicited redesign or further paid model comparisons.
 
 The engine should eventually know as little as possible about egg slips. A future collection should supply how files become physical records, what metadata is useful, how to ask for transcription, what response rules matter, and how to render/store its results. It should not need to rewrite provider clients, retry accounting, or safe writes.
 
@@ -434,11 +461,11 @@ This is a conservative proposal for a later, separately authorized change. The e
 
 ### Stage 0: capture the baseline
 
-Finish the model comparisons and choose a stable set/settings for regression work. Retain reviewed sample responses and request artifacts as described in [testing](docs/testing.md#establishing-a-baseline-before-modularization). Run the full offline suite. Capture current CLI/default path behavior, side order, prompt bytes, result rendering, and normal cache hashes. Document intended changes separately from extraction.
+Use the established Flash-Lite profile and reviewed existing reports to choose a stable set/settings for regression work; no new provider comparison is required. Retain reviewed sample responses and request artifacts as described in [testing](testing.md#establishing-a-baseline-before-modularization). Run the full offline suite. Capture current CLI/default path behavior, side order, prompt bytes, result rendering, and normal cache hashes. Document intended changes separately from extraction.
 
 ### Stage 1: extract existing configuration and prompt policy
 
-Move egg paths, catalogue column names, filename patterns, prompt literal, and prompt assembly helpers together. Keep execution profiles distinct from collection data configuration. Preserve exact prompt bytes and CLI defaults. Maintain the same public functions/imports temporarily where existing tests/users import `transcribe`.
+Prompt policy is already in `egg_slip_prompt.py`. Extract the remaining egg paths, catalogue column names, missing-card field/date rules, and filename patterns as needed without moving the prompt again merely to match a proposed layout. Keep execution profiles distinct from collection data configuration. Preserve exact prompt bytes and CLI defaults. Maintain the same public functions/imports temporarily where existing tests/users import `transcribe`.
 
 Do not derive script/project paths from the new module's `__file__`: compute the entrypoint/data locations explicitly so `.env`, default quota state, and test-folder routing stay unchanged. The current top-level `MODEL` and `TEST_TEMPERATURE` edit workflow is user-facing behavior; preserve it or plan an explicit compatibility change rather than hiding settings in several new files.
 
@@ -458,33 +485,37 @@ The generic executor should need only whether a response is accepted, needs revi
 
 ### Stage 5: prove equivalence after each stage
 
-Run parsing/grouping, provider transport/retry/quota, cache, output, and test-mode regressions throughout, not only at the end. Replay the frozen responses and compare prompt/request/image ordering, cache keys, output bytes, and statuses. No change to the prompt or structural acceptance policy should slip in under “cleanup.” Use the same representative image set for authorized live comparisons once deterministic equivalence is established, with model variability explicitly accounted for.
+Run parsing/grouping, provider transport/retry/quota, cache, output, and test-mode regressions throughout, not only at the end. Replay the frozen responses and compare prompt/request/image ordering, cache keys, output bytes, and statuses. No change to the prompt or structural acceptance policy should slip in under “cleanup.” If a live check is specifically requested after deterministic equivalence is established, use the same representative Gemini samples and account for response variability. Fresh paid comparisons are not an extraction requirement.
 
 The first refactor's objective is **make the current egg-slip implementation stop leaking egg-specific assumptions throughout the backend**, not build the perfect universal archival transcription platform.
 
 ## Repository hygiene and migration handling
 
-The repository contains code and documentation, not the production collection. Ignore rules exclude `.env` variants except `.env.example`, virtual environments/caches, the Family/data directories, spreadsheet exports, source image formats by default, generated reports/journals/locks, and default daily-counter files. Direct JPG/JPEGs in `tests/inputs/` are deliberately eligible for reviewed samples. `tests/outputs/` remains ignored except its README. Custom counter/report paths need their own ignore entries.
+The repository contains code, documentation, selected sample JPEGs, and previously tracked reference reports. The full production catalogue and collection remain local. Ignore rules exclude credentials, Python environments/caches, spreadsheet exports, the Family/data trees, most source-image formats, journals/locks, and default daily-counter files. Direct JPEGs under `tests/inputs/` are eligible for deliberate publication review.
 
-The original uploaded legacy script contained a credential and was not imported into the repository. The revised Work source contains no real key. That does not establish whether the earlier key was revoked, or audit an unseen local/remote Git history. Check staged changes and rotation status before publishing; do not copy obsolete uploads, entire Work scratch directories, SDK installations, source CSVs, or generated reports into Git.
+New reports under `tests/outputs/` and the old `outputs/` location are ignored, but existing tracked reports are unaffected. The general `*_transcriptions_*.txt` ignore line is currently commented out, so do not claim that every generated report location is protected. Check actual Git status and staged content; custom report/counter paths may require exclusions. Do not change tracking or remove existing reference material during a documentation update.
 
-Only the available Work implementation and fetched public tip were inspected. Any additional Windows-local edits remain outside this view. Apply the documentation files to the actual local checkout, preserving newer code, and rerun its tests. Do not overwrite newer unpushed code with the public tip or an old archive merely to reproduce these handoff hashes. Documentation should be updated if that actual checkout has additional behavior.
+The original uploaded legacy script contained a credential and was not imported as that legacy source. Historical notes do not establish whether the earlier key was revoked or audit unseen Git history. Never copy obsolete uploads, a local `.env`, source CSVs, SDK installations, or bulk generated results into a publication change.
 
-The handoff did not choose a software licence or assert rights over museum sample images. Those remain maintainer decisions. It prepared the folders but did not add thousands of scans, invent sample images, delete/relocate data, commit, or push.
+The original Work handoff's hashes and inventory are historical. Current code/tests, local diffs, and the current overview above take precedence over the public tip or old archives. Preserve newer local and unpushed work.
+
+The README's existing Apache License 2.0 declaration is retained. A standalone licence file is still absent; collection images and records retain separate rights. This documentation update does not select a new licence, grant collection-material rights, commit, or publish anything.
 
 ## How to continue development in Codex
 
 1. Read `AGENTS.md`, this handoff, the README, and relevant focused docs.
 2. Inspect current files, Git status/diff, and branch state. Local code may have advanced beyond this snapshot.
 3. Install the documented dependencies in an isolated environment and run the offline tests. Record actual counts/skips and baseline failures before editing.
-4. Check whether the intended curated samples and reviewed baselines have now been added. Do not equate their presence with authorization to call a paid API.
-5. Trace the relevant code path and current domain/provider coupling. Report understanding and a narrow proposed boundary in the first orientation session without modifications.
-6. On a subsequent authorized task, make focused changes, preserve local work and source data, and avoid combining prompt/quality changes with architectural extraction.
+4. Inspect the existing curated samples and saved reference material; identify what has actually been reviewed before choosing baseline fixtures. Their presence is not authorization for live requests.
+5. Trace the relevant code path and current domain/provider coupling, then implement the user's authorized scope with focused changes.
+6. Preserve local work and source data; avoid combining prompt/quality changes with architectural extraction or changing the chosen provider without a request.
 7. Run relevant regressions, then the full suite for cross-cutting work; compare the baseline artifacts when available.
 8. Update current behavior docs and the architecture map when responsibilities or externally visible behavior change. Keep historical rationale labelled as history.
 
 ## Suggested next work
 
-The next practical work is finishing the handpicked samples and Gemini temperature/model comparisons, then testing OpenAI with explicit compatible settings. Turn those observations into a reviewed baseline before extracting domain policy. The first extraction should center on existing egg-slip selection/grouping/prompt/validation/rendering responsibilities while keeping the proven request/quota/journal lifecycle stable.
+Continue production with Gemini 3.5 Flash-Lite and use the resulting collection review to curate a small, explicit reference set. Reuse existing saved responses for deterministic regression fixtures where appropriate. No paid GPT/OpenAI comparison is needed to proceed.
 
-After that separation, consider concrete egg-slip improvements such as uncertainty provenance and more informative comparison manifests if the maintainer requests them. Leave second-domain experiments, concurrency, and richer framework features until real needs justify them.
+When the maintainer requests modularization, extract the remaining egg-slip selection/grouping, catalogue/missing-card policy, validation, and rendering responsibilities while preserving the existing prompt module, usage module, request/quota/journal lifecycle, and compatible fingerprints. Keep prompt tuning separate.
+
+After that separation, consider concrete improvements such as uncertainty provenance or fuller replay manifests when requested. Leave second-domain experiments, concurrency, and framework features until real needs justify them.

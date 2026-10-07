@@ -1,179 +1,146 @@
 # Museum Transcription
 
-Large language model assisted transcription of historical museum egg-collection slips. The current application reads JPEG scans, groups the sides of each physical slip, matches catalogue references from a CSV, and produces readable UTF-8 plain-text transcriptions with source filenames and review flags.
+Turn scanned egg-collection slips into readable, searchable text while keeping each transcription connected to its source. Museum Transcription brings together the front, back, and additional sides of a physical card, relates them to catalogue references, and produces plain-text reports for collection staff to check against the original images.
 
-This project grew out of a natural-history collection workflow involving roughly 10,000 slips and 12,000 images. Vision models do the reading; Python handles selection, image order, requests, validation, progress, and output. The output uses the fields actually printed on each card, not a fixed database schema.
+The project grew from a natural-history collection of roughly 10,000 slips and 12,000 images: handwritten and typed forms, historical scientific names, pencil additions, stamps, corrections, and narrative notes. Its purpose is to make that documentation easier to consult and review while preserving the wording and uncertainty that give the records their value.
 
-**Current scope:** a specialized egg-slip application. **Architectural direction:** separate its collection-specific rules from a reusable archival-document transcription backend. Other document collections and a general domain interface are not implemented yet.
+The current application is a Python command-line tool for egg slips. It creates UTF-8 text reports; it does not update the collection catalogue or alter source scans. Support for other archival document collections remains a future development direction.
 
-## What it does
+## Designed around collection records
 
-- Selects a species, an exact E-number, or a range of spreadsheet rows.
-- Groups A/B and numbered sides into one request, including shared slips with multiple E-numbers.
-- Includes explicitly named uncatalogued scans at the end of species/test reports.
-- Uses catalogue values as fallible reading hints; preserves historical wording, spelling, units, and uncertainty.
-- Supports Gemini and an optional OpenAI Responses API adapter through model profiles.
-- Paces and counts every request attempt, with bounded retries and resumable normal runs.
-- Saves independent model/temperature comparisons through a mixed-species `tests` target.
-- Keeps source scans and the catalogue CSV read-only.
+- **Keep the physical record together.** All supplied sides travel through one transcription request in order. Shared slips retain every catalogue reference, and front-only cards are valid records.
+- **Preserve the source.** Reading instructions retain historical names, spelling, abbreviations, units, symbols, partial dates, and meaningful alterations. Catalogue values assist a reading but do not replace visible text.
+- **Accommodate different forms.** Reports follow the fields on each card, including multiline entries, margins, stamps, and narrative backs, rather than imposing one field template on the collection.
+- **Make uncertainty visible.** Bracketed readings and concise transcription notes identify passages for review. Annotations record content on the artifact; transcription notes explain reading issues.
+- **Include gaps in the catalogue-to-scan relationship.** Explicitly named uncatalogued slips appear at the end of applicable reports. Selected catalogue records without a matching JPEG receive clearly marked, catalogue-derived `(MISSING)` blocks.
+- **Retain a record of processing.** Source filenames, catalogue banners, settings, version information, and request fingerprints accompany new transcriptions. Completed normal results are checkpointed before the readable report is written.
 
-## Requirements and installation
+The established processing choice is **Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`). The maintainer is satisfied with its readings for the current collection and intends to continue using it for production. Selected images and enabled catalogue hints are sent to the configured Gemini service; file selection, grouping, validation, progress tracking, and report writing happen locally. This is not an offline transcription tool.
 
-Python **3.10+**. The primary deployment is Windows with a Google Drive filesystem mount; paths are configurable. Linux is used for offline verification. No Excel application, Tesseract, or `python-dotenv` is required.
+## Getting started
 
-From the repository root:
+Use **Python 3.10 or later**, a compatible CSV export, JPEG scans, and a Gemini API key. The working installation uses Windows and a mounted Google Drive folder; both data paths can be changed. Excel is not required.
+
+From the repository root, create an environment and install the Gemini dependencies. These versions match the repository's recorded dependency pins:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install google-genai==2.23.0 Pillow==12.3.0 tzdata==2026.3
 ```
 
-On macOS/Linux, activate with `source .venv/bin/activate`. For OpenAI support and all provider transport tests, also run:
+On macOS/Linux, activate the environment with `source .venv/bin/activate`. The complete development dependency list is in [docs/requirements.txt](docs/requirements.txt).
 
-```text
-python -m pip install -r requirements-openai.txt
-```
-
-These files pin the direct dependencies used for handoff verification; they are not a complete transitive lockfile. `tzdata` supplies the Pacific-time rules needed by Gemini's local daily counter, including on Windows.
-
-Copy `.env.example` to `.env` **beside `transcribe.py`**, and enter the key for the selected provider. Keep it out of Git. Local `.env` files take precedence over process environment variables. `--check-config` checks lookup only, not whether the provider accepts the credential:
+Create a plain-text file named `.env` **beside `transcribe.py`**, containing `GEMINI_API_KEY=` followed by your own key. Keep it local and out of Git. On Windows, check that the filename is not `.env.txt`. The application reads this file itself; no additional environment-file package is needed.
 
 ```text
 python transcribe.py --check-config
-python transcribe.py --list-models
+python transcribe.py --help
 ```
 
-The application requires a UTF-8 CSV export with the exact columns `catalogNumber`, `Scientific Name`, and `Family`. It does not read `.xlsx` files. Optional columns supply collector and locality hints. See [input and filename rules](docs/filename_rules.md).
+`--check-config` checks local credential lookup without contacting the service or reading collection data. It does not confirm that the service will accept the key. See [configuration](docs/configuration.md) for lookup precedence and troubleshooting.
 
-## Configure your data paths
+## Prepare the catalogue and scans
 
-The default CSV is `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside `transcribe.py`, independent of the launch directory. The scan root still defaults to `G:\My Drive\Egg Slip Scanning\Family`. Override either path with `--csv` or `--base-dir`:
+The catalogue must be a UTF-8 CSV export with the exact headers `catalogNumber`, `Scientific Name`, and `Family`. Optional collector and locality columns provide reading hints. A workbook with an `.xlsx` extension cannot be read directly.
+
+By default, the application looks for `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside the script and scans under `G:\My Drive\Egg Slip Scanning\Family`. The supported layouts are:
+
+```text
+Family/<family>/<Genus_species>/JPEG/<scan>.jpg
+Family/<family>/<Genus>/<Genus_species>/JPEG/<scan>.jpg
+```
+
+`--base-dir` points to the **Family root**, not a species folder. Use `--csv` and `--base-dir` to select other locations:
 
 ```powershell
-python transcribe.py Accipiter_cooperii --csv "G:\My Drive\Egg Slip Scanning\Transcription\EggSlipReorganizationProject_FULL.xlsx - Full List.csv" --base-dir "G:\My Drive\Egg Slip Scanning\Family" --dry-run
+python transcribe.py Accipiter_cooperii --csv "C:\Collection\catalogue.csv" --base-dir "C:\Collection\Family" --dry-run
 ```
 
-Normal scans belong in `Family/<family>/<Genus_species>/JPEG/` or `Family/<family>/<Genus>/<Genus_species>/JPEG/`. `--base-dir` points to `Family`, not an individual species folder. The CSV determines the family/species routing.
+Filenames identify catalogue numbers and sides: for example, `Accipiter_cooperii_E4268(A).jpg` and `Accipiter_cooperii_E4268(B).jpg`. Complete E-numbers are matched, including numbers on shared slips; leading zeros are significant. Ambiguous sides or directories are reported for correction. Full conventions are in [input and filename rules](docs/filename_rules.md).
 
-## Usage
+## A typical working session
 
-Run `python transcribe.py` for the interactive target prompt, or supply a target directly. The following examples assume your paths are configured; the specimen identifiers are usage examples, not promises of bundled data.
+1. **Preview the selection.** Run a species or row range with `--dry-run` to check card grouping, side order, and missing scans. A dry run makes no service requests or output files; it does not decode images or test their readability.
+2. **Create the report.** Repeat the command without `--dry-run`. Keep one live batch running at a time so request pacing and the local daily allowance remain useful.
+3. **Review against the scans.** Check flagged passages, dates, quantities, names, and front/back continuations. Retain the source image as the authority for the reading.
+4. **Keep the report and progress journal.** If processing stops, rerun the same target. Matching completed results saved within the last 48 hours can be reused; older results remain on disk but require fresh requests when selected again.
 
-| Command | Behavior |
+Run `python transcribe.py` for an interactive target prompt, or supply a target directly. The following identifiers illustrate syntax; the matching source records must exist in your data.
+
+| Command | Result |
 | --- | --- |
-| `python transcribe.py Accipiter_cooperii` | Save a species report, including uncatalogued cards. |
-| `python transcribe.py E4268` | Select the exact catalogue number; shared slips are submitted once. |
-| `python transcribe.py "E4268*"` | Fresh console reading of that card. The star is **not a wildcard**. |
-| `python transcribe.py "E9323!"` | Fresh reading with the selected model, printed in the terminal and saved with a model tag in its family folder. |
-| `python transcribe.py "E9323@"` | Fresh reading with Gemini 3.8 Flash, printed and saved with the `g38f` tag; its profile caps daily attempts at 20. |
-| `python transcribe.py "2-1000"` | Select inclusive CSV row numbers; row 1 is the header. Includes uncatalogued cards in visited species folders. |
-| `python transcribe.py Accipiter_cooperii --dry-run` | Preview grouping and side order without API calls or output files. |
-| `python transcribe.py E4268 --force` | Refresh a normally cached reading. |
-| `python transcribe.py tests` | Run fresh comparisons on the handpicked test folder. |
+| `python transcribe.py Accipiter_cooperii --dry-run` | Preview a species and its ordered card groups. |
+| `python transcribe.py Accipiter_cooperii` | Save a species report, including uncatalogued cards and selected catalogue records without scans. |
+| `python transcribe.py E4268` | Process one exact catalogue number, retaining all sides and shared references. |
+| `python transcribe.py "2-1000"` | Process inclusive CSV row numbers; row 1 is the header. Includes uncatalogued cards in visited species folders. |
+| `python transcribe.py "E4268*"` | Make a fresh reading and print it in the terminal. The star is a mode suffix, not a wildcard. |
+| `python transcribe.py "E9323!"` | Make a fresh reading, print it, and save an individual report with the selected model's tag. |
+| `python transcribe.py E4268 --force` | Request a fresh reading even if a reusable result exists. |
 
-Normal saved runs reuse completed `OK` and `REVIEW` results only when the input fingerprint matches and the saved result is no more than 48 hours old. Restart the same target after interruption. Console-only mode bypasses transcription caches but still writes daily request counts. Enter `E9323!` at the prompt for a fresh reading plus a saved file such as `E9323_g35fl_Hylopezus_perspicillatus_20261005_1045.txt` with Gemini 3.5 Flash Lite. Enter `E9323@` to select Gemini 3.8 Flash and save `E9323_g38f_Hylopezus_perspicillatus_20261005_1045.txt`. Both save in the family directory and never read or write transcription caches. `!` uses the selected model; `@` applies the complete 3.8 Flash profile (5 RPM, 20 daily attempts, including retries). Explicit compatible CLI overrides still apply. Same-minute repeats get `_2`, `_3`, etc. `--help` lists the remaining options.
+The `*` and `!` modes bypass transcription caches; request accounting still applies. The additional `@` shortcut selects a different Gemini profile and is documented under [single-card checks](docs/testing.md#single-card-fresh-checks). It is not needed for the default workflow.
 
-## Model comparisons
+## Reports and collection review
 
-The settings are together near the top of `transcribe.py`:
+Normal reports and per-species progress journals are saved in the **family directory**, above the species folders. A row range visiting several species produces separate species reports. Examples:
 
-```python
-MODEL = "gemini-3.5-flash-lite"
-TEST_TEMPERATURE = 1.0
+```text
+Accipiter_cooperii_transcriptions_YYYYMMDD_HHMM.txt
+Accipiter_cooperii_transcriptions_cache.jsonl
+E9323_g35fl_Hylopezus_perspicillatus_YYYYMMDD_HHMM.txt
 ```
 
-Normal and test runs default to temperature **1.0** for profiles that accept it. Astra continues to omit it.
+Repeated report names receive a counter rather than overwriting an earlier file. Each transcribed physical card has aligned CM banners, source filenames, processing metadata, its reading, and two blank lines before the next record. Uncatalogued material uses filename banners. Available failed response text is kept for inspection.
 
-Gemini 3.5 Flash-Lite defaults to **high thinking**, including interactive and single-card runs. Override with `--thinking-level medium` or use `--thinking-level auto` for the provider default. This setting changes the input fingerprint, so old results without high thinking are not reused; saved history remains intact. Request caps are unchanged, but thinking can increase token cost and latency.
+| Report marker | How to interpret it |
+| --- | --- |
+| `OK` | The response passed structural checks without warnings. This is not a record of human verification. |
+| `REVIEW` | The reading was accepted with flags, such as bracketed passages, substantive notes, or side warnings. |
+| `FAILED` | An input, request, or response check failed. Inspect the error and any retained text. |
+| `PAUSED` | A quota or service condition stopped processing. Completed saved work remains available. |
+| `(MISSING)` | No matching JPEG was found for a selected catalogue number in its resolved species folder. The block contains selected CSV values, not a transcription of an unseen card. |
 
-`MODEL_PROFILES` contains the configured model IDs and their provider, limits, generation settings, and retry budgets. These are project settings, not a guarantee of current model availability or account quota. See [configuration](docs/configuration.md).
+Missing-card blocks preserve partial dates, omit empty selected fields, and refresh from the CSV each run without spending request quota. A missing or ambiguous species directory remains an error; it does not establish that the physical cards are absent from the collection.
 
-The curated set in `tests/inputs/` contains **10 cards / 18 images** across several species. Keep all sides directly in that folder. Launch `python transcribe.py` and type **tests**, or run:
+The reading rules include collector-specific guidance for Brandt handwriting and, where applicable, Steinbach German notes. German text is retained with an English translation and a disclosure for review. Harmless layout differences and recognized printed form codes do not by themselves require review. A lack of flags cannot establish that every word or line was read correctly. See the [transcription and output rules](docs/transcription_rules.md) for the complete policy.
+
+## Processing settings and continuity
+
+The default profile uses temperature **1.0**, thinking level **high**, original image resolution, **15 requests per minute**, and a local cap of **500 attempts per day**. These are configured project settings, not guarantees of account entitlement or daily throughput. Retries count toward the cap. The application never switches services automatically after a failure.
+
+Normal reuse requires matching images, ordered filenames, reading instructions, relevant hints, and generation settings, as well as a completed result no more than 48 hours old. Changing those inputs can trigger fresh requests. `--force`, console checks, individual fresh reports, and the `tests` target also make new requests. Retaining reports alone does not make them reusable progress records.
+
+Keep `transcribe_request_usage.json` beside the script when moving or updating the installation, or continue using the same `--quota-file` path. It preserves local request counts across restarts. Report footers show fresh call counts, token usage, and estimated standard paid-rate costs; estimates are not invoices and do not establish whether an account is being charged. [Configuration and request control](docs/configuration.md) explains the limits, retries, and accounting.
+
+## Verification and continued development
+
+The sample folder currently contains **11 physical cards / 19 JPEGs**, including fronts, pairs, a shared slip, and a three-sided card. Preview it with:
 
 ```text
 python transcribe.py tests --dry-run
-python transcribe.py tests --model gemini-3.5-flash-lite
-python transcribe.py tests --model gemini-3.8-flash
 ```
 
-Only the dry run avoids API calls. The default CSV path remains the configured master CSV. Test input is **tests/inputs beside the script** and the combined report goes to **tests/outputs beside the script**, regardless of the launch directory or Family setting. Override with `--test-input-dir` / `--test-output-dir` if needed. An empty input folder produces no requests or empty report.
-
-Each test runs one configuration, starts at the first card, and **never reads or writes a transcription cache**. Daily limits still apply. Example filenames:
-
-```text
-test_20260923_1700_g3.5-f-l_t1.0.txt
-test_20260922_1430_g3.8f_t1.0.txt
-```
-
-Same-minute repeats get a counter rather than overwriting a report. `TEST_TEMPERATURE` affects only tests; explicit `--temperature` wins. Use `--temperature auto` to omit it. OpenAI profiles are `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, and `gpt-6-astra`; all use `OPENAI_API_KEY` from your existing `.env`. Astra automatically omits the code-level test temperature and uses `tauto` in filenames; an explicit numeric Astra override is rejected before any request.
-
-```text
-python transcribe.py tests --model gpt-5.6-luna
-python transcribe.py tests --model gpt-5.6-terra
-python transcribe.py tests --model gpt-5.6-sol
-python transcribe.py tests --model gpt-6-astra
-```
-
-The known wollweberi/ultramarina filename mismatch does not prevent the test: catalogue hints are matched by complete E-number. Source names remain unchanged. Full procedures and baseline guidance: [testing](docs/testing.md).
-
-## Output and review
-
-Normal reports and per-species progress journals are written in the **family directory**. Each record has aligned CM banners (or filenames for uncatalogued material), source filenames, model, status, and any review reasons. New records also retain the build/prompt versions, full prompt and input fingerprints, effective generation/image settings, CSV-hint setting, and available returned model version. Reused records retain their original metadata; legacy records are not assigned invented settings. Two blank lines separate records. Failed responses retain available text for inspection. These are text reports, not spreadsheet updates or a machine-enforced field schema.
-
-Selected catalogue records without a JPEG now receive a `CM385 (MISSING)` block populated directly from the CSV. This applies to species, row-range, and exact E-number targets (including `*`, `!`, and `@`), with numbered blocks in catalogue order and uncatalogued scans last. Only populated requested fields through `Remarks` are included; blank column B is labelled `Case`, AG-AJ become one readable collection date, and BG is omitted. Partial dates remain partial. These blocks spend no API quota, are never cached as transcriptions, and are refreshed from the CSV on each run. The mixed-species `tests` target still includes only its supplied scans. See [missing-card output](docs/transcription_rules.md#missing-card-csv-blocks).
-
-`OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. The bracket count says "bracketed passages" because literal source brackets can also trigger review, except recognized printed form codes such as `form A291 [3-14-32-1m]`. Missing label colons and fields sharing a line do not trigger review. Genuine uncertainty, substantive notes and completeness problems still do.
-
-See [transcription rules](docs/transcription_rules.md) for preservation, ditto marks, signatures, and front/back handling. Model instructions encourage fidelity but cannot prove that all handwriting was read correctly.
-
-## Prompt customization
-
-The reading rules are in [egg_slip_prompt.py](egg_slip_prompt.py), imported by `transcribe.py`. Keep both files together. Edit `BASE_PROMPT` for shared rules, `COLLECTOR_PROMPTS` for exact CSV Collector names, and `COLLECTOR_CONTAINS_PROMPTS` only for reviewed substring cases. Case and whitespace are normalized. Brandt uses exact-name guidance for dense handwriting, continuous prose, unusual wording, numeric marks and signatures; Steinbach uses the approved surname-containment rule. Detailed collector instructions are inserted only for matching CSV hints. `--no-csv-hints` disables CSV-selected guidance as well as reference hints. One short sentence in the base prompt retains the visible-Steinbach fallback, including inset text and translation disclosure.
-
-The prompt now treats a Date field with a visible month and year but no day as a partial date, while retaining a day when one is actually written. The revised prompt asks for concise annotations and substantive notes only, preserves genuine alterations without inventing crossouts, separates punctuation from dirt, and checks calendar validity without judging breeding seasons or collector history. It also checks for repeated facts across annotations/notes, retains clearly cancelled catalogue numbers once, checks an apparent strike against digit strokes and matching catalogue hints, uses egg context for ambiguous word boundaries, ignores routine punch holes, and distinguishes visible field borders from actual cropping. For a visibly identified or CSV-selected Steinbach record, visible German is preserved and followed by an English translation in parentheses, including inset notes, with the translation disclosed in `TRANSCRIPTION NOTES`. Earlier rules for sex symbols, stamps versus fields, multiline entries, marginal imprints and shared slips remain. See the [Fringilla review checklist](docs/fringilla_review.md) for concrete comparison cases. Prompt changes intentionally produce new cache fingerprints; existing saved work is retained. See [prompt customization and cache migration](docs/transcription_rules.md#editing-the-prompt-and-collector-guidance) for details.
-
-## Development and documentation
+Running `python transcribe.py tests` makes fresh Gemini requests and saves one combined report in `tests/outputs/`; it never reads or writes transcription caches and starts from the first card each time. Ordinary code verification uses the offline suite:
 
 ```text
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-10-07.1** passes **168 offline tests, with 1 expected skip** (169 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+For build **2026-10-07.1**, verification on 7 October 2026 ran **169 tests: 168 passed and one optional original-image fixture was skipped**. Service transports were simulated; no live requests were made for this documentation update. The tests check software behavior, not a measured handwriting-accuracy rate. Installation details, fixture requirements, and baseline procedures are in [testing](docs/testing.md).
 
-```text
-transcribe.py                  Current application; build 2026-10-07.1
-egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
-token_usage.py                Provider usage normalization and cost estimates
-test_transcribe.py             Offline unittest suite
-requirements.txt              Gemini/image/timezone dependencies
-requirements-openai.txt       Optional OpenAI dependency plus the above
-.env.example                  Credential names; no real keys
-AGENTS.md                     Durable instructions for coding agents
-docs/PROJECT_HANDOFF.md       Architecture, history, invariants, next steps
-docs/transcribe_notes.md       Preserved historical revision notes
-docs/
-    configuration.md          Credentials, profiles, quotas, retries
-    filename_rules.md         CSV, paths, targeting, physical-card grouping
-    transcription_rules.md    Egg-slip SOP, statuses, reports, caches
-    testing.md                Offline tests and live comparison protocol
-tests/
-    inputs/README.md          Curated JPEG set (10 cards, 18 images)
-    outputs/README.md         Combined comparison reports stay local
-```
+Further work should consolidate reviewed examples from the established Gemini workflow before broader architectural changes. The reading instructions already live in `egg_slip_prompt.py`, and usage accounting lives in `token_usage.py`; most selection, execution, validation, and reporting still reside in `transcribe.py`. A reusable archival backend is planned, but additional document domains are not implemented.
 
-Start future development with [AGENTS.md](AGENTS.md) and [PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md). The handoff distinguishes current implementation from the proposed domain/backend extraction. The intended sequence is model comparisons, a reliable egg-slip baseline, then incremental extraction—not a new plugin framework.
+| Documentation | Use it for |
+| --- | --- |
+| [Configuration](docs/configuration.md) | Credentials, profiles, request limits, retries, and usage estimates. |
+| [Input and filename rules](docs/filename_rules.md) | Catalogue columns, paths, target scope, and physical-card grouping. |
+| [Transcription and output rules](docs/transcription_rules.md) | Source fidelity, collector guidance, review markers, missing-card blocks, reports, and reuse. |
+| [Testing](docs/testing.md) | Offline regression checks, optional live checks, and reviewed reference material. |
+| [Project handoff](docs/PROJECT_HANDOFF.md) | Current responsibilities, development decisions, history, and remaining work. |
+| [Contributor instructions](AGENTS.md) | Data protection and implementation requirements. |
 
-## Current limits
+## Collection materials and licence
 
-The program is sequential, with per-process minute pacing and a local daily counter. It does not track other applications' quota use, enforce token-per-minute limits or guarantee identical model responses. Windows/Google Drive locking and live model accuracy need deployment testing. A real catalogue and permission-appropriate scans are supplied separately. No accuracy percentage or cross-model winner has been established by this test suite.
+Source code in this repository is licensed under the **Apache License 2.0**. A standalone `LICENSE` file has not yet been added. Sample collection images, specimen records, and other third-party materials retain their own rights and usage restrictions.
 
-Source data and generated results are excluded from Git by default; only deliberately selected JPEGs under `tests/inputs/` are eligible sample scans. Review their publication rights before adding them. No project licence has yet been selected; a public repository is not itself a licence grant.
-
-
-### Licensce
-
-Source code in this repository is licensed under the Apache License 2.0 unless otherwise noted. Sample collection images, specimen records, and other third-party materials are not covered by the software license and retain their respective rights and usage restrictions.
-
-
-Token usage and estimated paid-rate USD are recorded for fresh attempts, including retries. Normal and test reports use compact headers and end with a `RUN: ... calls | ... tokens | ...` summary; reused results add no new spending. See [usage and pricing assumptions](docs/configuration.md#token-usage-and-estimated-cost) and [report conventions](docs/transcription_rules.md#reports-and-ordering).
+The full production collection and credentials are supplied locally. The repository contains selected sample JPEGs and some previously tracked reference reports; new test reports are ignored by default. Review actual staged files before publishing collection material: ignore rules do not remove files already tracked by Git, and custom output locations may require their own exclusions.

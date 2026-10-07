@@ -82,7 +82,7 @@ Recognized groups use the case-folded complete base filename, with side suffix a
 4. A lone B stays a back with a missing-front warning. Gaps between supplied side numbers produce review warnings. Additional supplied sides are labelled `BACK OF SLIP`, `BACK OF SLIP 2`, etc., in supplied order; numbering is not the raw suffix value.
 5. Sort numbered groups by the tuple of numeric catalogue values in filename order, with natural base-name order as the tie-breaker. Sort uncatalogued groups afterward by natural filename order. Leading zeros remain in identifiers and output even though numeric values participate in sorting.
 
-Malformed JPEG names are reported as `FILE CHECK`, not silently treated as uncatalogued. These checks examine the whole scanned directory, including malformed names outside an exact-number selection. Requested E-numbers with no valid matching group are reported as `MISSING`. Recognized cards can still run, but discovery issues make the overall exit status nonzero.
+Malformed JPEG names are reported as `FILE CHECK`, not silently treated as uncatalogued. These checks examine the whole scanned directory, including malformed names outside an exact-number selection. Selected catalogue numbers with no JPEG receive the CSV-only blocks described above and do not by themselves make the run fail. Numbers present only in rejected or unusable groups retain discovery diagnostics and may appear in the terminal's `MISSING` list; they are not replaced with CSV-only blocks. Recognized cards can still run, but discovery issues make the overall exit status nonzero.
 
 ## Mixed-species test directory
 

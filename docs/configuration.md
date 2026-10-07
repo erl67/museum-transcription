@@ -1,6 +1,14 @@
 # Configuration, providers, and request control
 
-Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-09-23.4`; they are not independently verified provider quotas or model-availability promises.
+Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-10-07.1`; they are not independently verified provider quotas or model-availability promises.
+
+## Established production setup
+
+The maintainer's choice as of 7 October 2026 is `gemini-3.5-flash-lite`, with the existing temperature 1.0 and high-thinking defaults. Its readings are satisfactory for the current workflow. Paid GPT/OpenAI comparisons are not planned or required before further maintenance. Optional profiles and the shared adapter remain implemented and covered offline.
+
+For Gemini-only installation, use the three pinned packages in the [README](../README.md#getting-started). The complete developer environment is installed with `python -m pip install -r docs/requirements.txt` from the repository root; that file also includes the optional OpenAI SDK for offline transport tests. The checkout currently has no root `requirements.txt`, `requirements-openai.txt`, or `.env.example`.
+
+Create `.env` beside the script with `GEMINI_API_KEY=` followed by your key; do not commit it. Images and enabled hints are transmitted to the selected service. Hints are limited to the configured scientific-name, collector, and locality columns; the full CSV is not uploaded. Missing-card CSV blocks are rendered locally without a service request.
 
 ## Profiles and temperature
 
@@ -16,7 +24,7 @@ Change `MODEL` near the top of the script or pass `--model`. The exact ID must h
 | `gpt-5.6-sol` | OpenAI | 5 | 20 | 300 s | 3 | 1.0 | Full model ID |
 | `gpt-6-astra` | OpenAI | 5 | 20 | 300 s | 3 | Unsupported / omitted | Full model ID |
 
-The Gemini caps came from the maintainer's stated allowances. OpenAI's values are conservative local testing caps, not an account entitlement. Confirm model IDs and supported parameters against the intended account when running live comparisons. The default reflects the established working workflow and available request allowance, not a measured quality ranking.
+The Gemini caps came from the maintainer's stated allowances. OpenAI's values are conservative local testing caps, not an account entitlement. If the maintainer later requests another provider, verify that account's model access and parameter support before the authorized run. The default reflects the established working workflow, satisfactory readings, and available request allowance, not a measured quality ranking.
 
 `ModelProfile.temperature` and `TEST_TEMPERATURE` now default to **1.0**, following the maintainer's chosen operating setting. `TEST_TEMPERATURE` applies only to tests and does not alter normal profiles. Explicit `--temperature` overrides either mode; `--temperature auto` or a Python setting of `None` omits the parameter. Astra retains its unsupported/omitted setting and rejects explicit numeric overrides. An omitted parameter is recorded as `tauto`, never labelled as a temperature that was not sent. Numeric temperatures must be finite and between 0 and 2. Both SDK transports are checked offline; live parameter acceptance for the configured OpenAI models has not been established by these tests.
 
@@ -34,7 +42,7 @@ Profiles also hold `max_output_tokens` (16,384 by default), retry base (5 s for 
 
 `retry_base`, `quota_timezone`, `filename_tag`, and the configured thinking-level allowlist are profile fields, not separate CLI options. `--rpd 0` / profile `rpd=None` removes the local daily cap but does not disable attempt accounting. `--max-retry-wait` must be at least 60 s. Run `--list-models` or `--help` without any keys or dataset.
 
-Model IDs and reasoning support were checked against [OpenAI's GPT-5.6 guide](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.6). [Astra's guide](https://developers.openai.com/api/docs/guides/latest-model) specifies `gpt-6-astra` and disallows temperature. There is no configured `gpt-5.6-astra` alias. Profiles share the existing Responses transport, completion checks, pacing, and quota code.
+The optional OpenAI entries describe the configured adapter, not verified current account access. There is no configured `gpt-5.6-astra` alias. Profiles share the existing Responses transport, completion checks, pacing, and quota code; retaining them does not require paid evaluation runs.
 
 ## Credentials and `.env`
 
@@ -101,7 +109,7 @@ Backoff is the maximum of the server hint, 60 s for a retryable 429, and `min(60
 
 Normal journals checkpoint per-attempt token/cost accounting and initial request provenance before readable output. Reports include the effective generation configuration, image settings, CSV-hint flag, build/prompt versions and SHA-256 fingerprints, plus the returned model version when available. Metadata contains no credentials or raw catalogue hints. Reuse preserves original provenance; unavailable legacy metadata is not reconstructed. See [report details](transcription_rules.md#reports-and-ordering) and [usage accounting](#token-usage-and-estimated-cost).
 
-Both providers currently share a conservative estimated 19,000,000-byte inline request budget. Original JPEG bytes are retained when possible; EXIF correction or requested resizing creates in-memory bytes only. Payload limits, token-per-minute limits, account entitlement, latency, and handwriting accuracy are not guaranteed by these settings. See [testing](testing.md) and [handoff limitations](../PROJECT_HANDOFF.md#known-issues-and-technical-debt).
+Both providers currently share a conservative estimated 19,000,000-byte inline request budget. Original JPEG bytes are retained when possible; EXIF correction or requested resizing creates in-memory bytes only. Payload limits, token-per-minute limits, account entitlement, latency, and handwriting accuracy are not guaranteed by these settings. See [testing](testing.md) and [handoff limitations](PROJECT_HANDOFF.md#known-issues-and-technical-debt).
 
 ## Reading instructions
 
@@ -110,9 +118,9 @@ Reading policy and CSV-selected collector instructions are configured in [egg_sl
 
 ## Token usage and estimated cost
 
-`token_usage.py` centralizes normalized usage, aggregation, and `PRICES`, a table of standard paid USD rates per million tokens (input, cached input, output including reasoning). No network lookup or extra token-counting API call occurs during transcription. Rates were checked on 23 September 2026 against [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI pricing](https://developers.openai.com/api/docs/pricing), and the official [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra), and [Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) model pages.
+`token_usage.py` centralizes normalized usage, aggregation, and `PRICES`, a table of standard paid USD rates per million tokens (input, cached input, output including reasoning). No network lookup or extra token-counting API call occurs during transcription. The source records a historical rate check dated 23 September 2026 against [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing), [OpenAI pricing](https://developers.openai.com/api/docs/pricing), and the official [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra), and [Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) model pages.
 
-All configured models have estimates. Gemini 3.6/3.8 rates follow the published increase on 1 January 2027. GPT-5.6 Sol estimates become unknown after 21 November 2026 until its promotional pricing is reviewed. OpenAI requests above 272,000 input tokens use the published long-context multipliers. Reported cached-input tokens receive the discounted input rate; reasoning is billed once as output. Prices and accounting metadata do not affect transcription cache fingerprints.
+All configured models have estimates. The current estimator doubles Gemini 3.6/3.8 rates from 1 January 2027, leaves GPT-5.6 Sol estimates unknown after 21 November 2026, and applies long-context multipliers to OpenAI requests above 272,000 input tokens. These are dated assumptions encoded in the repository, not a fresh verification of provider prices. Reported cached-input tokens receive the discounted input rate; reasoning is billed once as output. Prices and accounting metadata do not affect transcription cache fingerprints.
 
 Amounts are estimates at standard paid rates, not invoices. Free-tier access, account credits/discounts, tax, regional/priority processing, explicit cache-write/storage charges, and future pricing changes are not inferred from token usage. This application does not request tools, explicit context-cache storage, or a special service tier. Review `PRICES` when pricing changes or adding a model; an unknown model's cost is shown as unknown while tokens still count. The rate table is deliberately independent of request profiles and never changes the requested model.
 

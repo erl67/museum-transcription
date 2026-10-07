@@ -1,25 +1,35 @@
 # Testing and the behavioral baseline
 
-There are two different activities: deterministic offline regression tests and live, quota-consuming model comparisons. Neither should be mistaken for a measured accuracy benchmark without human-reviewed source readings.
+Routine verification is the deterministic offline regression suite. Fresh transcription checks use the service and consume quota; they require an authorized run. Neither activity establishes an accuracy benchmark without human-reviewed source readings.
+
+The maintainer intends to continue production with `gemini-3.5-flash-lite` and is satisfied with its current readings. No paid GPT/OpenAI comparison campaign is planned. Build the future extraction baseline from existing Gemini reports, deliberately reviewed readings, and offline response fixtures; changing providers is not a prerequisite.
+
+## Documentation verification - 7 October 2026
+
+The current build, **2026-10-07.1**, ran **169 offline tests: 168 passed and one skipped** on Windows/Python 3.14. The skip is the optional original three-image `EGG_SLIP_SAMPLE_DIR` fixture. Both provider SDK transport tests ran with simulated HTTP responses; no live requests were made. Sandbox temporary-directory permissions initially prevented fixture setup/cleanup; the suite completed outside that sandbox. No application code, prompt, generation setting, source scan, catalogue, or saved report changed in this documentation pass.
+
+Read-only discovery of the actual `tests/inputs/` folder found **11 physical cards / 19 images** with no filename/grouping issues. The existing synthetic regression case named `test_sample_mixed_ten_cards_eighteen_images_in_one_report` still intentionally uses 10 cards / 18 images; it is a separate fixture, not an inventory of the current sample folder. All 69 local documentation links and heading targets were checked. Existing dated test/build results below remain historical evidence.
 
 ## Offline regression suite
 
 From the repository root:
 
 ```text
-python -m pip install -r requirements-openai.txt
+python -m pip install -r docs/requirements.txt
 python -m unittest -v test_transcribe.py
 ```
 
-`requirements-openai.txt` includes the Gemini/image/timezone dependencies as well as OpenAI, enabling both real-SDK transport tests. `unittest` is in the standard library. The suite uses temporary CSVs/JPEGs, fake clients/clocks, and SDK HTTP mock transports with dummy credentials. It makes no live provider calls and does not need the production CSV, Drive mount, or `.env`.
+`docs/requirements.txt` includes the Gemini/image/timezone dependencies as well as the optional OpenAI SDK, enabling both real-SDK transport tests without paying for requests. Installing that SDK is a development requirement for full transport coverage, not a production-provider change. `unittest` is in the standard library. The suite uses temporary CSVs/JPEGs, fake clients/clocks, and SDK HTTP mock transports with dummy credentials. It makes no live provider calls and does not need the production CSV, Drive mount, or `.env`.
 
-Check the final skipped count, not only `OK`. Missing SDKs cause client/transport tests to skip. Pillow is required even for the synthetic JPEG tests. Python 3.10+ is the source/dependency floor; the handoff was run on Python 3.12.14/Linux, not every supported Python/OS combination.
+Check the final skipped count, not only `OK`. Missing SDKs cause client/transport tests to skip. Pillow is required even for the synthetic JPEG tests. Python 3.10+ is the source/dependency floor. Verification has been recorded on Linux/Python 3.12 and Windows/Python 3.14, not every supported Python/OS combination.
 
 The suite currently covers:
 
 - Credential lookup from unrelated launch directories, `.env` precedence/encodings, hidden `.txt` extensions, and provider-specific keys/endpoints.
 - Profile selection, explicit overrides, invalid settings, timezone reset boundaries, persistent attempt counts, corrupted/unwritable quota state, and daily/billing stops.
 - Species/row routing, duplicate CSV records, ambiguous directories, shared numbers, leading zeros, A/B/numeric order, missing fronts, duplicate sides, `_exchanged`, and uncatalogued handling.
+- CSV-only missing-card fields/dates and selection scope, zero-request output, and later scan arrival.
+- Fresh `!`/`@` individual reports, complete alternate-profile selection, 48-hour reuse, per-attempt token/cost accounting, and request provenance.
 - Original image bytes, EXIF correction, optional resize, payload budget, and cache identity/invalidation.
 - Completion/refusal/token-cutoff handling, answer-vs-thought extraction, flexible back headings, multiple annotation sections, empty-note markers, LaTeX, and bounded correction retries.
 - Cache reuse, forced refresh, damaged journal recovery, checkpoint-before-report ordering, and local locks.
@@ -50,7 +60,7 @@ Historical build **2026-10-05.1** passed **155 offline tests: 154 passed, one op
 04-Accipiter_gentilis_E4268-B-.jpg
 ```
 
-The test also accepts their unprefixed conventional names; it copies/normalizes names inside a temporary test directory without modifying the originals. The test only checks image handling and grouping, not handwriting accuracy. These three originals were available in Work for verification but are not included in the repository handoff. The current 10-card / 18-image curated set is separate from this older optional fixture. Do not point this variable at a folder with additional matching Accipiter images; the current exact-three assertion would fail.
+The test also accepts their unprefixed conventional names; it copies/normalizes names inside a temporary test directory without modifying the originals. The test only checks image handling and grouping, not handwriting accuracy. These three originals were available in Work for verification but are not included in the repository handoff. The current 11-card / 19-image curated set is separate from this older optional fixture. Do not point this variable at a folder with additional matching Accipiter images; the current exact-three assertion would fail.
 
 PowerShell, with a real local directory substituted:
 
@@ -59,11 +69,11 @@ $env:EGG_SLIP_SAMPLE_DIR = "PATH\TO\original-three-image-fixture"
 python -m unittest -v test_transcribe.py
 ```
 
-For a portable default run without those originals, leave the variable unset and report the one expected skip. Missing sample images do not prevent repository setup or ordinary offline tests. On Windows, the specific POSIX second-lock test also skips; the Windows lock implementation must be exercised on that deployment.
+Without those originals, leave the variable unset and report the fixture skip alongside any platform or dependency skips. Missing sample images do not prevent repository setup or ordinary offline tests. Windows mutex contention is now tested with a second thread; it does not cause an additional Windows skip. The Windows-specific legacy-lock cleanup test skips on other operating systems. Cross-machine Drive coordination is not implemented.
 
 ## Live representative-card comparisons
 
-The current curated `tests/inputs/` set contains 10 physical cards / 18 JPEGs across several species. Choose real examples that exercise the existing workflow: easy fronts, faint/dense handwriting, A/B narrative backs, collection headings, corrections/stamps, grouped dimensions/ditto marks, signatures, shared E-numbers, and uncatalogued records where available. This is selection guidance, not an assertion those examples have already been committed.
+This optional procedure is for a specifically requested fresh check or later comparison, not routine verification. The current curated `tests/inputs/` set contains 11 physical cards / 19 JPEGs across several species. Choose real examples that exercise the existing workflow: easy fronts, faint/dense handwriting, A/B narrative backs, collection headings, corrections/stamps, grouped dimensions/ditto marks, signatures, shared E-numbers, and uncatalogued records where available. This is selection guidance, not an assertion those examples have already been committed.
 
 Keep JPG/JPEG files directly in the input directory with original names. One request contains all sides of one physical record, before any retries. There is no enforced 15-card limit. The master CSV remains required, even for `tests`, but normal family/species folders are unnecessary. Unmatched numbers get a review flag; uncatalogued images get no unrelated hints.
 
@@ -72,12 +82,11 @@ Test paths default to `tests/inputs/` and `tests/outputs/` beside the script, in
 ```text
 python transcribe.py tests --dry-run
 python transcribe.py tests --model gemini-3.5-flash-lite
-python transcribe.py tests --model gemini-3.8-flash
 ```
 
-The configured CSV path is used; `--csv` overrides it. Only the first command is offline. Review its card count/order before launching paid/quota-consuming runs. Substitute another configured model for the next comparison. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `tests` at its prompt (`test` is also accepted). Each launch runs one combination.
+The configured CSV path is used; `--csv` overrides it. Only the first command is offline. Review its card count/order before an authorized quota-consuming run. Keep the chosen Gemini profile unless a comparison is explicitly requested. Alternatively change `MODEL` and `TEST_TEMPERATURE` near the top of the script and type `tests` at its prompt (`test` is also accepted). Each launch runs one combination.
 
-For the four configured OpenAI models, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. Normal and test numeric defaults are now 1.0; `TEST_TEMPERATURE` remains an independent test-only setting. Astra always omits temperature and rejects explicit numeric overrides. See [configuration](configuration.md) for the model IDs and parameter limitations. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
+Only if the maintainer later requests an OpenAI comparison, install its optional dependency, supply `OPENAI_API_KEY`, and use `--model gpt-5.6-luna --temperature auto` when testing without a temperature override. Normal and test numeric defaults are now 1.0; `TEST_TEMPERATURE` remains an independent test-only setting. Astra always omits temperature and rejects explicit numeric overrides. See [configuration](configuration.md) for the model IDs and parameter limitations. Account availability and actual parameter acceptance have not been established by mocked tests; do not assume any configured profile is guaranteed accessible.
 
 A non-dry test creates the input/output directories if absent. An empty folder causes no API calls or report and returns code 1 with instructions. A dry run creates nothing, does not decode the images or test credentials, and returns code 1 if its folder is absent. Test input and output cannot be the same resolved directory. `test --console-only` is invalid.
 
@@ -94,21 +103,21 @@ test_20260922_1430_g3.8f_t1.0.txt
 test_20260922_1435_gpt-5.6-luna_tauto.txt
 ```
 
-The report includes full model/provider, effective temperature, input path, and card count. It does not yet contain a complete reproducibility manifest, image hashes, per-card token costs, or every generation setting. Keep a separate comparison record of script version/commit, input hashes, CSV/hint policy, resizing, thinking/reasoning/image-detail settings, and run time. Do not put sensitive catalogue content into a public baseline without review.
+The preamble records the requested model, effective temperature, input path, and card/image counts. New card headers also record build/prompt versions, full prompt and input fingerprints, effective generation/image settings, hint enablement, returned model version when available, and available per-card usage/cost totals including retries. The footer totals fresh calls for that report. This is still not a complete reproducibility manifest: keep the exact source images, a separate per-file hash inventory, relevant catalogue snapshot, full prompt text, and reviewed responses to reproduce or replay a comparison. Unknown legacy settings and missing usage are not reconstructed. Do not put sensitive catalogue content into a public baseline without review.
 
-Daily accounting is shared with normal calls and retries. Twenty daily requests permit two temperatures on ten cards only if no retry is needed; fifteen cards at two temperatures require at least thirty requests. A stopped test retains completed output, but its next invocation starts from card one. There is no subset selector or resume within `test`; adjust the chosen input set before an authorized run when necessary, preserving the original museum scans.
+Daily accounting is shared with normal calls and retries. The current 11-card set needs at least 11 attempts per run; two runs need at least 22 before retries. A 20-attempt alternate profile cannot complete both on the same quota day. A stopped test retains completed output, but its next invocation starts from card one. There is no subset selector or resume within `test`; adjust the chosen input set before an authorized run when necessary, preserving the original museum scans.
 
 ## Establishing a baseline before modularization
 
-1. Freeze the selected image set and relevant catalogue hints/settings for a comparison round. Record exact file hashes so later corrections are not mistaken for model changes.
-2. Use the chosen temperature of 1.0 for models whose profiles accept it; compare prompt/model changes without introducing an unnecessary temperature sweep. Evaluate missing lines, wrong readings/numbers, unsupported inference, side omissions, formatting, latency, and attempts. Avoid judging by tidy formatting alone.
+1. Use the established Gemini profile and existing reports as the starting point. Freeze the selected image set and relevant catalogue hints/settings; record exact file hashes so later corrections are not mistaken for reading changes. Further paid provider comparisons are not required.
+2. Record temperature 1.0 and high thinking for current Flash-Lite output; do not label older reports as having settings they did not record. Review missing lines, wrong readings/numbers, unsupported inference, side omissions, formatting, and available attempt/usage data. Avoid judging by tidy formatting alone.
 3. Human-review especially difficult readings. Distinguish acceptable uncertainty from an invented confident answer and from a harmless formatting variation.
 4. Retain a small reviewed reference set and representative provider responses locally or in explicitly publication-approved fixtures. The [Fringilla review checklist](fringilla_review.md) records concrete checks and unresolved readings from the September 23 comparison; it is a partial visual-review reference, not a human-certified full gold transcription or an automatic accuracy scorer.
 5. Before moving domain code, capture deterministic expectations for grouping, prompt strings, ordered image bytes/labels, cache keys, validation, and rendered output. Existing mocks are useful; reviewed sample responses would strengthen them.
 6. During extraction, replay the same provider responses offline and compare those artifacts exactly where behavior is intended to be identical. Do not depend solely on new live calls: nondeterministic output could hide a code regression or falsely suggest one.
 7. After structural equivalence, use the same curated samples for authorized live spot comparisons if needed. Keep prompt tuning separate from architectural changes.
 
-Raw reports remain ignored in `tests/outputs/` (and in the previous `outputs/` location). A future reviewed baseline should be deliberately selected and documented, not created by committing every run. Ordinary text differences are not a reliable accuracy metric without aligned, human-reviewed references.
+New reports are ignored in `tests/outputs/` (and in the previous `outputs/` location), but several historical reports and two files named manual transcriptions are already tracked. Ignore rules do not untrack them. Preserve those files; verify their coverage and readings before adopting them as baseline fixtures. A future reviewed baseline should be deliberately selected and documented, not created by committing every run. Ordinary text differences are not a reliable accuracy metric without aligned, human-reviewed references.
 
 ## Regression focus after changes
 
@@ -195,7 +204,7 @@ The Windows sandbox denied temporary fixture access; the offline suite was run w
 
 The following is the earlier Work environment record, not the initial state observed in this Windows checkout.
 
-The authoritative Work implementation was overlaid onto a checkout of the older public repository. Before documentation changes, **115 tests passed with zero skips**. The post-documentation verification repeats the same suite; its final result is recorded in [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md#current-state-and-verification).
+The authoritative Work implementation was overlaid onto a checkout of the older public repository. Before documentation changes, **115 tests passed with zero skips**. The post-documentation verification repeats the same suite; its final result is recorded in [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md#historical-work-snapshot-and-verification---22-september-2026).
 
 Environment: Python 3.12.14/Linux; google-genai 2.23.0, Pillow 12.3.0, tzdata 2026.3, openai 3.16.2; HTTPX 0.28.1 available to transport tests. Both SDKs and the three original Accipiter images were available. Dependency pins derive from that inspected environment. The whole master CSV, Windows/Drive deployment, current key validity, live model output, actual limits, and comparative transcription accuracy were not exercised. No live API calls were made.
 
