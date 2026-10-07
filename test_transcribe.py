@@ -517,6 +517,149 @@ class DatasetTest(unittest.TestCase):
                 for path in self.root.rglob("*") if path.is_file()
                 and (include_usage or not path.name.startswith("usage.json"))}
 
+    def test_default_csv_is_beside_script_independent_of_launch_directory(self):
+        with patch.object(Path, "cwd", return_value=self.root):
+            self.assertEqual(Path(t.parse_args([]).csv), Path(t.__file__).resolve().with_name(
+                "EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
+
+    def test_missing_csv_fields_case_blank_omission_and_remarks_cutoff(self):
+        headers = ("Verify,,Family,genus,specificEpithet,infraspecificEpithet,Scientific Name,"
+                   "Howard & Moore ,CatalogNumberText,CatalogNumberNumeric,Sequence No.,"
+                   "previousIdentifications,Individual Count,catalogNumber,SORT by number,Scan Link,"
+                   "Transcribed,Binder,country,stateProvince,county,locality,Accession No.,T No.,Sex,"
+                   "Life Stage,Age Comment,Sex comments,Preparations,Disposition,RelatedCatalogedItems,"
+                   "OtherCatalogNumbers,year,month,date collected m/d/y,MonthCollected,Collector,field No.,"
+                   "Field Notes,continent,waterBody,Elev.,verbatimCoordinates,Decimal Latitude,Decimal Long.,"
+                   "Datum,coordinateUncertaintyInMeters,georeferencedDate,georeferenceBy,georeferenceProtocol,"
+                   "Georeference Sources,Georeference Remarks,typeStatus,Order,Subfamily,Remarks,"
+                   "institutionCode,collectionCode,basisOfRecord,Date modified,island group,island").split(",")
+        row = {name: f"value-{i}" for i, name in enumerate(headers)}
+        row.update({"catalogNumber": "E001", "Scientific Name": "Accipiter gentilis", "Family": "Accipitridae",
+                    "year": "1893", "month": "5", "date collected m/d/y": "30", "MonthCollected": "May",
+                    "Sex": "  ", "Individual Count": "0", "Field Notes": "First line\nSecond line"})
+        with self.csv.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            writer.writeheader(); writer.writerow(row)
+        block = t.missing_output_block("E001", self.db().by_enum["E001"])
+        selected = [0, 1, 2, 6, 11, 12, 13, *range(18, 32), 34, 36, 37, 38, 55]
+        expected = ["Case" if i == 1 else headers[i] for i in selected if headers[i] != "Sex"]
+        actual = [line.split(":", 1)[0] for line in block.splitlines()[1:] if ":" in line]
+        self.assertEqual(actual, expected)
+        self.assertIn("CM001 (MISSING)", block)
+        self.assertIn("Case: value-1", block)
+        self.assertIn("Individual Count: 0", block)
+        self.assertIn("date collected m/d/y: May 30, 1893", block)
+        self.assertIn("Field Notes: First line\nSecond line", block)
+        self.assertTrue(block.endswith("\n\n\n"))
+        self.assertNotIn("basisOfRecord", block)
+        self.assertNotIn("STATUS:", block)
+
+    def test_missing_dates_preserve_partial_unusual_and_conflicting_values(self):
+        cases = [(("1924", "6", "", "Jun"), "June 1924"),
+                 (("1924", "", "", ""), "1924"),
+                 (("", "6", "2", "Jun"), "June 2"),
+                 (("", "", "", ""), ""),
+                 (("1903", "4", "31", "Apr"), "April 31, 1903"),
+                 (("1924", "", "", "June"), "June 1924"),
+                 (("1924", "5", "2", "Jun"),
+                  "year: 1924; month: 5; date collected m/d/y: 2; MonthCollected: Jun"),
+                 (("1924", "", "2", ""), "year: 1924; date collected m/d/y: 2"),
+                 (("", "", "", "Collector Unknown"), "MonthCollected: Collector Unknown")]
+        for values, expected in cases:
+            with self.subTest(values=values):
+                row = dict(zip(("year", "month", "date collected m/d/y", "MonthCollected"), values))
+                self.assertEqual(t.missing_collection_date(row), expected)
+
+    def test_missing_only_report_needs_no_key_api_quota_or_journal(self):
+        self.args.target = "E001"
+        self.args.no_csv_hints = True
+        before = self.snapshot()
+        with patch.object(t, "load_api_key", side_effect=AssertionError("key lookup")), \
+                patch.object(t, "Journal", side_effect=AssertionError("cache access")):
+            self.assertEqual(t.run(self.args), 0)
+        after = self.snapshot()
+        self.assertEqual({key: after[key] for key in before}, before)
+        added = set(after) - set(before)
+        self.assertEqual(len(added), 1)
+        report = (self.root / added.pop()).read_text(encoding="utf-8")
+        self.assertIn("CM001 (MISSING)", report)
+        self.assertIn("Collector: Reference Collector", report)
+        self.assertIn("RUN: 0 calls", report)
+        self.assertNotIn("CM186", report)
+
+    def test_missing_records_join_species_report_in_order_before_uncatalogued(self):
+        self.card_image("Accipiter_gentilis_Uncatalogued01.jpg")
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 3)
+        report = next(self.family.glob("*_transcriptions_*.txt")).read_text()
+        labels = ["CM001 (MISSING)", "CM186 (MISSING)", "CM187 (MISSING)", "CM4268=", "CM4927=",
+                  "ID: Accipiter_gentilis_Uncatalogued01"]
+        positions = [report.index(label) for label in labels]
+        self.assertEqual(positions, sorted(positions))
+        journal = next(self.family.glob("*_cache.jsonl")).read_text()
+        self.assertNotIn("MISSING", journal)
+        self.assertNotIn('"E001"', journal)
+
+    def test_missing_selection_shared_back_and_rejected_scans_are_not_missing(self):
+        self.card_image("Accipiter_gentilis_E186_E187(B).jpg")
+        self.card_image("Accipiter_gentilis_E001(WRONG).jpg")
+        missing = t.missing_catalogue_numbers(self.folder, self.db(), "Accipiter_gentilis", None)
+        self.assertEqual(missing, set())
+        self.card_image("Accipiter_gentilis_E4927(A).jpg")
+        self.args.target = "E4927"
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 1)
+        self.assertEqual(client.calls, [])
+        self.assertFalse(list(self.family.glob("*.txt")))
+
+    def test_missing_row_range_excludes_unselected_records(self):
+        self.args.target = "4-4"  # E186 only.
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(client.calls, [])
+        report = next(self.family.glob("*.txt")).read_text()
+        self.assertIn("CM186 (MISSING)", report)
+        for excluded in ("CM187", "CM001", "CM4268", "CM4927"):
+            self.assertNotIn(excluded, report)
+
+    def test_missing_console_and_dry_run_are_read_only(self):
+        before = self.snapshot()
+        for target, dry in (("E001*", False), ("E001", True), ("E001!", True)):
+            self.args.target, self.args.dry_run = target, dry
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(t.run(self.args), 0)
+            self.assertIn("CM001 (MISSING)", output.getvalue())
+            self.assertEqual(self.snapshot(), before)
+
+    def test_missing_duplicate_rows_refresh_and_new_scan_is_transcribed(self):
+        self.args.target = "E001"
+        extra = {"catalogNumber": "E001", "Scientific Name": "Accipiter gentilis", "Family": "Accipitridae",
+                 "Collector": "Second Collector"}
+        self.write_csv(["E001"], extra)
+        self.assertEqual(t.run(self.args), 0)
+        report = next(self.family.glob("*.txt")).read_text()
+        self.assertEqual(report.count("CM001 (MISSING)"), 2)
+        self.assertIn("Collector: Second Collector", report)
+        self.write_csv(["E001"], {**extra, "Collector": "Updated Collector"})
+        self.assertEqual(t.run(self.args), 0)
+        self.assertTrue(any("Updated Collector" in p.read_text() for p in self.family.glob("*.txt")))
+        self.card_image("Accipiter_gentilis_E001.jpg")
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(len(list(self.family.glob("*_cache.jsonl"))), 1)
+
+    def test_missing_does_not_fill_entire_catalogue_in_test_mode(self):
+        self.args.target = "tests"
+        self.args.test_input_dir = str(self.folder)
+        self.args.test_output_dir = str(self.root / "test-output")
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 2)
+        report = next((self.root / "test-output").glob("*.txt")).read_text()
+        self.assertNotIn("(MISSING)", report)
+
     def test_usage_counts_rejected_responses_and_service_retries(self):
         card = self.cards({"E4927"})[0]
         bad, good = response("bad format"), response(transcript())
@@ -1553,7 +1696,9 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(usage_after["models"][key]["attempts"], usage_before["models"][key]["attempts"] + 1)
 
     def test_bang_interactive_is_fresh_prints_and_saves_without_touching_cache(self):
-        t.run(self.args, self.engine()[0])
+        engine, _, _ = self.engine()
+        engine.quota.now = lambda: datetime(2026, 10, 5, 10, 45, tzinfo=timezone.utc)
+        t.run(self.args, engine)
         before = self.snapshot(include_usage=False)
         usage_before = json.loads((self.root / "usage.json").read_text())
         self.args.target = None

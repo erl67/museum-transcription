@@ -12,7 +12,7 @@ The program reads a CSV export, not a workbook or a live Google Sheet. It uses `
 | `Scientific Name` | Derive `Genus_species` from the first two words. Underscores can substitute for spaces. |
 | `Family` | Resolve the family directory. |
 
-Optional hint columns are `Collector`, `locality`, `county`, `stateProvince`, and `country`, plus `Scientific Name`. Names/case must match; columns such as `CatalogNumberText` from other project exports are **not** aliases for `catalogNumber`. Unrelated columns are retained in the loaded rows but not sent as hints.
+Optional hint columns are `Collector`, `locality`, `county`, `stateProvince`, and `country`, plus `Scientific Name`. Names/case must match; columns such as `CatalogNumberText` from other project exports are **not** aliases for `catalogNumber`. Unrelated columns are retained in the loaded rows but not sent as hints. A blank header in column B is named `Case` in memory; the source CSV is unchanged. Selected columns also supply missing-card report blocks.
 
 Data rows are numbered from 2, with row 1 treated as the header. These are parsed CSV records, not raw text line numbers when quoted values contain newlines. Blank catalogue numbers remain in the row map but do not become selected records. Missing/duplicate headers and rows with extra columns are rejected. Duplicate catalogue numbers are retained as lists, with a warning, not overwritten. Exact-number routing rejects conflicting scientific-name species; family routing rejects missing or conflicting families.
 
@@ -31,13 +31,13 @@ Family/<family>/<Genus>/<Genus_species>/JPEG/<scan>.jpg
 
 Directory lookup is case-insensitive, including `JPEG`. Both matching layouts present at once, or two case variants of one directory on a case-sensitive filesystem, are ambiguous and rejected. The code does not recursively search arbitrary paths or read originals/TIFF subfolders. Only direct `.jpg` and `.jpeg` files in the resolved JPEG directory are discovered; extension matching is case-insensitive. Other formats are ignored.
 
-The defaults are machine-specific Windows paths under `G:\My Drive\Egg Slip Scanning`. They are retained for compatibility, not a portable project-root convention. CLI path overrides work independently of VS Code's launch directory. Normal reports/journals go in the family directory, even when the scans are nested under a genus directory.
+The default CSV is `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside `transcribe.py`. The default Family scan root remains the machine-specific `G:\My Drive\Egg Slip Scanning\Family`. CLI path overrides work independently of VS Code's launch directory. Normal reports/journals go in the family directory, even when the scans are nested under a genus directory.
 
 ## Target syntax and scope
 
 | Target | Selected material |
 | --- | --- |
-| `Accipiter_cooperii` or `"Accipiter cooperii"` | Every recognized group in that species JPEG folder, including uncatalogued groups. Family mapping still requires CSV data. |
+| `Accipiter_cooperii` or `"Accipiter cooperii"` | Every recognized group in that species JPEG folder, including uncatalogued groups, plus CSV records for that species without JPEGs. Family mapping still requires CSV data. |
 | `E4268` | Exact number, case-insensitive; it must exist in the CSV to route to its species. |
 | `E4268*` | Same selection, fresh console output; `*` is a mode suffix, not a glob. |
 | `E4268!` | Same selection with the selected model, fresh console output plus a model-tagged timestamped report in the family directory; no transcription cache access. |
@@ -48,6 +48,12 @@ The defaults are machine-specific Windows paths under `G:\My Drive\Egg Slip Scan
 Invalid targets, descending ranges, species/range targets with `*`, `!` or `@`, combined/repeated mode suffixes, and path strings used as species names are rejected. `--console-only` is available for normal species/range selections; `test --console-only`, `E4268! --console-only` and `E4268@ --console-only` are rejected. There is no E-number numeric range or general wildcard search.
 
 In normal species mode, a numbered filename absent from the CSV is still transcribed without matching hints; the special missing-CSV review warning is currently added only in test mode. A species consisting solely of uncatalogued records cannot route without a CSV family mapping; use the mixed test folder for such material until a requested routing enhancement exists.
+
+## Records without scans
+
+Production selections also compare complete E-numbers in the CSV with JPEG filenames in the resolved species folder. Species targets consider that species' catalogue records; exact-number and row-range targets retain their selected scope. Absent numbers receive CSV-only `(MISSING)` blocks, even when the selection has no usable scans. Shared-slip numbers and lone backs count as present. Recognizable E-numbers in rejected JPEG names also count as present, so naming/side errors cannot be silently replaced by catalogue data. Leading zeros remain significant.
+
+The existing requirement for one unambiguous, accessible JPEG directory remains: a missing or ambiguous directory is a routing error, not proof that every card is missing. The `tests` target does not add absent catalogue records. CSV-only blocks are not transcription-cache entries and do not spend quota. See [field selection and dates](transcription_rules.md#missing-card-csv-blocks).
 
 ## Filename grammar
 

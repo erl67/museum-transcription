@@ -2,6 +2,14 @@
 
 Prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Application build: **2026-09-21.2**. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Repository CSV and missing-card output - 7 October 2026
+
+Build **2026-10-07.1** finds `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside `transcribe.py`; `--csv` still overrides it. The Family default remains unchanged. Blank column B is labelled `Case` in memory only. Production species, row-range and exact-number selections now insert CSV-only `CM... (MISSING)` blocks for absent JPEGs. The maintainer confirmed the final column cutoff is BD/Remarks, omitting BG/basisOfRecord. Date columns AG-AJ become one readable date while preserving partial dates and unusual/conflicting values. See [output rules](transcription_rules.md#missing-card-csv-blocks).
+
+The new egg-specific `missing_catalogue_numbers`, `missing_collection_date`, and `missing_output_block` helpers remain in `transcribe.py`; no reusable infrastructure or provider responsibilities moved. CSV blocks bypass prompts, images, APIs and transcription journals, refresh each run, keep duplicate rows, and sort with numbered cards before uncatalogued scans. An all-missing selection can save a report without a key, quota state or journal. Successful CSV fallback is counted separately rather than failing the run. Rejected filenames/side groups do not become missing-card data; existing directory ambiguity/access checks still apply. Mixed-species tests remain scan-only. Prompt bytes, cache fingerprints, scan transcription rendering, and retry/accounting paths are unchanged.
+
+Verification: **169 offline tests, 168 passed and one optional original-scan fixture skip**, including both mocked SDK transports. Baseline: 159 tests with one existing date-dependent individual-report quota assertion failure and the same skip; its setup now uses the same fixed date as subsequent mocked runs. Sandbox temporary-fixture and Drive reparse-point writes required elevated execution. Read-only production checks verified the new CSV path and E385's absence/CSV rendering. Source scans/CSV and old reports were not edited; no live API requests were made. Earlier notes describing machine-specific CSV defaults or missing-number failures are superseded by this entry.
+
 ## Flash-Lite high-thinking default - 5 October 2026
 
 Build **2026-10-05.3** sets only the Gemini 3.5 Flash-Lite profile to `thinking_level="high"`, as requested after review of E5344. Normal, test, and single-card runs inherit it; explicit CLI overrides including `auto` remain available. Other model defaults, temperature, and request caps are unchanged. Prompt bytes remain unchanged; generation settings intentionally change the input fingerprint, preventing reuse of old default-setting results without deleting saved history. No responsibilities moved.

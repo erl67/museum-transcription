@@ -152,6 +152,16 @@ The header's single `REVIEW:` line contains Python-generated reasons. They are d
 
 See [retry configuration](configuration.md#retry-policy) for the one corrective retry and total attempt ceiling. `SAVED RESPONSE (see error above):` does not mean the response was necessarily cut off; the error explains why it was not accepted.
 
+## Missing-card CSV blocks
+
+When a selected catalogue number has no JPEG in its resolved species folder, render its catalogue data directly under the normal aligned banner with `(MISSING)`, for example `======================CM385 (MISSING)=============`. This is CSV evidence, not a model reading: omit model, token, transcription-status and source-image metadata from the block. Keep two blank lines between blocks and numbered ordering, with uncatalogued material last. Duplicate CSV rows each retain a separate block; do not merge conflicting values. Report-level usage still counts only API attempts.
+
+Include populated cells from **A, B, C, G, L, M, N, S through AF, AG through AJ combined, AK, AL, AM, and BD**. Use the CSV header as the label, with the blank B header named `Case`. Omit the entire line when its value is empty; retain zero values and multiline text. Stop at `Remarks` (BD); omit BG and all other unselected columns.
+
+AG (`year`), AH (`month`), AI (`date collected m/d/y`, whose production values are day numbers), and AJ (`MonthCollected`) form one `date collected m/d/y` line: for example `May 30, 1891`, `June 1924`, or `1924`. Never supply a missing day/month/year. Expand recognized month numbers/names; preserve conflicting or unusual source values with their individual column labels on that same line rather than discarding or guessing them. Calendar-invalid source dates are not silently corrected.
+
+CSV-only entries are refreshed from the CSV each run and never enter the transcription journal or request pipeline. They count separately in run totals and do not by themselves produce a failure exit code. Rejected scans and routing failures retain existing diagnostics. `--no-csv-hints` affects model hints only; it does not suppress missing-card CSV data. Existing reports are not rewritten.
+
 ## Reports and ordering
 
 Normal saved output is `<family-directory>/<Species>_transcriptions_YYYYMMDD_HHMM.txt`. Timestamps use the machine's local wall time, to minutes. Same-minute collisions use `_2`, `_3`, etc., with exclusive file creation. A row-range spanning species creates a separate report for each visited species, not one global collection report. Each includes reused results and attempted failures for that selection; a fatal stop leaves a partial run with already-written records intact.

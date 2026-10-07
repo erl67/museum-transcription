@@ -48,10 +48,10 @@ The application requires a UTF-8 CSV export with the exact columns `catalogNumbe
 
 ## Configure your data paths
 
-The existing defaults in `transcribe.py` point to `G:\My Drive\Egg Slip Scanning` and are environment-specific. Set `CSV_PATH` and `BASE_FAMILY_DIR` for your installation, or pass `--csv` and `--base-dir`:
+The default CSV is `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside `transcribe.py`, independent of the launch directory. The scan root still defaults to `G:\My Drive\Egg Slip Scanning\Family`. Override either path with `--csv` or `--base-dir`:
 
 ```powershell
-python transcribe.py Accipiter_cooperii --csv "G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv" --base-dir "G:\My Drive\Egg Slip Scanning\Family" --dry-run
+python transcribe.py Accipiter_cooperii --csv "G:\My Drive\Egg Slip Scanning\Transcription\EggSlipReorganizationProject_FULL.xlsx - Full List.csv" --base-dir "G:\My Drive\Egg Slip Scanning\Family" --dry-run
 ```
 
 Normal scans belong in `Family/<family>/<Genus_species>/JPEG/` or `Family/<family>/<Genus>/<Genus_species>/JPEG/`. `--base-dir` points to `Family`, not an individual species folder. The CSV determines the family/species routing.
@@ -121,6 +121,8 @@ The known wollweberi/ultramarina filename mismatch does not prevent the test: ca
 
 Normal reports and per-species progress journals are written in the **family directory**. Each record has aligned CM banners (or filenames for uncatalogued material), source filenames, model, status, and any review reasons. New records also retain the build/prompt versions, full prompt and input fingerprints, effective generation/image settings, CSV-hint setting, and available returned model version. Reused records retain their original metadata; legacy records are not assigned invented settings. Two blank lines separate records. Failed responses retain available text for inspection. These are text reports, not spreadsheet updates or a machine-enforced field schema.
 
+Selected catalogue records without a JPEG now receive a `CM385 (MISSING)` block populated directly from the CSV. This applies to species, row-range, and exact E-number targets (including `*`, `!`, and `@`), with numbered blocks in catalogue order and uncatalogued scans last. Only populated requested fields through `Remarks` are included; blank column B is labelled `Case`, AG-AJ become one readable collection date, and BG is omitted. Partial dates remain partial. These blocks spend no API quota, are never cached as transcriptions, and are refreshed from the CSV on each run. The mixed-species `tests` target still includes only its supplied scans. See [missing-card output](docs/transcription_rules.md#missing-card-csv-blocks).
+
 `OK` means structural checks passed, not that a person verified the reading. `REVIEW` highlights uncertainty or issues; `FAILED` means the request or response failed checks; `PAUSED` identifies a quota/service stop. Annotation text belongs to the artifact; transcription notes describe reading or interpretation issues. `TRANSCRIPTION NOTES: None` does not itself warrant review. The bracket count says "bracketed passages" because literal source brackets can also trigger review, except recognized printed form codes such as `form A291 [3-14-32-1m]`. Missing label colons and fields sharing a line do not trigger review. Genuine uncertainty, substantive notes and completeness problems still do.
 
 See [transcription rules](docs/transcription_rules.md) for preservation, ditto marks, signatures, and front/back handling. Model instructions encourage fidelity but cannot prove that all handwriting was read correctly.
@@ -137,10 +139,10 @@ The prompt now treats a Date field with a visible month and year but no day as a
 python -m unittest -v test_transcribe.py
 ```
 
-Build **2026-10-05.3** passes **158 offline tests, with 1 expected skip** (159 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
+Build **2026-10-07.1** passes **168 offline tests, with 1 expected skip** (169 total): the optional older three-image fixture was not configured. Both provider SDK transport tests ran. Tests use generated fixtures and simulated HTTP transports, never live API credentials; no live accuracy evaluation was performed. See [testing](docs/testing.md) for conditions and limitations.
 
 ```text
-transcribe.py                  Current application; build 2026-10-05.3
+transcribe.py                  Current application; build 2026-10-07.1
 egg_slip_prompt.py             Egg-slip prompt and CSV-selected collector guidance
 token_usage.py                Provider usage normalization and cost estimates
 test_transcribe.py             Offline unittest suite

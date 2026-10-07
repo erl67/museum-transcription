@@ -26,6 +26,12 @@ The suite currently covers:
 - Mixed-species tests, both temperatures/model tags, repeat fresh calls despite cached production results, independent reports, custom paths, and test quota stops.
 - Actual Gemini/OpenAI SDK serialization and retry disabling through simulated HTTP transports.
 
+## Missing-card CSV regression checks
+
+Build **2026-10-07.1** passes **169 offline tests: 168 passed, one optional `EGG_SLIP_SAMPLE_DIR` skip**, including both mocked SDK transports. Ten new tests cover the script-relative default CSV, selected fields and blank B/Case header, blank omission and zero/multiline preservation, full/partial/conflicting dates, zero-request CSV-only output without keys/quota/journals, numerical ordering before uncatalogued scans, shared/back/rejected scan presence, selection scope, read-only console/dry-run behavior, duplicate rows, updated CSV values, subsequent image arrival, and test-mode isolation.
+
+The pre-edit suite had one date-dependent failure in the individual-report test: setup used the current quota date while later runs mocked October 5. Setup now uses the same fixed quota date. Windows sandbox temporary-fixture permissions required running the suite outside the sandbox. Production read-only checks loaded the relocated CSV and identified E385 as absent from the Hirundo rustica JPEG folder; the CSV renderer produced its selected fields and `May 30, 1891` date without requests or source changes.
+
 ## Single-card fresh checks
 
 Enter `E9323!` at the interactive target prompt, or run `python transcribe.py "E9323!"`. It routes through the production CSV and family/species JPEG folder, submits all sides of the selected physical card, prints the full result, and saves `E9323_g35fl_Hylopezus_perspicillatus_YYYYMMDD_HHMM.txt` with Gemini 3.5 Flash Lite. Enter `E9323@` to force the complete Gemini 3.8 Flash profile and save `E9323_g38f_Hylopezus_perspicillatus_YYYYMMDD_HHMM.txt` in the same family directory. It never reads or writes transcription caches. Use `--dry-run` to preview without requests or files. `!` uses the selected normal profile settings; `@` uses the 3.8 Flash profile (5 RPM and 20 daily attempts, shared with other 3.8 runs and including retries). Compatible explicit CLI overrides apply; `TEST_TEMPERATURE` remains specific to the mixed-species `tests` target. Daily accounting, pacing and bounded retries apply to every attempt.

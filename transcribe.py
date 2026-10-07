@@ -37,8 +37,8 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-10-05.3"
-CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
+SCRIPT_VERSION = "2026-10-07.1"
+CSV_PATH = str(Path(__file__).resolve().with_name("EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
 
@@ -243,6 +243,8 @@ def load_database(path: Path) -> Database:
         if not reader.fieldnames:
             raise ValueError("The master CSV has no header.")
         reader.fieldnames = [name.strip() for name in reader.fieldnames]
+        if len(reader.fieldnames) > 1 and not reader.fieldnames[1]:
+            reader.fieldnames[1] = "Case"
         required = {"catalogNumber", "Scientific Name", "Family"}
         missing = required - set(reader.fieldnames)
         if missing:
@@ -446,6 +448,29 @@ def discover_cards(folder: Path, allowed: set[str] | None, *,
     cards.sort(key=lambda card: (not bool(card.enums), tuple(int(e[1:]) for e in card.enums),
                                  natural_key(card.base_id)))
     return cards, issues, (allowed - found if allowed is not None else set())
+
+
+def missing_catalogue_numbers(folder: Path, db: Database, species: str,
+                              allowed: set[str] | None) -> set[str]:
+    """Find CSV records without JPEGs, not scans rejected for naming/side issues."""
+    expected = set()
+    for enum, rows in db.by_enum.items():
+        if not re.fullmatch(r"E\d+", enum) or (allowed is not None and enum not in allowed):
+            continue
+        for row in rows:
+            try:
+                matches = species_name(row["Scientific Name"]) == species
+            except ValueError:
+                continue
+            if matches:
+                expected.add(enum)
+                break
+    present = set()
+    for path in folder.iterdir():
+        if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg"}:
+            # Even a rejected scan is evidence that this is not a missing card.
+            present.update(re.findall(r"(?<![A-Z0-9])E\d+(?![A-Z0-9])", path.stem.upper()))
+    return expected - present
 
 
 # --- 5. Image preparation and exact-input fingerprints for safe reuse ---
@@ -1228,6 +1253,54 @@ def write_usage_footer(handle, engine, start):
                   + token_usage.averages(calls) + "\n" + token_usage.summary(calls) + "\n")
 
 
+# Requested CSV columns A-C, G, L-N, S-AF, AG-AJ (one date), AK-AM, BD.
+MISSING_CSV_FIELDS = (
+    "Verify", "Case", "Family", "Scientific Name", "previousIdentifications",
+    "Individual Count", "catalogNumber", "country", "stateProvince", "county",
+    "locality", "Accession No.", "T No.", "Sex", "Life Stage", "Age Comment",
+    "Sex comments", "Preparations", "Disposition", "RelatedCatalogedItems",
+    "OtherCatalogNumbers", "date collected m/d/y", "Collector", "field No.",
+    "Field Notes", "Remarks",
+)
+CSV_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+              "August", "September", "October", "November", "December")
+
+
+def missing_collection_date(row: dict) -> str:
+    """Combine catalogue date parts without inventing absent parts or fixing data."""
+    keys = ("year", "month", "date collected m/d/y", "MonthCollected")
+    year, month, day, month_text = (row.get(key, "").strip() for key in keys)
+    month_name = CSV_MONTHS[int(month) - 1] if month.isdigit() and 1 <= int(month) <= 12 else ""
+    named_month = next((name for name in CSV_MONTHS
+                        if month_text.casefold() in {name.casefold(), name[:3].casefold()}), "")
+    if ((month and not month_name) or (month_text and not named_month)
+            or (month_name and named_month and month_name != named_month)
+            or (day and (not day.isdigit() or not 1 <= int(day) <= 31))
+            or (year and not year.isdigit()) or (day and not (month_name or named_month))):
+        # Conflicts/unusual values remain on one line, with their original labels.
+        return "; ".join(f"{key}: {row[key]}" for key in keys if row.get(key, "").strip())
+    date = month_name or named_month
+    if day:
+        date += " " + day
+    if year:
+        date += (", " if day else " ") + year if date else year
+    return date
+
+
+def missing_output_block(enum: str, rows: list[dict]) -> str:
+    """Render every matching CSV row, clearly separate from a scan transcription."""
+    blocks = []
+    for row in rows:
+        label = "CM" + enum[1:] + " (MISSING)"
+        lines = ["=" * 22 + label + "=" * max(2, 50 - 22 - len(label))]
+        for name in MISSING_CSV_FIELDS:
+            value = missing_collection_date(row) if name == "date collected m/d/y" else row.get(name, "").strip()
+            if value:
+                lines.append(f"{name}: {value}")
+        blocks.append("\n".join(lines).rstrip("\r\n") + "\n\n\n")
+    return "".join(blocks)
+
+
 def output_block(card: Card, result: dict, cached: bool = False) -> str:
     bar = "=" * 50
     # Fixed left padding aligns CM labels (and their digits) across all records.
@@ -1336,7 +1409,7 @@ def run(args, engine=None) -> int:
     include_uncatalogued = re.fullmatch(r"E\d+", lookup_target, re.I) is None
     console_only = star_mode or args.console_only
     engine = engine or Transcriber(args)
-    totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0}
+    totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0, "missing": 0}
     selected = 0
     start = time.monotonic()
     try:
@@ -1351,6 +1424,9 @@ def run(args, engine=None) -> int:
                     family_dir, input_dir = resolve_folders(Path(args.base_dir), db, species)
                 cards, issues, missing = discover_cards(
                     input_dir, allowed, include_uncatalogued=include_uncatalogued)
+                csv_missing = set() if test_mode else missing_catalogue_numbers(input_dir, db, species, allowed)
+                # Rejected groups remain errors; successful CSV fallback is not a failure.
+                missing -= csv_missing
                 if test_mode:
                     for card in cards:
                         unmatched = [enum for enum in card.enums if enum not in db.by_enum]
@@ -1364,10 +1440,13 @@ def run(args, engine=None) -> int:
                 print("FILE CHECK: " + issue)
             if missing:
                 print("MISSING: " + ", ".join(sorted(missing, key=natural_key)))
+            if csv_missing:
+                print("MISSING (CSV data): " + ", ".join(sorted(csv_missing, key=natural_key)))
+            totals["missing"] += len(csv_missing)
             totals["discovery_issues"] += len(issues) + len(missing)
             selected += len(cards)
             print(f"\n[{species}] {len(cards)} card group(s), {sum(len(card.paths) for card in cards)} image(s).")
-            if not cards:
+            if not cards and not csv_missing:
                 print(f"No usable target cards in {input_dir}")
                 totals["discovery_issues"] += 1
                 continue
@@ -1378,6 +1457,8 @@ def run(args, engine=None) -> int:
                         print(f"    {section}: {path.name}")
                     for warning in card.warnings:
                         print("    REVIEW: " + warning)
+                for enum in sorted(csv_missing, key=natural_key):
+                    print(f"  CM{enum[1:]} (MISSING) -> CSV data; no API call")
                 continue
             output_path = None
             # Acquire all output handles before spending any requests for this species.
@@ -1396,7 +1477,8 @@ def run(args, engine=None) -> int:
                     else:
                         stem = f"{species}_transcriptions"
                         stack.enter_context(species_lock(family_dir / f"{stem}.lock"))
-                        journal = stack.enter_context(Journal(family_dir / f"{stem}_cache.jsonl"))
+                        if cards:
+                            journal = stack.enter_context(Journal(family_dir / f"{stem}_cache.jsonl"))
                         output_path, handle = open_output_report(family_dir, stem)
                     output = stack.enter_context(handle)
                     stack.callback(write_usage_footer, output, engine, len(getattr(engine, "call_usage", [])))
@@ -1410,7 +1492,19 @@ def run(args, engine=None) -> int:
                         durable_write(output, "FILE CHECK: " + issue + "\n")
                     if missing:
                         durable_write(output, "MISSING: " + ", ".join(sorted(missing, key=natural_key)) + "\n")
-                for index, card in enumerate(cards, start=1):
+                entries = sorted([*cards, *csv_missing], key=lambda item:
+                                 (False, (int(item[1:]),), natural_key(item)) if isinstance(item, str) else
+                                 (not bool(item.enums), tuple(int(e[1:]) for e in item.enums), natural_key(item.base_id)))
+                index = 0
+                for card in entries:
+                    if isinstance(card, str):
+                        block = missing_output_block(card, db.by_enum[card])
+                        if output:
+                            durable_write(output, block)
+                        if output is None or single_card_test:
+                            print(block)
+                        continue
+                    index += 1
                     print(f"  [{index}/{len(cards)}] {card.base_id} ({len(card.paths)} side(s))")
                     key = None
                     reused = False
@@ -1472,11 +1566,11 @@ def run(args, engine=None) -> int:
                 print(token_usage.averages(calls))
                 print(token_usage.summary(calls))
     if args.dry_run:
-        print(f"\nDry run: {selected} card group(s); no API calls or output files.")
+        print(f"\nDry run: {selected} card group(s), {totals['missing']} missing CSV record(s); no API calls or output files.")
     else:
         print(f"\nFinished in {time.monotonic() - start:.1f}s: "
               f"{totals['fresh']} new, {totals['reused']} reused, {totals['review']} needing review, "
-              f"{totals['failed']} failed; {engine.requests} API attempt(s).")
+              f"{totals['failed']} failed, {totals['missing']} missing CSV record(s); {engine.requests} API attempt(s).")
     if totals["discovery_issues"]:
         print(f"File/routing issues: {totals['discovery_issues']}; see messages above.")
     return 1 if totals["failed"] or totals["paused"] or totals["discovery_issues"] else 0
