@@ -114,6 +114,12 @@ Keep `transcribe_request_usage.json` beside the script when moving or updating t
 
 ## Verification and continued development
 
+For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).
+The separate `campaign.py` worker retains completed cards beyond 48 hours, uses the existing
+daily attempt accounting, and provides offline status, pause/resume and recovery commands.
+Keep its transactional state on the designated home desktop's local disk. Scheduling support
+prepares a disabled Windows task; enabling production processing is a separate deployment step.
+
 The sample folder currently contains **11 physical cards / 19 JPEGs**, including fronts, pairs, a shared slip, and a three-sided card. Preview it with:
 
 ```text

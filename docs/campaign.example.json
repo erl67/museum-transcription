@@ -1,0 +1,16 @@
+{
+  "base_dir": "G:\\My Drive\\Egg Slip Scanning\\Family",
+  "csv": "G:\\My Drive\\Egg Slip Scanning\\Transcription\\EggSlipReorganizationProject_FULL.xlsx - Full List.csv",
+  "output_dir": "G:\\My Drive\\Egg Slip Scanning\\Family",
+  "state_dir": "C:\\MuseumCampaign\\state",
+  "quota_file": "C:\\MuseumCampaign\\transcribe_request_usage.json",
+  "worker_host": "REPLACE_WITH_HOME_COMPUTER_NAME",
+  "env_file": "C:\\MuseumCampaign\\.env",
+  "model": "gemini-3.5-flash-lite",
+  "rpm": 15,
+  "rpd": 500,
+  "retry_days": 3,
+  "output_policy": "stop",
+  "fallback_dir": "C:\\MuseumCampaign\\fallback",
+  "log_file": "C:\\MuseumCampaign\\campaign.log"
+}

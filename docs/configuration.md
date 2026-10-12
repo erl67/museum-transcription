@@ -1,5 +1,9 @@
 # Configuration, providers, and request control
 
+The optional unattended worker has a separate machine-local JSON configuration;
+see [campaign operations](campaign.md). It reuses these profiles and quota rules.
+Never initialize a fresh quota counter merely because the source checkout moved.
+
 Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-10-07.1`; they are not independently verified provider quotas or model-availability promises.
 
 ## Established production setup

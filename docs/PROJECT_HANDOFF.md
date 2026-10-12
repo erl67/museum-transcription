@@ -4,6 +4,15 @@ Originally prepared 22 September 2026 for moving development from ChatGPT Work t
 
 ## Production choice and documentation update - 7 October 2026
 
+**12 October 2026 automation extension:** The dedicated
+`feature/unattended-transcription` branch adds `campaign.py`, offline acceptance tests,
+and a disabled-task Windows scheduling helper. See [automation development handoff](AUTOMATION_HANDOFF.md)
+and [campaign operations](campaign.md). The existing engine owns grouping, prompts,
+provider calls, validation, pacing/quota and report rendering; no responsibilities
+were extracted or replaced. Its only execution change adds `stop_kind` metadata to
+existing stop results. Interactive 48-hour reuse and production settings remain unchanged.
+The historical execution map below predates the separate campaign orchestration layer.
+
 The maintainer intends to process the collection with **`gemini-3.5-flash-lite`** and is satisfied with its current readings. Retain the existing temperature 1.0 and high-thinking defaults. Paid GPT/OpenAI comparisons are not planned and are not a prerequisite for maintenance or modularization. Keep the optional adapter and offline transport coverage intact. The earlier roadmap calling for OpenAI comparisons is superseded by this decision.
 
 The README now leads with museum records, source fidelity, collection review, and practical operation. It avoids overt AI/large-language-model framing while accurately describing the configured Gemini service, transmitted images and hints, request accounting, and the limits of structural validation. Maintainer satisfaction must not become an invented benchmark or accuracy percentage.

@@ -1,5 +1,10 @@
 # Testing and the behavioral baseline
 
+For unattended-worker changes, also run `python -m unittest -v test_campaign.py`,
+or run both modules together. The campaign suite uses temporary generated images,
+simulated days, the existing fake model client, and process-lock recovery tests.
+See [campaign operations](campaign.md) and [automation handoff](AUTOMATION_HANDOFF.md).
+
 Routine verification is the deterministic offline regression suite. Fresh transcription checks use the service and consume quota; they require an authorized run. Neither activity establishes an accuracy benchmark without human-reviewed source readings.
 
 The maintainer intends to continue production with `gemini-3.5-flash-lite` and is satisfied with its current readings. No paid GPT/OpenAI comparison campaign is planned. Build the future extraction baseline from existing Gemini reports, deliberately reviewed readings, and offline response fixtures; changing providers is not a prerequisite.
