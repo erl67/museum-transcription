@@ -1,0 +1,458 @@
+"""Offline campaign acceptance tests; all model calls use the existing fake client."""
+import contextlib
+from datetime import datetime, timezone, timedelta
+import hashlib
+import io
+import json
+from pathlib import Path
+import platform
+import tempfile
+import threading
+import unittest
+from unittest.mock import patch
+
+from PIL import Image
+import campaign as c
+import transcribe as t
+import test_transcribe as fixtures
+
+
+class CampaignTest(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        self.family = self.root / "Family" / "Birds"
+        self.jpeg = self.family / "Test_bird" / "JPEG"
+        self.jpeg.mkdir(parents=True)
+        self.csv = self.root / "catalogue.csv"
+        self.csv.write_text("catalogNumber,Scientific Name,Family,Collector\n"
+                            "E01,Test bird,Birds,Person\nE2,Test bird,Birds,Person\n"
+                            "E3,Test bird,Birds,Person\nE9,Test bird,Birds,Person\n", encoding="utf-8")
+        self.image("Test_bird_E01(A).jpg")
+        self.image("Test_bird_E01(B).jpg", "blue")
+        self.image("Test_bird_E2_E3.jpg")
+        self.image("Test_bird_Uncatalogued1.jpg")
+        self.quota = self.root / "quota.json"
+        self.quota.write_text('{"version":1,"models":{}}', encoding="utf-8")
+        self.config_path = self.root / "campaign.local.json"
+        self.config_data = dict(base_dir=str(self.root / "Family"), csv=str(self.csv),
+            output_dir=str(self.root / "Family"), state_dir=str(self.root / "state"),
+            quota_file=str(self.quota), worker_host=platform.node(), rpd=2)
+        self.config = self.configure()
+        c.initialize(self.config)
+        self.store = c.Store(self.config.db_path)
+        self.addCleanup(self.store.close)
+        self.day = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
+        self.addCleanup(patch.stopall)
+        patch.object(t.DailyQuota, "day", lambda quota: self.day.date().isoformat()).start()
+        self.output = io.StringIO()
+        ctx = contextlib.redirect_stdout(self.output)
+        ctx.__enter__()
+        self.addCleanup(ctx.__exit__, None, None, None)
+
+    def configure(self, **values):
+        self.config_data.update(values)
+        self.config_path.write_text(json.dumps(self.config_data), encoding="utf-8")
+        return c.Config(self.config_path)
+
+    def image(self, name, color="red"):
+        path = self.jpeg / name
+        with Image.new("RGB", (20, 20), color) as image:
+            image.save(path)
+        return path
+
+    def engine(self, outcomes=()):
+        clock = fixtures.Clock()
+        client = fixtures.FakeClient(outcomes, clock)
+        return t.Transcriber(self.config.args, client, clock.time, clock.sleep), client
+
+    def run_worker(self, outcomes=()):
+        engine, client = self.engine(outcomes)
+        with c.worker_lock(self.config):
+            code = c.run_worker(self.config, self.store, engine)
+        return code, client
+
+    def advance(self, days=1):
+        self.day += timedelta(days=days)
+
+    def counts(self):
+        return c.status(self.config, self.store)
+
+    def test_multiday_dedup_shared_sides_uncatalogued_and_missing(self):
+        code, client = self.run_worker()
+        self.assertEqual(code, 10)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(self.counts()["total_physical_cards"], 3)
+        self.assertEqual(self.counts()["total_source_images"], 4)
+        self.assertEqual(self.counts()["missing_source_catalogue_entries"], 1)
+        self.assertEqual(self.run_worker()[1].calls, [])
+        self.advance(25)
+        code, client = self.run_worker()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 3)
+        self.assertEqual(self.counts()["completed_cards"], 3)
+        self.assertEqual(self.run_worker()[1].calls, [])
+        report = Path(self.counts()["outputs"][-1]["destination"]).read_text(encoding="utf-8")
+        self.assertLess(report.index("CM9 (MISSING)"), report.index("Uncatalogued1"))
+        self.assertIn("CM2", report)
+        self.assertIn("CM3", report)
+
+    def test_exact_cap_includes_format_and_service_retries(self):
+        code, client = self.run_worker([fixtures.FakeAPIError(503)])
+        self.assertEqual(code, 10)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(self.counts()["attempts_used_today"], 2)
+        self.assertEqual(self.counts()["completed_cards"], 1)
+
+    def test_format_retry_and_daily_pause_preserve_failed_response(self):
+        self.config.args.rpd = 1
+        partial = "Name: partial response without required sections"
+        code, client = self.run_worker([fixtures.response(partial)])
+        self.assertEqual(code, 10)
+        self.assertEqual(len(client.calls), 1)
+        result = json.loads(next(r for r in self.store.rows() if r["result"])["result"])
+        self.assertEqual(result["text"], partial)
+        self.advance()
+        self.assertEqual(len(self.run_worker()[1].calls), 1)
+
+    def test_crashed_request_charged_and_bounded_until_next_day(self):
+        engine, client = self.engine([KeyboardInterrupt()])
+        with self.assertRaises(KeyboardInterrupt):
+            c.run_worker(self.config, self.store, engine)
+        self.assertEqual(self.counts()["attempts_used_today"], 1)
+        self.assertEqual(self.store.rows()[0]["state"], "in_progress")
+        self.run_worker()
+        self.assertEqual(self.store.rows()[0]["state"], "retryable")
+        self.advance()
+        self.run_worker()
+        self.assertEqual(self.store.rows()[0]["state"], "completed")
+        self.assertGreaterEqual(self.counts()["campaign_api_attempts"], 4)
+
+    def test_intent_crash_conservatively_reserves_even_if_already_charged(self):
+        c.scan(self.config, self.store)
+        row = self.store.rows()[0]
+        quota = t.DailyQuota(self.config.args)
+        quota.update()
+        with self.store.conn:
+            self.store.conn.execute("INSERT INTO attempts(card_id,day,state) VALUES (?,?,'intent')", (row["id"], quota.day()))
+        c.CampaignQuota(quota, self.store, self.config).recover()
+        self.assertEqual(self.counts()["attempts_used_today"], 2)
+        self.assertEqual(self.counts()["uncertain_attempts"], 1)
+        self.assertEqual(self.run_worker()[1].calls, [])
+
+    def test_intent_from_yesterday_does_not_spend_today(self):
+        with self.store.conn:
+            self.store.conn.execute("INSERT INTO attempts(card_id,day,state) VALUES ('x','2026-10-11','intent')")
+        c.CampaignQuota(t.DailyQuota(self.config.args), self.store, self.config).recover()
+        self.assertEqual(self.counts()["attempts_used_today"], 0)
+
+    def test_existing_checkpoint_over_48_hours_imported_without_rewrite(self):
+        db, items, _, _ = c.inventory(self.config)
+        item = items[0]
+        card = c.restore_card(item["card"], self.config.base_dir)
+        entry = dict(key=item["request_key"], cache_version=t.CACHE_VERSION, status="ok",
+            text=fixtures.transcript(card.sections), warnings=[], saved_at="2020-01-01T00:00:00+00:00")
+        path = self.family / "Test_bird_transcriptions_cache.jsonl"
+        path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+        before = path.read_bytes()
+        c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "completed")
+        self.assertEqual(path.read_bytes(), before)
+        with t.Journal(path) as journal:
+            self.assertIsNone(journal.reusable(item["request_key"]))
+        self.assertEqual(len(self.run_worker()[1].calls), 2)
+
+    def test_report_file_is_not_completion_evidence(self):
+        (self.family / "Test_bird_transcriptions_20200101_0000.txt").write_text("STATUS: OK")
+        c.scan(self.config, self.store)
+        self.assertTrue(all(r["state"] == "pending" for r in self.store.rows()))
+
+    def test_prompt_and_source_changes_are_stale_until_explicit_refresh(self):
+        self.run_worker()
+        self.image("Test_bird_E01(A).jpg", "green")
+        c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        with patch.object(c.egg_slip_prompt, "BASE_PROMPT", c.egg_slip_prompt.BASE_PROMPT + "\nChanged"):
+            c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[1]["state"], "stale")
+        c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[1]["state"], "stale")
+        self.assertEqual(c.main(["--config", str(self.config_path), "refresh", "--card", self.store.rows()[0]["id"]]), 0)
+        self.assertEqual(self.store.rows()[0]["state"], "pending")
+        self.assertGreaterEqual(self.store.conn.execute("SELECT count(*) FROM history").fetchone()[0], 2)
+
+    def test_catalogue_change_stales_matching_card(self):
+        self.run_worker()
+        self.csv.write_text(self.csv.read_text().replace("E01,Test bird,Birds,Person", "E01,Test bird,Birds,Changed"))
+        c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(self.store.rows()[1]["state"], "completed")
+
+    def test_disconnected_source_is_not_reported_missing(self):
+        c.scan(self.config, self.store)
+        self.jpeg.rename(self.jpeg.with_name("offline"))
+        with self.assertRaises(ValueError):
+            self.run_worker()
+        self.assertTrue(all(r["active"] for r in self.store.rows()))
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_rejected_side_group_remains_error_not_csv_missing(self):
+        self.image("Test_bird_E01.jpg")
+        _, _, missing, issues = c.inventory(self.config)
+        self.assertTrue(issues)
+        self.assertNotIn("E01", [m["enum"] for m in missing])
+        with self.assertRaises(ValueError):
+            self.run_worker()
+
+    def configure_output(self, policy):
+        output = self.root / "DriveOutput"
+        output.mkdir()
+        (output / "Birds").mkdir()
+        self.config = self.configure(output_dir=str(output), output_policy=policy,
+                                     fallback_dir=str(self.root / "fallback"))
+        self.store.set("locations", {k: str(getattr(self.config, k)) for k in ("base_dir", "csv", "output_dir", "quota_file", "fallback_dir")})
+        return output
+
+    def test_disconnected_output_stop_policy_sends_nothing(self):
+        output = self.configure_output("stop")
+        output.rename(output.with_name("offline"))
+        with self.assertRaises(OSError):
+            self.run_worker()
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_fallback_reconciliation_idempotent_without_requests_or_overwrites(self):
+        output = self.configure_output("fallback")
+        offline = output.with_name("offline")
+        output.rename(offline)
+        self.run_worker()
+        self.assertTrue(all(p["state"] == "fallback" for p in self.counts()["outputs"]))
+        self.assertEqual(self.counts()["completed_cards"], 2)
+        offline.rename(output)
+        cli = ["--config", str(self.config_path), "reconcile"]
+        self.assertEqual(c.main(cli), 0)
+        snapshot = {p: p.read_bytes() for p in output.rglob("*") if p.is_file()}
+        self.assertEqual(c.main(cli), 0)
+        self.assertEqual(snapshot, {p: p.read_bytes() for p in output.rglob("*") if p.is_file()})
+        self.assertTrue(all(p["state"] == "drive_local" for p in self.counts()["outputs"]))
+        self.assertFalse(self.counts()["remote_upload_verified"])
+
+    def test_failed_report_publication_recovers_saved_result_without_request(self):
+        with patch.object(c, "publish", side_effect=[None, OSError("offline")]):
+            with self.assertRaises(OSError):
+                self.run_worker()
+        self.assertEqual(self.store.rows()[0]["state"], "completed")
+        self.run_worker()
+        self.assertEqual(self.counts()["completed_cards"], 2)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+
+    def test_report_copy_conflict_retains_both_bytes(self):
+        src, dst = self.root / "src.txt", self.root / "dst.txt"
+        src.write_bytes(b"original")
+        dst.write_bytes(b"existing museum report")
+        with self.assertRaises(RuntimeError):
+            c.copy_report(src, dst, c.digest(b"original"))
+        self.assertEqual(dst.read_bytes(), b"existing museum report")
+        self.assertEqual(src.read_bytes(), b"original")
+
+    def test_duplicate_workers_block_and_stale_lock_file_recovers(self):
+        path = self.quota.with_name(self.quota.name + ".worker.sqlite3")
+        with c.worker_lock(self.config):
+            with self.assertRaises(RuntimeError):
+                with c.worker_lock(self.config):
+                    pass
+        self.assertTrue(path.exists())
+        with c.worker_lock(self.config):
+            pass
+
+    def test_code_change_requires_acceptance_then_preserves_completed(self):
+        self.run_worker()
+        changed = {**c.code_identity(), "transcribe.py": "new-tested-build"}
+        with patch.object(c, "code_identity", return_value=changed):
+            with self.assertRaisesRegex(ValueError, "Code changed"):
+                self.run_worker()
+            self.assertEqual(c.main(["--config", str(self.config_path), "accept-code"]), 0)
+            self.assertEqual(self.run_worker()[1].calls, [])
+            self.advance()
+            self.assertEqual(len(self.run_worker()[1].calls), 1)
+
+    def test_pause_resume_and_wrong_machine(self):
+        self.assertEqual(c.main(["--config", str(self.config_path), "pause"]), 0)
+        self.assertEqual(self.run_worker()[0], 11)
+        self.assertEqual(c.main(["--config", str(self.config_path), "resume"]), 0)
+        with patch.object(c.platform, "node", return_value="another-computer"):
+            with self.assertRaisesRegex(ValueError, "designated"):
+                self.run_worker()
+
+    def test_pause_between_format_attempts_preserves_partial_text(self):
+        partial = "Name: incomplete but retained"
+        engine, client = self.engine([fixtures.response(partial)])
+        engine.sleep = lambda delay: self.config.pause_path.write_text("operator pause")
+        code = c.run_worker(self.config, self.store, engine)
+        self.assertEqual(code, 11)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(json.loads(self.store.rows()[0]["result"])["text"], partial)
+
+    def test_auth_failure_pauses_until_intervention(self):
+        code, client = self.run_worker([fixtures.FakeAPIError(401)])
+        self.assertEqual(code, 20)
+        self.assertEqual(len(client.calls), 1)
+        self.assertTrue(self.config.pause_path.exists())
+        self.advance()
+        self.assertEqual(self.run_worker()[1].calls, [])
+
+    def test_service_outage_is_bounded_across_days(self):
+        self.config.args.rpd = 500
+        for day in range(self.config.retry_days):
+            code, client = self.run_worker([fixtures.FakeAPIError(503)] * self.config.args.attempts)
+            self.assertEqual(code, 12)
+            self.assertEqual(len(client.calls), self.config.args.attempts)
+            if day < self.config.retry_days - 1:
+                self.assertEqual(self.store.rows()[0]["state"], "retryable")
+            self.advance()
+        self.assertEqual(self.store.rows()[0]["state"], "permanent")
+
+    def test_status_offline_read_only_including_quota(self):
+        self.run_worker()
+        before = self.quota.read_bytes()
+        snapshot = self.config.db_path.read_bytes()
+        with patch.object(t.Transcriber, "ensure_client", side_effect=AssertionError("no service")):
+            status = self.counts()
+            self.assertEqual(c.main(["--config", str(self.config_path), "status"]), 0)
+        self.assertEqual(self.quota.read_bytes(), before)
+        self.assertEqual(self.config.db_path.read_bytes(), snapshot)
+        self.assertEqual(status["estimated_remaining_days"], 1)
+
+    def test_failed_status_and_dry_run_remain_read_only(self):
+        self.quota.write_text("damaged quota")
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(c.main(["--config", str(self.config_path), "status"]), 20)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+        self.csv.unlink()
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(c.main(["--config", str(self.config_path), "dry-run"]), 21)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_sources_untouched_and_dry_run_creates_nothing(self):
+        before = {p: p.read_bytes() for p in self.jpeg.iterdir()}
+        before[self.csv] = self.csv.read_bytes()
+        all_before = {p for p in self.root.rglob("*")}
+        self.assertEqual(c.main(["--config", str(self.config_path), "dry-run"]), 0)
+        self.assertEqual(all_before, {p for p in self.root.rglob("*")})
+        self.run_worker()
+        for path, data in before.items():
+            self.assertEqual(path.read_bytes(), data)
+
+    def test_genus_layout_and_uncatalogued_only_species(self):
+        genus = self.family / "Test"
+        genus.mkdir()
+        self.jpeg.parent.rename(genus / "Test_bird")
+        extra = self.family / "Other_bird" / "JPEG"
+        extra.mkdir(parents=True)
+        with Image.new("RGB", (20, 20)) as image:
+            image.save(extra / "Other_bird_Uncatalogued.jpg")
+        _, items, _, issues = c.inventory(self.config)
+        self.assertEqual(issues, [])
+        self.assertEqual(len(items), 4)
+
+    def test_missing_quota_refuses_reset(self):
+        self.quota.unlink()
+        with self.assertRaisesRegex(ValueError, "Quota history"):
+            self.run_worker()
+        self.assertFalse(self.quota.exists())
+
+    def test_quota_deleted_between_attempts_stops_before_transmission(self):
+        quota = c.CampaignQuota(t.DailyQuota(self.config.args), self.store, self.config)
+        self.quota.unlink()
+        with self.assertRaisesRegex(RuntimeError, "disappeared"):
+            quota.update()
+        self.assertFalse(self.quota.exists())
+
+    def test_rename_is_stale_and_never_silently_retranscribed(self):
+        self.run_worker()
+        source = self.jpeg / "Test_bird_E2_E3.jpg"
+        source.rename(self.jpeg / "Renamed_bird_E2_E3.jpg")
+        c.scan(self.config, self.store)
+        related = [r for r in self.store.rows() if "e2_e3" in r["id"]]
+        self.assertEqual(len(related), 2)
+        self.assertTrue(all(r["state"] == "stale" for r in related))
+
+    def test_manual_checkpoint_arriving_after_scan_is_imported(self):
+        c.scan(self.config, self.store)
+        item = self.store.rows()[0]
+        card = c.restore_card(json.loads(item["card"]), self.config.base_dir)
+        entry = dict(key=item["request_key"], cache_version=t.CACHE_VERSION, status="ok",
+                     text=fixtures.transcript(card.sections), warnings=[])
+        path = self.family / "Test_bird_transcriptions_cache.jsonl"
+        path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+        self.run_worker()
+        self.assertEqual(self.counts()["completed_cards"], 3)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+
+    def test_missing_published_report_restored_offline(self):
+        self.run_worker()
+        report = Path(self.counts()["outputs"][-1]["destination"])
+        original = report.read_bytes()
+        report.unlink()
+        self.assertEqual(c.main(["--config", str(self.config_path), "reconcile"]), 0)
+        self.assertEqual(report.read_bytes(), original)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+
+    def test_new_side_added_between_inventory_and_request_is_stale(self):
+        engine, client = self.engine()
+        original_probe = c.output_available
+        calls = 0
+        def changed(config, families):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.image("Test_bird_E01(C).jpg")
+            return original_probe(config, families)
+        with patch.object(c, "output_available", side_effect=changed):
+            c.run_worker(self.config, self.store, engine)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(len(client.calls), 2)
+
+    def test_cross_process_lock_released_when_process_terminated(self):
+        import subprocess
+        import sys
+        script = ("import campaign as c,sys; "
+                  "config=c.Config(sys.argv[1]); "
+                  "lock=c.worker_lock(config); lock.__enter__(); "
+                  "print('locked',flush=True); sys.stdin.read()")
+        child = subprocess.Popen([sys.executable, "-u", "-c", script, str(self.config_path)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "locked")
+            with self.assertRaises(RuntimeError):
+                with c.worker_lock(self.config):
+                    pass
+            child.terminate()
+            child.wait(timeout=10)
+            with c.worker_lock(self.config):
+                pass
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=10)
+            for stream in (child.stdin, child.stdout, child.stderr):
+                stream.close()
+
+    def test_quota_migration_preserves_all_profiles_and_never_overwrites(self):
+        source = self.root / "old-quota.json"
+        original = {"version": 1, "models": {"gemini/gemini-3.5-flash-lite": {
+            "date": "2026-10-12", "attempts": 149, "exhausted": False}}}
+        source.write_text(json.dumps(original))
+        config = self.configure(state_dir=str(self.root / "second-state"), quota_file=str(self.root / "second-quota.json"))
+        c.initialize(config, source)
+        self.assertEqual(config.quota_file.read_bytes(), source.read_bytes())
+        with self.assertRaises(ValueError):
+            c.initialize(config, source)
+        self.assertEqual(config.quota_file.read_bytes(), source.read_bytes())
+
+
+if __name__ == "__main__":
+    unittest.main()

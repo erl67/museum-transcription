@@ -44,6 +44,14 @@ Thumbs.db
 transcribe_request_usage.json
 transcribe_request_usage.json.*
 
+# Unattended campaign operational state (keep all of it on a local disk).
+campaign.local.json
+campaign-status.json
+/campaign-state/
+*.sqlite3
+*.sqlite3-*
+*_transcriptions_*.txt
+
 # Local comparison reports
 /outputs/*
 !/outputs/README.md

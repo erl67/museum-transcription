@@ -1015,7 +1015,7 @@ class Transcriber:
                 daily_count = self.quota.update()
             except QuotaReached as exc:
                 return {"status": "paused", "error": str(exc), "text": partial, "fatal": True,
-                        "stop_reason": str(exc), "attempts": attempt - 1}
+                        "stop_reason": str(exc), "stop_kind": "daily", "attempts": attempt - 1}
             except (OSError, RuntimeError) as exc:
                 raise RuntimeError(f"Could not record daily usage; no API request was sent. {exc}") from exc
             self.requests += 1
@@ -1052,7 +1052,7 @@ class Transcriber:
                     else:
                         reason = "The API reported exhausted billing/credit quota. Check billing before resuming."
                     return {"status": "paused", "error": message, "text": partial, "fatal": True,
-                            "stop_reason": reason, "attempts": attempt}
+                            "stop_reason": reason, "stop_kind": quota_kind, "attempts": attempt}
                 # Authentication/model/config errors affect the entire run.
                 if code in {400, 401, 402, 403, 404}:
                     reason = "API authentication/model/configuration error affects the run."
@@ -1064,7 +1064,7 @@ class Transcriber:
                         reason = (f"{self.args.provider} returned HTTP 404 for {self.args.model}. Check the model ID "
                                   "and its availability to your project; the model was not changed automatically.")
                     return {"status": "failed", "error": message, "text": partial,
-                            "fatal": True, "stop_reason": reason,
+                            "fatal": True, "stop_reason": reason, "stop_kind": "configuration",
                             "attempts": attempt}
                 retry = is_transient(exc)
                 service_failure = retry
@@ -1073,7 +1073,7 @@ class Transcriber:
                     reason = (f"The server requested a {hint:g}s wait, beyond the {self.args.max_retry_wait:g}s "
                               "retry-wait limit. Resume later; the wait was not shortened.")
                     return {"status": "paused", "error": message, "text": partial, "fatal": True,
-                            "stop_reason": reason, "attempts": attempt}
+                            "stop_reason": reason, "stop_kind": "service", "attempts": attempt}
                 delay = max(hint, 60.0 if code == 429 else 0.0,
                             min(60.0, self.args.retry_base * 2 ** min(attempt - 1, 10)))
                 delay += random.uniform(0, 1)
@@ -1081,7 +1081,7 @@ class Transcriber:
             if not retry or attempt == self.args.attempts:
                 result = {"status": "failed", "error": message, "text": partial, "attempts": attempt}
                 if service_failure:
-                    result.update(fatal=True, stop_reason="Repeated rate-limit/network/server errors. "
+                    result.update(fatal=True, stop_kind="service", stop_reason="Repeated rate-limit/network/server errors. "
                                   "HTTP 503 means service unavailable; it does not prove a quota limit. "
                                   "Restart the same target to resume after the service or quota recovers.")
                 return result
