@@ -83,7 +83,7 @@ Apply the special language rule when the card visibly identifies José Steinbach
 
 For text that is actually German, transcribe the original German first and immediately follow it with the English translation in parentheses. Preserve wording and uncertainty rather than replacing or silently normalizing the source. This includes an inset or pasted note on the main card: keep it with its field when the association is clear, otherwise record it in `ANNOTATIONS:` with a concise inset-note location. Do not translate names, localities, taxonomic text, or other non-German content merely because Steinbach is associated with the record.
 
-When any German passage is translated, include exactly one final disclosure. The detailed CSV-selected rule specifies `German text translated into English in parentheses.` The compact visual fallback asks for a disclosure without prescribing its wording. Do not add a disclosure when no German was translated. Shared initial/retry requirements allow required translation disclosures without repeating Steinbach-specific instructions. Because the current validator treats any substantive transcription note as review-worthy, a structurally complete translation result is expected to have `REVIEW` status with `Notes present`; this is intentional. Python does not semantically verify translation accuracy or that every German passage was found.
+When any German passage is translated, include exactly one final disclosure. The detailed CSV-selected rule specifies `German text translated into English in parentheses.` The compact visual fallback asks for a disclosure without prescribing its wording. Do not add a disclosure when no German was translated. Shared initial/retry requirements allow required translation disclosures without repeating Steinbach-specific instructions. The translation disclosure is normal transcription-note content and does not itself require `REVIEW`; other warnings, such as bracketed passages, still apply. Python does not semantically verify translation accuracy or that every German passage was found.
 
 ## Editing the prompt and collector guidance
 
@@ -121,7 +121,7 @@ Each supplied front requires an `ANNOTATIONS:` section, even when empty. Each ba
 
 Calendar-impossible means an invalid day/month combination (for example April 31), not an early breeding date, unusual locality or a date outside a collector's presumed active period. Preserve the source date and distinguish doubtful digit shapes from actual source discrepancies. Reread both supplied sides before claiming disagreement; never rewrite a clear date based on historical plausibility. These are prompt instructions, not a Python semantic date validator.
 
-Python treats an empty value, `-`, `None`, `None.`, `N/A`, and `N/A.` (case-insensitive with surrounding whitespace ignored) as empty notes. The text is preserved. `None. Lower edge is torn.` is substantive. Old cached results with the false “Transcription notes are present” warning are corrected locally, retaining other warnings; old report files are not rewritten.
+Transcription notes are normal report content and do not themselves trigger `REVIEW`, whether empty or substantive. Their text remains in the output. Bracketed passages within notes still follow the ordinary bracket rules. Eligible completed cached results lose the obsolete “Transcription notes are present” warning locally; a result with no remaining warnings becomes `OK`. Other warnings, response text, provenance and journal bytes are preserved; old report files are not rewritten.
 
 ## Fronts and backs
 
@@ -140,13 +140,15 @@ The validator excludes model thought parts, checks completion, answer text, dete
 | Status | Meaning and reuse |
 | --- | --- |
 | `OK` | Structural checks passed with no warning. Reusable in a matching normal run; not human-certified. |
-| `REVIEW` | Accepted text with warnings. Also reusable normally. Includes bracketed text other than recognized printed form codes or `[blank]`, nonempty notes, missing/gapped sides, repeated annotations, removed empty back templates, Markdown fences, and test-mode unmatched catalogue references. |
+| `REVIEW` | Accepted text with warnings. Also reusable normally. Includes bracketed text other than recognized printed form codes or `[blank]`, missing/gapped sides, repeated annotations, removed empty back templates, Markdown fences, and test-mode unmatched catalogue references. |
 | `FAILED` | Request/local input/response validation failed. Available answer text is retained; not reused as a completed result. |
 | `PAUSED` | Local/provider quota, billing, or excessive server wait stopped the run. Available text is retained; not reused as complete. |
 
 The header's single `REVIEW:` line contains Python-generated reasons. They are distinct from both annotation text and the model's transcription notes.
 
 **Bracket counts:** single-line square-bracket spans are counted as **bracketed passages**, not automatically uncertain readings. Exemptions are `[blank]` and recognizable numeric/hyphenated printer codes immediately following a numbered form, such as `form A291 [3-14-32-1m]` or `form A291 [9-28-33-2m]`. The exception is deliberately narrow: `[illegible]`, uncertain form identifiers, doubtful code characters and brackets elsewhere still trigger review. All source brackets and text remain intact. The prompt reserves editorial brackets for uncertain readings; printed form codes need no explanatory note. Existing journal warning labels remain compatible. Markdown fences produce a warning; the parser tolerates some Markdown headings despite the prompt's plain-text rule. Detected LaTeX triggers a bounded rereading, not regex conversion into possibly wrong measurements.
+
+**Review policy update (2026-10-14.1):** transcription notes no longer generate a warning or a `Notes present` reason in report headers. Fresh responses and eligible reused results use the same policy. Notes remain visible; bracketed passages and structural warnings still apply. Prompts, generation settings and input fingerprints are unchanged. This supersedes the earlier notes-presence review rule.
 
 **Review policy update (2026-09-29.1):** missing label colons and fields sharing a line no longer trigger `Format:` warnings. When a completed matching cache entry is eligible for reuse, the two obsolete layout warnings are removed and its bracket count is recomputed locally. Other warnings, substantive model notes, raw response text, request metadata and journal history are preserved. Old reports are not rewritten. Completeness, side ordering, uncertainty, LaTeX and retry checks are unchanged. Prompt changes still create new cache keys; this local warning cleanup never makes an old prompt result eligible for a new prompt.
 
@@ -172,12 +174,12 @@ Test output is `test_YYYYMMDD_HHMM_<model-tag>_t<temperature>.txt` in `tests/out
 
 Within each report, numbered groups precede uncatalogued groups; [filename rules](filename_rules.md) defines sorting. Normal headers start with 22 equals signs, `CM` and the catalogue digits, then enough equals signs for a 50-character line (minimum two on the right). CM begins in column 23, digits in column 25, with leading zeros preserved. A shared slip gets one banner per number and one body. Uncatalogued slips get one filename banner per supplied side, without an invented number; long filenames can exceed 50 characters.
 
-Headers contain `ID`, `STATUS`, a single optional `REVIEW` line, `FILES`, `MODEL`, new-result provenance (described below), then `TOKENS` with cost appended on the same line (` |  $0.0016`). Review reasons are separated by `    |    `; the notes warning renders as `Notes present`. The model line omits the provider prefix. Reused statuses append `(reused)`; their displayed usage/cost is historical and excluded from the new run totals. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
+Headers contain `ID`, `STATUS`, a single optional `REVIEW` line, `FILES`, `MODEL`, new-result provenance (described below), then `TOKENS` with cost appended on the same line (` |  $0.0016`). Review reasons are separated by `    |    `; notes presence is not a review reason. The model line omits the provider prefix. Reused statuses append `(reused)`; their displayed usage/cost is historical and excluded from the new run totals. The body is followed by exactly two blank lines. Text reports are UTF-8 with LF newlines.
 
 ```text
 ID: Serinus_sp_E2576
 STATUS: REVIEW
-REVIEW: 2 bracketed passage(s)    |    Notes present
+REVIEW: 2 bracketed passage(s)
 FILES: Serinus_sp_E2576.jpg
 MODEL: gemini-3.5-flash-lite
 TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  $0.0041
@@ -199,7 +201,7 @@ Normal mode uses `<Species>_transcriptions_cache.jsonl` in the family directory.
 
 Changing images, names/order, prompt/hints, model, or generation settings makes a new key. Pacing, daily cap, timeout, retry count, script path/build number, output filenames, and cosmetic rendering changes do not. Switching back to a matching configuration can reuse that configuration's earlier result. Prompt changes naturally cost fresh requests; moving an unchanged prompt should not.
 
-The latest journal entry per key wins. Only matching `ok`/`review` entries with nonempty text, valid warning containers, and a `saved_at` timestamp no more than 48 hours old are reusable. The age is measured from each entry in UTC; exactly 48 hours is allowed. Missing, malformed, naive, or future timestamps are not reusable. Expired entries remain in the journal and old text reports are unchanged. Full completion validation is not rerun on cached text. Empty-note cleanup, removal of the two obsolete layout warnings, and bracket-warning recomputation are derived locally without modifying the journal or requesting a new transcription. Other validation-policy changes need deliberate compatibility handling. `--force` bypasses reuse; a failed forced attempt becomes the latest entry for its key, so the next run retries. Old readable reports are not imported as cache.
+The latest journal entry per key wins. Only matching `ok`/`review` entries with nonempty text, valid warning containers, and a `saved_at` timestamp no more than 48 hours old are reusable. The age is measured from each entry in UTC; exactly 48 hours is allowed. Missing, malformed, naive, or future timestamps are not reusable. Expired entries remain in the journal and old text reports are unchanged. Full completion validation is not rerun on cached text. Removal of the obsolete notes-presence warning and the two obsolete layout warnings, plus bracket-warning recomputation, are derived locally without modifying the journal or requesting a new transcription. Other validation-policy changes need deliberate compatibility handling. `--force` bypasses reuse; a failed forced attempt becomes the latest entry for its key, so the next run retries. Old readable reports are not imported as cache.
 
 Each new result is journaled with flush/fsync **before** its report block is written. Corrupt journal lines are warned about and ignored; intact entries remain usable, and a partial last line is separated before appending. A crash between API completion and journal append can still require another request. Windows mutexes release when the process exits and create no `.lock` files. POSIX lock files must remain: deleting one would let another process lock a new inode while the first run still holds the old one. Neither mechanism coordinates separate Google Drive machines.
 

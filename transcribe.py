@@ -37,7 +37,7 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-10-07.1"
+SCRIPT_VERSION = "2026-10-14.1"
 CSV_PATH = str(Path(__file__).resolve().with_name("EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
@@ -754,11 +754,6 @@ def section_headers(text: str) -> list[tuple[str, int, int]]:
             for match in SECTION_HEADING.finditer(text)]
 
 
-def notes_have_content(notes: str) -> bool:
-    """Treat explicit empty-note markers as empty, preserving the original text."""
-    return notes.strip().casefold() not in {"", "-", "none", "none.", "n/a", "n/a."}
-
-
 # Exempt only recognizable form/printer codes, not arbitrary source brackets or
 # uncertain readings. Require a numbered form immediately before a numeric code.
 PRINTED_FORM_CODE = re.compile(
@@ -863,9 +858,6 @@ def validate_response(response, card: Card) -> tuple[str, list[str], dict]:
     warnings.extend(bracket_warnings(text))
     if "```" in text:
         warnings.append("Model returned Markdown fences; inspect formatting.")
-    notes = text[notes_headers[0][2]:].strip()
-    if notes_have_content(notes):
-        warnings.append("Transcription notes are present.")
     usage_obj = getattr(response, "usage_metadata", None)
     usage = {key: getattr(usage_obj, key, None) for key in
              ("prompt_token_count", "candidates_token_count", "thoughts_token_count", "total_token_count")}
@@ -1216,14 +1208,10 @@ class Journal:
             # request provenance, age checks and the append-only journal history.
             warnings = [item for item in entry["warnings"]
                         if not (isinstance(item, str) and
-                                (LEGACY_FIELD_WARNING.fullmatch(item)
+                                (item == "Transcription notes are present."
+                                 or LEGACY_FIELD_WARNING.fullmatch(item)
                                  or BRACKET_WARNING.fullmatch(item)))]
             warnings.extend(bracket_warnings(entry["text"]))
-            notes_headers = [header for header in section_headers(entry["text"])
-                             if header[0] == "TRANSCRIPTION NOTES"]
-            if (len(notes_headers) == 1
-                    and not notes_have_content(entry["text"][notes_headers[0][2]:])):
-                warnings = [item for item in warnings if item != "Transcription notes are present."]
             if warnings != entry["warnings"]:
                 entry = {**entry, "warnings": warnings, "status": "review" if warnings else "ok"}
             return entry
@@ -1241,9 +1229,8 @@ class Journal:
 
 
 def review_line(warnings):
-    reasons = ["Notes present" if item == "Transcription notes are present." else
-               item.removesuffix(".").replace("bracketed uncertain reading(s)", "bracketed passage(s)")
-               for item in warnings]
+    reasons = [item.removesuffix(".").replace("bracketed uncertain reading(s)", "bracketed passage(s)")
+               for item in warnings if item != "Transcription notes are present."]
     return "REVIEW: " + "    |    ".join(reasons) if reasons else ""
 
 

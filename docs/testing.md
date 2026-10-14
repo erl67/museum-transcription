@@ -31,10 +31,14 @@ The suite currently covers:
 - CSV-only missing-card fields/dates and selection scope, zero-request output, and later scan arrival.
 - Fresh `!`/`@` individual reports, complete alternate-profile selection, 48-hour reuse, per-attempt token/cost accounting, and request provenance.
 - Original image bytes, EXIF correction, optional resize, payload budget, and cache identity/invalidation.
-- Completion/refusal/token-cutoff handling, answer-vs-thought extraction, flexible back headings, multiple annotation sections, empty-note markers, LaTeX, and bounded correction retries.
+- Completion/refusal/token-cutoff handling, answer-vs-thought extraction, flexible back headings, multiple annotation sections, preserved ordinary notes without review, LaTeX, and bounded correction retries.
 - Cache reuse, forced refresh, damaged journal recovery, checkpoint-before-report ordering, and local locks.
 - Mixed-species tests, both temperatures/model tags, repeat fresh calls despite cached production results, independent reports, custom paths, and test quota stops.
 - Actual Gemini/OpenAI SDK serialization and retry disabling through simulated HTTP transports.
+
+## Transcription-note review policy
+
+Build **2026-10-14.1** passes **169 offline tests: 168 passed, one optional `EGG_SLIP_SAMPLE_DIR` skip**, including both mocked SDK transports. Baseline counts were the same. Updated regression cases cover ordinary notes and translation disclosures producing `OK` without extra requests, preserved note text in reports, bracketed passages within notes still producing warnings, suppression of legacy notes-presence header reasons, and eligible cached status cleanup without changing text, metadata or journal bytes. Other cached warnings remain effective. No live requests were made; prompts, generation settings and cache fingerprints are unchanged.
 
 ## Missing-card CSV regression checks
 

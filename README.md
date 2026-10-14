@@ -95,14 +95,16 @@ Repeated report names receive a counter rather than overwriting an earlier file.
 | Report marker | How to interpret it |
 | --- | --- |
 | `OK` | The response passed structural checks without warnings. This is not a record of human verification. |
-| `REVIEW` | The reading was accepted with flags, such as bracketed passages, substantive notes, or side warnings. |
+| `REVIEW` | The reading was accepted with flags, such as bracketed passages or side warnings. Transcription notes alone do not trigger this status. |
 | `FAILED` | An input, request, or response check failed. Inspect the error and any retained text. |
 | `PAUSED` | A quota or service condition stopped processing. Completed saved work remains available. |
 | `(MISSING)` | No matching JPEG was found for a selected catalogue number in its resolved species folder. The block contains selected CSV values, not a transcription of an unseen card. |
 
 Missing-card blocks preserve partial dates, omit empty selected fields, and refresh from the CSV each run without spending request quota. A missing or ambiguous species directory remains an error; it does not establish that the physical cards are absent from the collection.
 
-The reading rules include collector-specific guidance for Brandt handwriting and, where applicable, Steinbach German notes. German text is retained with an English translation and a disclosure for review. Harmless layout differences and recognized printed form codes do not by themselves require review. A lack of flags cannot establish that every word or line was read correctly. See the [transcription and output rules](docs/transcription_rules.md) for the complete policy.
+The reading rules include collector-specific guidance for Brandt handwriting and, where applicable, Steinbach German notes. German text is retained with an English translation and a disclosure in transcription notes. Notes are normal report content and do not by themselves require review. Harmless layout differences and recognized printed form codes do not by themselves require review. A lack of flags cannot establish that every word or line was read correctly. See the [transcription and output rules](docs/transcription_rules.md) for the complete policy.
+
+A separate [on-demand spreadsheet viewer pilot](apps_script/transcription_viewer/README.md) can retrieve a record from the latest matching species report when its link is opened. Links can be created before reports exist; the viewer keeps transcription text out of the spreadsheet and omits technical metadata from its display. Its form accepts an E-number alone and locates the family/species using the existing catalogue CSV; older spreadsheet links supplying those values still work. It requires a private Google Apps Script deployment and reads existing Drive reports without making transcription requests. The pilot currently excludes individual `!`/`@` reports.
 
 ## Processing settings and continuity
 
@@ -126,7 +128,7 @@ Running `python transcribe.py tests` makes fresh Gemini requests and saves one c
 python -m unittest -v test_transcribe.py
 ```
 
-For build **2026-10-07.1**, verification on 7 October 2026 ran **169 tests: 168 passed and one optional original-image fixture was skipped**. Service transports were simulated; no live requests were made for this documentation update. The tests check software behavior, not a measured handwriting-accuracy rate. Installation details, fixture requirements, and baseline procedures are in [testing](docs/testing.md).
+For build **2026-10-14.1**, verification on 14 October 2026 ran **169 tests: 168 passed and one optional original-image fixture was skipped**. Service transports were simulated; no live requests were made for this review-policy change. The tests check software behavior, not a measured handwriting-accuracy rate. Installation details, fixture requirements, and baseline procedures are in [testing](docs/testing.md).
 
 Further work should consolidate reviewed examples from the established Gemini workflow before broader architectural changes. The reading instructions already live in `egg_slip_prompt.py`, and usage accounting lives in `token_usage.py`; most selection, execution, validation, and reporting still reside in `transcribe.py`. A reusable archival backend is planned, but additional document domains are not implemented.
 

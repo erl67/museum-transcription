@@ -700,7 +700,7 @@ class DatasetTest(unittest.TestCase):
                                  thoughts_token_count=441, total_token_count=4357))
         block = t.output_block(card, result, cached=True)
         expected = ("STATUS: REVIEW (reused)\n"
-                    "REVIEW: 2 bracketed passage(s)    |    Notes present\n"
+                    "REVIEW: 2 bracketed passage(s)\n"
                     "FILES: Accipiter_gentilis_E4927.jpg\n"
                     "MODEL: gemini-3.5-flash-lite\n"
                     "TOKENS: 3,104 in | 812 out | 441 think | 4,357 total |  unknown\n")
@@ -826,7 +826,7 @@ class DatasetTest(unittest.TestCase):
             self.assertEqual(result["status"], "review")
             self.assertEqual(result["text"], body)
             self.assertCountEqual(result["warnings"], ["1 bracketed passage(s).",
-                "Transcription notes are present.", "Missing side.", "Format: unexpected custom issue."])
+                "Missing side.", "Format: unexpected custom issue."])
             self.assertEqual(journal.reusable("mixed"), result)
             self.assertEqual(path.read_bytes(), saved)
         self.assertEqual(original["warnings"][0], "2 bracketed uncertain reading(s).")
@@ -1448,38 +1448,54 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(text, body)
         self.assertEqual(warnings, [])
 
-    def test_empty_notes_markers_do_not_trigger_review_but_real_notes_do(self):
+    def test_transcription_notes_are_preserved_without_review_or_extra_requests(self):
         card = self.cards({"E4927"})[0]
-        for notes in ("", "-", "None", "None.", " NONE. ", "N/A", "n/a."):
+        for notes in ("", "-", "None", "None.", " NONE. ", "N/A", "n/a.",
+                      "None of the date is legible.", "None. Lower edge is torn.",
+                      "Ink obscures part of the locality.",
+                      "German text translated into English in parentheses."):
             with self.subTest(notes=notes):
                 body = transcript() + "\n" + notes
-                text, warnings, _ = t.validate_response(response(body), card)
-                self.assertEqual(text, body.strip())
-                self.assertEqual(warnings, [])
-        for notes in ("None of the date is legible.", "None. Lower edge is torn.", "Ink obscures part of the locality."):
-            with self.subTest(notes=notes):
-                _, warnings, _ = t.validate_response(response(transcript() + "\n" + notes), card)
-                self.assertIn("Transcription notes are present.", warnings)
+                engine, client, _ = self.engine([response(body)])
+                result = engine.transcribe(card, t.prepare_card(card, "test", self.args)[1])
+                self.assertEqual(result["text"], body.strip())
+                self.assertEqual(result["warnings"], [])
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(len(client.calls), 1)
+                block = t.output_block(card, result)
+                self.assertIn(body.strip(), block)
+                self.assertNotIn("REVIEW:", block)
+        body = transcript() + "\nSignature may read [Brandt?]."
+        text, warnings, _ = t.validate_response(response(body), card)
+        self.assertEqual(text, body)
+        self.assertEqual(warnings, ["1 bracketed passage(s)."])
+        self.assertEqual(t.review_line(["Transcription notes are present."]), "")
 
-    def test_cached_empty_notes_review_is_corrected_without_losing_other_flags(self):
+    def test_cached_notes_review_is_corrected_without_losing_text_or_other_flags(self):
         path = self.root / "old_review_cache.jsonl"
-        for other_flags in ([], ["1 bracketed uncertain reading(s)."]):
-            with self.subTest(other_flags=other_flags), t.Journal(path) as journal:
-                text = transcript() + "\nNone."
-                if other_flags:
-                    text = text.replace("TEST FIXTURE ONLY", "[uncertain]")
-                original = {"key": "old", "cache_version": t.CACHE_VERSION, "status": "review",
-                            "text": text, "warnings": ["Transcription notes are present.", *other_flags],
-                            "saved_at": datetime.now(timezone.utc).isoformat()}
-                journal.append(original)
-                entry = journal.reusable("old")
-                self.assertEqual(entry["warnings"], ["1 bracketed passage(s)."] if other_flags else [])
-                self.assertEqual(entry["status"], "review" if other_flags else "ok")
-                self.assertEqual(entry["text"], text)
-                self.assertIn("Transcription notes are present.", original["warnings"])
-        with t.Journal(path) as journal:
-            journal.append({**original, "text": transcript() + "\nLower edge is torn."})
-            self.assertIn("Transcription notes are present.", journal.reusable("old")["warnings"])
+        for notes in ("None.", "Lower edge is torn.",
+                      "German text translated into English in parentheses."):
+            for other_flags in ([], ["1 bracketed uncertain reading(s)."]):
+                with self.subTest(notes=notes, other_flags=other_flags), t.Journal(path) as journal:
+                    text = transcript() + "\n" + notes
+                    if other_flags:
+                        text = text.replace("TEST FIXTURE ONLY", "[uncertain]")
+                    original = {"key": "old", "cache_version": t.CACHE_VERSION, "status": "review",
+                                "text": text, "warnings": ["Transcription notes are present.", *other_flags],
+                                "saved_at": datetime.now(timezone.utc).isoformat(),
+                                "request_metadata": t.request_metadata("fixture prompt", self.args, "fixture-input")}
+                    journal.append(original)
+                    saved = path.read_bytes()
+                    entry = journal.reusable("old")
+                    self.assertEqual(entry["warnings"], ["1 bracketed passage(s)."] if other_flags else [])
+                    self.assertEqual(entry["status"], "review" if other_flags else "ok")
+                    self.assertEqual(entry["text"], text)
+                    self.assertEqual(entry["request_metadata"], original["request_metadata"])
+                    self.assertEqual(path.read_bytes(), saved)
+                    self.assertIn("Transcription notes are present.", original["warnings"])
+                    block = t.output_block(self.cards({"E4927"})[0], entry, cached=True)
+                    self.assertIn("STATUS: " + entry["status"].upper() + " (reused)", block)
+                    self.assertNotIn("Notes present", block)
 
     def test_back_only_response_needs_no_front_annotations(self):
         self.card_image("Accipiter_gentilis_E187(B).jpg")

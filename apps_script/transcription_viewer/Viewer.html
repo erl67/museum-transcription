@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f3ef; color: #263b37; font: 16px/1.55 Arial, Helvetica, sans-serif; }
+    main { max-width: 920px; margin: auto; padding: 32px 20px 64px; }
+    h1 { margin: 0 0 8px; font-size: 30px; font-weight: 600; line-height: 1.2; }
+    h2 { margin: 0; font-size: 22px; }
+    .subtitle, .source { color: #52645d; }
+    form, article, .message { background: white; border: 1px solid #d2d9d3; border-radius: 10px; padding: 22px; margin-top: 20px; }
+    form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; }
+    label { display: block; font-weight: 600; font-size: 14px; }
+    input { width: 100%; padding: 10px; border: 1px solid #81938a; border-radius: 4px; margin-top: 5px; font: inherit; }
+    button { justify-self: start; background: #245c49; color: white; border: 0; border-radius: 5px; padding: 11px 20px; font: inherit; cursor: pointer; }
+    button:hover { background: #174333; }
+    input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #b7821d; outline-offset: 3px; }
+    .status { margin: 12px 0; padding: 12px 14px; background: #edf3ee; border-left: 4px solid #567c66; }
+    .attention, .error { background: #fff5df; border-color: #ac7b22; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 17px; line-height: 1.65; margin-bottom: 0; }
+    a { color: #245c49; text-underline-offset: 3px; }
+    small { display: block; margin-top: 8px; }
+    @media (max-width: 650px) { form { grid-template-columns: 1fr; } main { padding: 22px 14px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Egg-slip transcription</h1>
+  <div class="subtitle">Enter an E-number to find its latest available transcription.</div>
+  <form method="get" action="<?= appUrl ?>">
+    <label>E-number<input name="e" value="<?= query.e ?>" placeholder="E4268" required maxlength="80"></label>
+    <button type="submit">Find transcription</button>
+  </form>
+  <? if (result && result.error) { ?>
+    <div class="message error" role="alert"><?= result.error ?></div>
+  <? } else if (result && !result.records.length) { ?>
+    <div class="message" role="status"><?= result.message ?></div>
+  <? } else if (result) { ?>
+    <p class="source">Report date: <?= result.reportDate ?> (report writer’s local time).
+      <a href="<?= result.sourceUrl ?>" target="_blank" rel="noopener noreferrer">Open source report</a>
+    </p>
+    <? for (const record of result.records) { ?>
+      <article>
+        <h2><?= record.numbers.join(' · ') ?></h2>
+        <div class="subtitle"><?= result.query.species.replace(/_/g, ' ') ?> · <?= result.query.family ?></div>
+        <div class="status <?= record.needsReview || ['MISSING', 'FAILED', 'PAUSED'].includes(record.status) ? 'attention' : '' ?>">
+          <? if (record.status === 'MISSING') { ?>
+            <strong>Catalogue information only.</strong> No image transcription is recorded in this block.
+          <? } else if (record.status === 'FAILED' || record.status === 'PAUSED') { ?>
+            <strong><?= record.status === 'FAILED' ? 'Latest attempt failed.' : 'Latest attempt paused.' ?></strong>
+            Any retained response below is incomplete or unaccepted. No older reading has been substituted.
+          <? } else if (record.needsReview) { ?>
+            <strong>Needs review.</strong> Compare this reading with the original scans.
+          <? } else { ?>
+            Structural checks passed. This does not indicate human verification.
+          <? } ?>
+          <? if (record.review) { ?><small><?= record.review ?></small><? } ?>
+          <? if (record.reused) { ?><small>This report reused an earlier reading.</small><? } ?>
+        </div>
+        <? if (record.text) { ?><pre><?= record.text ?></pre><? } else { ?><p>No response text was saved.</p><? } ?>
+      </article>
+    <? } ?>
+  <? } ?>
+</main>
+</body>
+</html>

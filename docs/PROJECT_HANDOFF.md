@@ -1,6 +1,26 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **7 October 2026**, application build **2026-10-07.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **14 October 2026**, application build **2026-10-14.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Ordinary transcription notes and review status - 14 October 2026
+
+Build **2026-10-14.1** removes notes presence as a reason for `REVIEW`, as requested by the maintainer. The validator retains the required final notes section and all note text, but no longer adds the notes-presence warning. Eligible completed cached results discard that obsolete warning locally and become `OK` when no other warnings remain; journal history, raw responses and provenance are preserved. Headers omit the old `Notes present` reason. Bracketed passages, including those within notes, and other structural warnings still apply. `OK` remains a structural result rather than human verification.
+
+Baseline and final verification: **169 offline tests, 168 passed and one optional original-scan fixture skipped**, including both mocked provider transports. Updated tests cover fresh output, translation disclosures, no extra requests, uncertain notes, legacy cached statuses, and unchanged journal bytes/provenance. No live requests were made. Prompt bytes, generation settings, cache fingerprints and source collection data are unchanged. No responsibilities moved. Earlier dated notes describing substantive notes or translation disclosures as automatic review causes are superseded by this policy.
+
+## E-number-only viewer form - 14 October 2026
+
+The maintainer reported that the initial deployed viewer worked after correcting the hyperlink's `?e=` delimiter and row references. The updated local viewer now accepts E-number-only requests. It reads the existing UTF-8 catalogue CSV from the `Transcription` sibling of the configured Family root, or an optional explicit `CATALOGUE_FILE_ID`, and resolves exact catalogue numbers to family/species before using the unchanged species-report lookup. Duplicate rows agreeing on a location work; conflicting, incomplete, missing, or inaccessible catalogue data produces explicit errors. Existing full links bypass the CSV. The form submits only an E-number so changing records cannot retain stale family/species fields from the previous link.
+
+The change adds no persistent catalogue/text cache, transcription requests, provider settings, or OAuth scopes. Source scans, catalogue CSV, Python code, and report formats are unchanged. All 33 offline viewer tests pass; the Python baseline passes 168 tests with one optional original-scan fixture skipped. Update both Apps Script source files and publish a new version of the existing deployment to retain its URL. This revision has not been deployed by the agent.
+
+## On-demand spreadsheet viewer pilot - 14 October 2026
+
+`apps_script/transcription_viewer/` contains a separate, read-only Google Apps Script pilot. A spreadsheet hyperlink carries an E-number, family, and scientific name; each click lists the family directory and reads normal species reports newest first until it finds that exact CM banner. It stores no transcription text or persistent index. The UI omits the technical report header/footer while retaining card text, shared references, backs, notes, review reasons, and explicit failed/paused/catalogue-only states. Filename timestamps and numeric collision counters determine report order; malformed matching records, ambiguous reports/folders, and bounded-search limits are explicit errors.
+
+The pilot is local source ready for private installation, not a deployed Google service. Its setup guide includes the existing catalogue's verified C/G/N mapping and a two- or three-row link test. Individual `!`/`@` reports, journals, and mixed-species test reports are outside its initial lookup scope. Each reader runs under their own Google identity with read-only Drive access. No existing Python responsibility moved; report/prompt bytes, providers, generation settings, cache identity, and collection files are unchanged.
+
+Offline verification: 22 new Node tests passed, including synthetic Drive lookup and replay of saved sample card bodies; the Python baseline passed 168 of 169 tests with the optional original-scan fixture skipped. Sandboxed temporary-fixture and mounted-Drive writes needed escalation. No live transcription calls or spreadsheet edits were made. Google deployment, authorization, Drive access and native template rendering still require the private pilot described in the setup guide.
 
 ## Production choice and documentation update - 7 October 2026
 
