@@ -37,7 +37,7 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-10-14.1"
+SCRIPT_VERSION = "2026-10-14.2"
 CSV_PATH = str(Path(__file__).resolve().with_name("EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.

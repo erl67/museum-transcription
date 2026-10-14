@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **14 October 2026**, application build **2026-10-14.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **14 October 2026**, application build **2026-10-14.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Number cancellation and specimen-condition reading - 14 October 2026
+
+Build/prompt **2026-10-14.2** revises the shared egg-slip prompt after six maintainer-highlighted Stelgidopteryx examples. All 15 corresponding records in the September 30 and October 7 reports have matching prompt hashes; the newer report records explicit high thinking and remains the preferred overall reading. This comparison identifies a recurring error pattern, not a measured causal effect of thinking level.
+
+The prompt now treats every number neutrally, including numbers different from the filename/CSV. It requires a separate intentional deletion mark on the specific text, distinguishes numeral strokes/printed rules/blurred stamps, and keeps a neighbouring blot separate from a readable number. Obscured digits remain uncertain. Numbers continuing Identification/skin-reference prose stay with that field. Short condition notes consider broken/chipped/cracked/missing/hole only when strokes support the reading, including English notes on German cards. See the [review constraints](transcription_rules.md#reviewed-cancellation-and-condition-examples---14-october-2026); these six points do not certify whole-card transcriptions.
+
+Only shared prompt text, build/prompt labels and documentation change; no responsibilities move. Gemini 3.5 Flash-Lite, temperature 1.0, high thinking, collector-specific guidance, validation and request/accounting paths remain unchanged. Changed prompt bytes intentionally change future selected cards' fingerprints without deleting reports or journal history. No live requests or source collection edits were made.
+
+Baseline and final offline suites: **169 tests, 168 passed and one optional original-scan fixture skipped**, including both mocked SDK transports. Read-only before/after preparation of all six supplied cards, with hints enabled and disabled, confirmed new fingerprints and byte-identical image/section payloads. Collector guidance and production settings were also checked unchanged. Windows sandbox fixture/write restrictions required elevated local execution. These checks do not establish improved model readings.
 
 ## Viewer readability and notes-only review display - 14 October 2026
 

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-09-30.3"
+PROMPT_VERSION = "2026-10-14.2"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -67,11 +67,12 @@ A multiline incubation entry stays together, for example:
 Incubation: Trace of red
 one infertile
 These examples demonstrate layout only; never copy their values unless visible.
-A catalogue number or stamp belongs once in that side's ANNOTATIONS, not in an
-invented field, repeated in the body, or substituted for a nearby field value.
-Only a number visibly struck through by a separate cancellation mark belongs in
-TRANSCRIPTION NOTES instead, as specified below. Do not omit a clearly cancelled
-older number because a current number is also present.
+A standalone catalogue number or stamp belongs once in that side's ANNOTATIONS,
+not in an invented field, repeated in the body, or substituted for a nearby field
+value. A number that continues visible field text, such as an Identification entry
+ending 'equal to No.' or a skin reference, stays with that text even when written
+above or below the line. Do not detach it merely because it differs from the card's
+catalogue number. Apply the alteration rules below to any genuinely cancelled text.
 Keep Set No. and Collector separate. Follow handwriting continuation
 across lines and unused printed labels; do not assign continuous prose to an
 unrelated field just because it crosses that label. If its attachment is unclear,
@@ -110,7 +111,13 @@ Do not use explanatory notes to turn a doubtful reading into a confident claim.
 Use visible letter shapes, egg/specimen context and supporting evidence on the supplied
 sides, together with any fallible catalogue hints, to interpret difficult handwriting
 or signatures. Check word boundaries and numeral 1 versus letters l/I: a visible
-quantity and egg-condition note can read '1 egg cracked', not 'legs cracked'. Use
+quantity and egg-condition note can read '1 egg cracked', not 'legs cracked'. In short
+condition notes, consider broken, chipped, cracked, missing and hole as candidate
+words; a quantity followed by a word may read '1 broken'. Check the beginning,
+internal letters and ending against the image, comparing the same hand elsewhere
+on the supplied sides when available. A later English condition note can appear on
+a card with German field text. These are reading candidates, not default values:
+retain a clearly different word and bracket unresolved letters or words. Use
 context to choose a reading supported by the strokes, never to fill missing text or
 rewrite a clearly different source word. Reread each letter of narrative adjectives;
 do not substitute a familiar word such as 'cosy' when the handwriting reads 'long'.
@@ -136,15 +143,23 @@ Record unlabelled additions, stamps, marginal numbers and meaningful alterations
 concisely, with a short location only as needed to identify the source text. Transcribe
 each item once; do not inventory every stroke, describe horizontal/vertical directions,
 or narrate routine underlining, letter flourishes, spacing or ordinary marks.
-Describe a crossing-out only when the image clearly shows intentional cancellation.
-A stroke through a word may be part of handwriting, a neighbouring letter, a flourish
-or a printed rule; it is not by itself evidence of deletion. For catalogue numbers,
-check whether any supposed strike is independent of the digit strokes, an overlapping
-printed heading, a stamp impression, or an underline. A legible number that agrees
-with its filename and fallible CSV reference should normally be read as active when
-no clear independent cancellation is visible. Neither that agreement nor a colour
-change overrides a cancellation actually visible on the card. Do not invent a deleted
-word, an illegible replacement or a correction when none is visible. When cancellation
+Read each number as written without assigning it an administrative status. Different
+numbers can coexist on a slip; a number's age, position, colour or disagreement with
+the filename/CSV does not establish cancellation or replacement. This applies to
+every number, including marginal, collector and identification references.
+Describe a crossing-out only when a separate, intentional deletion mark is clearly
+visible across that specific text. First distinguish it from digit crossbars, letter
+strokes and flourishes, neighbouring handwriting, printed rules/headings, underlining,
+check marks, or a blurred/doubled stamp impression. These do not establish deletion.
+If cancellation is not clear, transcribe the readable text in its ordinary field or
+ANNOTATIONS without calling it cancelled, deleted, obsolete, replaced or active.
+Dark ink, smudging or overwriting can obscure a number without establishing why.
+Bracket uncertain digits or use [illegible number]; do not supply a confident number
+from a date, another reference or expected digit count. Assess each occurrence
+separately: a blot or deletion below or beside a readable number does not cancel
+that number. Matching filename/CSV evidence does not override a genuine deletion.
+Do not invent a deleted word, an illegible replacement or a correction when none is
+visible. When cancellation
 is clear, briefly distinguish the readable deleted text and replacement. Never silently merge active and deleted text
 or extend a deletion to adjacent words. Bracket uncertain deleted readings. Treat underlying text, cancellation strokes
 and added text as separate layers when actually present; do not reconstruct a taxon
@@ -167,9 +182,7 @@ card designs. Mention physical card damage only for major rips, tears or missing
 pieces; mark genuinely obscured writing as uncertain without inventing missing text.
 Source notes about specimen damage, such as a cracked egg, must still be transcribed.
 A catalogue stamp's placement alone needs no transcription note; if it obscures a
-reading, bracket that reading and explain only the unresolved problem. If an ordinary
-catalogue number has already been recorded in ANNOTATIONS, do not redescribe it as
-cancelled in TRANSCRIPTION NOTES without clear visual evidence of cancellation.
+reading, bracket that reading and explain only the unresolved problem.
 
 On a slip containing multiple entries, preserve their boundaries and order. Keep
 each stamp associated with its entry when the layout supports this; otherwise note
@@ -190,11 +203,10 @@ or invent front fields. Do not omit repeated text just because another side has 
 empty unless a substantive unresolved issue needs explanation: an obscured reading,
 an ambiguous attachment/ditto mark, a missing side, a genuine conflicting reference,
 or a clearly impossible calendar date. Include required translation disclosures.
-Also retain clearly
-crossed-out catalogue numbers here in one concise note giving the readable number, cancellation and short
-location, with colour only when clear and useful. Bracket only uncertain digits; do
-not reconstruct an obliterated number from catalogue hints. Do not repeat this same
-cancelled stamp in ANNOTATIONS. Use the shortest useful explanation. A bracketed
+For catalogue numbers meeting the clear visual cancellation rule in section 4,
+retain each once here with its readable digits and a short location; keep uncertain
+digits bracketed or use [illegible number]. Do not reconstruct obscured digits or
+repeat the same cancelled stamp in ANNOTATIONS. Use the shortest useful explanation. A bracketed
 reading usually suffices without a note restating it. Multiple numbers or different
 names in distinct roles are not by themselves a conflict; explain only ambiguous or
 conflicting associations. Do not repeat ordinary annotations or routine agreement
@@ -345,7 +357,7 @@ def output_requirements(card: Card) -> str:
     lines.append("Reread dates and numbers from the image. Keep annotations concise; record only "
                  "clearly evidenced alterations, and preserve marginal text and imprints.")
     lines.append("Finish with exactly one TRANSCRIPTION NOTES: section for the whole card; "
-                 "use it only for substantive issues or relevant cancelled catalogue numbers, "
+                 "use it only for substantive issues or visually confirmed catalogue-number cancellations, "
                  "or required translation disclosures, without repeating fields or annotations. "
                  "Otherwise leave it empty.")
     lines.append("Use plain text only, with ordinary fractions and separate labelled measurements; "
