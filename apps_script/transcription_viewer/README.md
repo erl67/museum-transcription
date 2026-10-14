@@ -4,6 +4,12 @@ A spreadsheet link opens this viewer and searches the saved species reports **at
 
 A link can be created before that record has been transcribed. It displays “No transcription available” until a matching report is visible in Drive. Opening the same link later searches again. An already-open page does not update by itself; use **Find transcription** to search again.
 
+## Update fonts and review display
+
+Replace **Code.gs** and **Viewer.html** in your Apps Script project, save, then update the existing deployment via **Deploy → Manage deployments → Edit → New version → Deploy**. Keep the existing deployment URL.
+
+Headings, controls, and transcription text use Arial/Helvetica with a sans-serif fallback. The viewer ignores standalone `Notes present` and `Transcription notes are present.` review reasons. If notes presence was the only reason for a saved `REVIEW` status, the viewer displays its normal structural-check message without the review warning. Notes remain visible in the transcription body. Other review reasons, unexplained `REVIEW` statuses, and failed/paused/catalogue-only states retain their warnings. The viewer preserves the original report status and saved text.
+
 ## Update an existing deployment for E-number-only search
 
 Replace **Code.gs** and **Viewer.html** in your existing Apps Script project with the updated files here. The manifest and read-only scope have not changed. Save, then use **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**. Keep the existing deployment URL and spreadsheet links.
@@ -87,7 +93,7 @@ The longer existing formula remains faster because it supplies the report locati
 - Orders by the timestamp in the filename, then the numeric collision counter. Drive modification time is not used. Duplicate filenames/timestamps produce an explicit ambiguity error.
 - Matches complete CM catalogue banners, preserves leading zeros, and returns all matching blocks from that report. Consecutive shared-slip banners retain their complete common body. Duplicate catalogue-only rows remain separate.
 - Omits the technical header (model, build, prompt, hashes, settings, token/cost accounting) as a unit. It does not globally delete matching words from the historical transcription.
-- Preserves card fields, annotations, all supplied backs, uncertainty, transcription notes and review reasons.
+- Preserves card fields, annotations, all supplied backs, uncertainty, and transcription notes. Review reasons remain visible except standalone notes-presence flags, which no longer cause a review warning by themselves.
 - Labels `OK` as structural acceptance, not human verification. A newer `FAILED`, `PAUSED`, `MISSING`, or malformed matching record does not silently become an older successful reading. Available failed response text remains visible, with service/debug error text omitted.
 - Shows **report date**, not a claimed date of fresh transcription. Reused readings are identified.
 - Uses Google's escaped HTML printing for all text and links. The **Open source report** link opens the original unfiltered report, which still contains its technical metadata.

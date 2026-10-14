@@ -2,6 +2,12 @@
 
 Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **14 October 2026**, application build **2026-10-14.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
 
+## Viewer readability and notes-only review display - 14 October 2026
+
+The viewer uses Arial/Helvetica sans-serif fonts throughout. Its display policy removes only standalone `Notes present` / `Transcription notes are present.` header reasons, including supported case/punctuation variants. A saved `REVIEW` whose sole reason was notes presence gets a neutral structural-check display. Original statuses, body text, notes, and report files are preserved; remaining review reasons and unexplained `REVIEW` statuses stay flagged. Failed, paused and catalogue-only states remain distinct. This also supports older reports after the Python notes policy update documented below.
+
+All 37 offline viewer checks pass, including notes-only, mixed-reason, unknown-review and failure cases. The font, display logic and tests were present in commit `4adf37e` when this chat resumed; the remaining setup documentation was completed without modifying the concurrent Python changes. Update both Apps Script source files and publish a new version of the existing deployment. The agent has not applied this revision to the live deployment.
+
 ## Ordinary transcription notes and review status - 14 October 2026
 
 Build **2026-10-14.1** removes notes presence as a reason for `REVIEW`, as requested by the maintainer. The validator retains the required final notes section and all note text, but no longer adds the notes-presence warning. Eligible completed cached results discard that obsolete warning locally and become `OK` when no other warnings remain; journal history, raw responses and provenance are preserved. Headers omit the old `Notes present` reason. Bracketed passages, including those within notes, and other structural warnings still apply. `OK` remains a structural result rather than human verification.
