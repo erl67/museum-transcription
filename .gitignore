@@ -51,3 +51,4 @@ transcribe_request_usage.json.*
 !/tests/outputs/README.md
 .notes.txt
 PromptEdits.gdoc
+*.lnk

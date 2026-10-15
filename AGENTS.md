@@ -19,6 +19,7 @@ Keep reusable provider/execution infrastructure separate from egg-specific disco
 
 ## Before editing
 
+- Use the local code checkout `C:\Users\x5769\Documents\GitHub\museum-transcription` for repository work. The G: drive is for scans and the catalogue CSV; do not use its legacy repository.
 - Read the relevant code and tests; inspect `git status` and `git diff`. Preserve local/unpushed work.
 - Read `docs/PROJECT_HANDOFF.md` for architectural and historical context and the applicable files in `docs/`. Current operating decisions supersede older comparison plans in historical notes.
 - Run `python -m unittest -v test_transcribe.py` before substantial changes when practical. Report skipped tests as well as failures.

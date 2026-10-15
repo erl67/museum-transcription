@@ -20,6 +20,13 @@
     .status { margin: 12px 0; padding: 12px 14px; background: #edf3ee; border-left: 4px solid #567c66; }
     .attention, .error { background: #fff5df; border-color: #ac7b22; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 17px; line-height: 1.65; margin-bottom: 0; }
+    .scans { margin-top: 28px; padding-top: 22px; border-top: 1px solid #d2d9d3; }
+    .scans h3 { margin: 0 0 20px; font-size: 19px; }
+    .scan { margin: 0 0 28px; text-align: center; }
+    .scan-photo { display: block; max-width: 100%; height: auto; margin: 0 auto 10px; border: 1px solid #d2d9d3; }
+    .scan figcaption { overflow-wrap: anywhere; }
+    .scan figcaption strong { display: block; margin-bottom: 4px; }
+    .scan-notice { padding: 12px; background: #f5f3ef; color: #52645d; }
     a { color: #245c49; text-underline-offset: 3px; }
     small { display: block; margin-top: 8px; }
     @media (max-width: 650px) { form { grid-template-columns: 1fr; } main { padding: 22px 14px; } }
@@ -60,9 +67,42 @@
           <? if (record.reused) { ?><small>This report reused an earlier reading.</small><? } ?>
         </div>
         <? if (record.text) { ?><pre><?= record.text ?></pre><? } else { ?><p>No response text was saved.</p><? } ?>
+        <? if (record.files.length || record.imageMessage) { ?>
+          <section class="scans" aria-label="Source scans">
+            <h3>Source scans</h3>
+            <? if (record.imageMessage) { ?><p class="scan-notice"><?= record.imageMessage ?></p><? } ?>
+            <? for (const scan of record.images) { ?>
+              <figure class="scan">
+                <? if (scan.base64) { ?>
+                  <img class="scan-photo" data-jpeg="<?= scan.base64 ?>" alt="<?= scan.label + ': ' + scan.name ?>" loading="lazy">
+                  <p class="scan-notice scan-error" hidden>The image could not be displayed. Open the original JPG below.</p>
+                <? } else { ?>
+                  <p class="scan-notice"><?= scan.message ?></p>
+                <? } ?>
+                <figcaption>
+                  <strong><?= scan.label ?></strong>
+                  <? if (scan.url) { ?>
+                    <a href="<?= scan.url ?>" target="_blank" rel="noopener noreferrer"><?= scan.name ?></a>
+                  <? } else { ?><?= scan.name ?><? } ?>
+                </figcaption>
+              </figure>
+            <? } ?>
+          </section>
+        <? } ?>
       </article>
     <? } ?>
   <? } ?>
 </main>
+<script>
+  // Set a fixed JPEG data URL from escaped base64; no public image sharing is required.
+  document.querySelectorAll('img[data-jpeg]').forEach(function (image) {
+    image.addEventListener('error', function () {
+      image.closest('figure').querySelector('.scan-error').hidden = false;
+      image.remove();
+    });
+    image.src = 'data:image/jpeg;base64,' + image.dataset.jpeg;
+    image.removeAttribute('data-jpeg');
+  });
+</script>
 </body>
 </html>

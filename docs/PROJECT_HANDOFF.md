@@ -1,6 +1,34 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **14 October 2026**, application build **2026-10-14.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **15 October 2026**, application build **2026-10-14.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Master Excel catalogue for the viewer - 15 October 2026
+
+The viewer now resolves E-number-only requests from the saved master Excel workbook in Drive, file ID 1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc. The same file gates access on every page request. The catalogue is read directly as XLSX ZIP/XML using built-in Apps Script utilities; no conversion, temporary Drive file, extra OAuth scope, external parsing service, CSV discovery or persistent catalogue cache is used. The Family report/image lookup and full-location link behavior are preserved.
+
+CATALOGUE_SHEET_NAME is configured as Full List, from the prior CSV export's tab name; confirm it against the actual workbook when deploying. The reader follows workbook relationships rather than treating the browser gid as an XLSX sheet number. It uses the three named headers, handles sparse/reordered columns, shared/inline/rich text, cached formula results, text and simple zero-padded numeric catalogue numbers, and rejects corrupt/unsupported input explicitly. Relevant duplicate rows and routing ambiguity retain the prior error policy. Limits are 25 MiB for the XLSX and 80 MiB combined for XML parts read; the existing 45-second lookup budget remains.
+
+Only the master workbook and Family data need to be shared with the intended people/group. The older viewer CSV discovery and CSV-sharing instructions below are historical and superseded by this revision. Python remains unchanged at the maintainer's explicit request in this conversation: they want this online workbook to become its catalogue source too, but that migration belongs in a separate conversation. Keep Python's configured CSV until that work is implemented.
+
+Verification: all 63 offline viewer tests pass, including real in-memory XLSX ZIP/XML fixtures using Python's standard library as the Apps Script test adapter. The unchanged Python regression suite passes 168 tests with one optional supplied-scan fixture skipped. No live service requests, workbook/scan edits, sharing changes, commits, pushes or deployment were performed. Deployed authorization, actual workbook format/tab name and representative searches still need confirmation in Google.
+
+## Shared viewer access and naming - 15 October 2026
+
+The viewer uses its regular product name throughout source, messages and documentation. The manifest now declares signed-in access (ANYONE) and execution as the accessing user (USER_ACCESSING), retaining the read-only Drive scope. Each page request first reads the configured master workbook's metadata under that user's identity; a denied or invalid workbook configuration returns an access message before reports, catalogue rows or scans are read. WORKBOOK_FILE_ID is prefilled from the maintainer's supplied master spreadsheet link. The application does not maintain a separate email/group allowlist or cache workbook membership.
+
+For the maintainer's specific-people/Google-Group sharing arrangement, the Family data folder and catalogue CSV must also be shared as Viewer with the same people/group. The code does not copy Drive permissions or grant access automatically. An explicit CATALOGUE_FILE_ID supports shared CSV access without requiring readers to browse the common parent. Deployment settings and Drive sharing still need to be applied by the maintainer; no live permission changes or deployment were made by the agent.
+
+All 58 offline viewer tests pass, including allowed/denied workbook reads, access changes between requests, checks on the blank form, invalid workbook configuration, and the signed-in/accessing-user manifest settings. The guide describes all three installation files and the existing-deployment update workflow.
+
+## Viewer source-scan display and local code checkout - 15 October 2026
+
+All repository work uses `C:\Users\x5769\Documents\GitHub\museum-transcription`. The G: drive holds scans and the catalogue CSV; do not use its legacy repository for code work. The active local checkout already contained the font/review changes and the newer prompt policy; those were preserved.
+
+The viewer reads the selected report's exact `FILES` header and displays those JPGs below the transcription as centered, responsive figures in report order. Captions identify fronts and successive backs without turning a lone back into a front. Image resolution supports the existing direct-species and genus-nested JPEG layouts, rejects ambiguous folders/filenames, and preserves shared-slip filenames. JPEG bytes are read with the signed-in reader's existing Drive access and encoded transiently in the returned page; no public image hosting, additional OAuth scope, scan mutation, persistent cache, or model request was introduced.
+
+Unavailable scans and bounded image-loading failures leave the selected transcription and status intact. Images are limited to 12 MiB each / 24 MiB per page / 40 files, with original Drive links retained when files are found but cannot be embedded. Catalogue-only blocks do not get scans. Catalogue discovery also supports the CSV beside the Family root as a fallback to the original configured sibling folder, matching the current separation of data and the local checkout.
+
+Verification: 52 viewer tests passed; the Python offline suite passed 168 tests with one optional original-scan fixture skipped. Update both Apps Script source files through a new version of the existing deployment. No live API requests or deployment were performed by the agent for this change.
 
 ## Number cancellation and specimen-condition reading - 14 October 2026
 
@@ -30,13 +58,13 @@ The maintainer reported that the initial deployed viewer worked after correcting
 
 The change adds no persistent catalogue/text cache, transcription requests, provider settings, or OAuth scopes. Source scans, catalogue CSV, Python code, and report formats are unchanged. All 33 offline viewer tests pass; the Python baseline passes 168 tests with one optional original-scan fixture skipped. Update both Apps Script source files and publish a new version of the existing deployment to retain its URL. This revision has not been deployed by the agent.
 
-## On-demand spreadsheet viewer pilot - 14 October 2026
+## On-demand spreadsheet viewer - 14 October 2026
 
-`apps_script/transcription_viewer/` contains a separate, read-only Google Apps Script pilot. A spreadsheet hyperlink carries an E-number, family, and scientific name; each click lists the family directory and reads normal species reports newest first until it finds that exact CM banner. It stores no transcription text or persistent index. The UI omits the technical report header/footer while retaining card text, shared references, backs, notes, review reasons, and explicit failed/paused/catalogue-only states. Filename timestamps and numeric collision counters determine report order; malformed matching records, ambiguous reports/folders, and bounded-search limits are explicit errors.
+`apps_script/transcription_viewer/` contains a separate, read-only Google Apps Script viewer. A spreadsheet hyperlink carries an E-number, family, and scientific name; each click lists the family directory and reads normal species reports newest first until it finds that exact CM banner. It stores no transcription text or persistent index. The UI omits the technical report header/footer while retaining card text, shared references, backs, notes, review reasons, and explicit failed/paused/catalogue-only states. Filename timestamps and numeric collision counters determine report order; malformed matching records, ambiguous reports/folders, and bounded-search limits are explicit errors.
 
-The pilot is local source ready for private installation, not a deployed Google service. Its setup guide includes the existing catalogue's verified C/G/N mapping and a two- or three-row link test. Individual `!`/`@` reports, journals, and mixed-species test reports are outside its initial lookup scope. Each reader runs under their own Google identity with read-only Drive access. No existing Python responsibility moved; report/prompt bytes, providers, generation settings, cache identity, and collection files are unchanged.
+The viewer is local source ready for private installation, not a deployed Google service. Its setup guide includes the existing catalogue's verified C/G/N mapping and a two- or three-row link test. Individual `!`/`@` reports, journals, and mixed-species test reports are outside its initial lookup scope. Each reader runs under their own Google identity with read-only Drive access. No existing Python responsibility moved; report/prompt bytes, providers, generation settings, cache identity, and collection files are unchanged.
 
-Offline verification: 22 new Node tests passed, including synthetic Drive lookup and replay of saved sample card bodies; the Python baseline passed 168 of 169 tests with the optional original-scan fixture skipped. Sandboxed temporary-fixture and mounted-Drive writes needed escalation. No live transcription calls or spreadsheet edits were made. Google deployment, authorization, Drive access and native template rendering still require the private pilot described in the setup guide.
+Offline verification: 22 new Node tests passed, including synthetic Drive lookup and replay of saved sample card bodies; the Python baseline passed 168 of 169 tests with the optional original-scan fixture skipped. Sandboxed temporary-fixture and mounted-Drive writes needed escalation. No live transcription calls or spreadsheet edits were made. Google deployment, authorization, Drive access and native template rendering still require the viewer described in the setup guide.
 
 ## Production choice and documentation update - 7 October 2026
 

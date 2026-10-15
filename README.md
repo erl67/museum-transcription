@@ -104,7 +104,7 @@ Missing-card blocks preserve partial dates, omit empty selected fields, and refr
 
 The reading rules include collector-specific guidance for Brandt handwriting and, where applicable, Steinbach German notes. German text is retained with an English translation and a disclosure in transcription notes. Notes are normal report content and do not by themselves require review. Harmless layout differences and recognized printed form codes do not by themselves require review. A lack of flags cannot establish that every word or line was read correctly. See the [transcription and output rules](docs/transcription_rules.md) for the complete policy.
 
-A separate [on-demand spreadsheet viewer pilot](apps_script/transcription_viewer/README.md) can retrieve a record from the latest matching species report when its link is opened. Links can be created before reports exist; the viewer keeps transcription text out of the spreadsheet and omits technical metadata from its display. Its form accepts an E-number alone and locates the family/species using the existing catalogue CSV; older spreadsheet links supplying those values still work. It requires a private Google Apps Script deployment and reads existing Drive reports without making transcription requests. The pilot currently excludes individual `!`/`@` reports.
+A separate [on-demand spreadsheet viewer](apps_script/transcription_viewer/README.md) can retrieve a record from the latest matching species report when its link is opened. Links can be created before reports exist; the viewer keeps transcription text out of the spreadsheet and omits technical metadata from its display. Its form accepts an E-number alone and locates the family/species in the saved master Excel workbook on Google Drive; older spreadsheet links supplying those values still work. The viewer no longer needs a CSV export. The Python program still uses its configured CSV pending a separate migration. It requires a private Google Apps Script deployment and reads existing Drive reports without making transcription requests. It also displays the selected report's source JPGs below the transcription, centered and labelled by side. The viewer currently excludes individual `!`/`@` reports.
 
 ## Processing settings and continuity
 
@@ -140,6 +140,13 @@ Further work should consolidate reviewed examples from the established Gemini wo
 | [Testing](docs/testing.md) | Offline regression checks, optional live checks, and reviewed reference material. |
 | [Project handoff](docs/PROJECT_HANDOFF.md) | Current responsibilities, development decisions, history, and remaining work. |
 | [Contributor instructions](AGENTS.md) | Data protection and implementation requirements. |
+
+## Related projects
+
+This project is part of a set of tools supporting the museum egg-collection workflow:
+
+- [museum-scanner](https://github.com/erl67/museum-scanner) organizes scanned slips, applies consistent filenames, and prepares JPEG and TIFF derivatives.
+- [museum-collection-analysis](https://github.com/erl67/museum-collection-analysis) provides notebooks, graphs, and maps for exploring collection dates, collectors, and geographic patterns.
 
 ## Collection materials and licence
 
