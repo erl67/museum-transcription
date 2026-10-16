@@ -1,25 +1,26 @@
 # Egg Transcription Viewer
 
-Spreadsheet links open this viewer and retrieve the latest available species report at click time. The form accepts an E-number alone and reads its family/species from the saved master Excel workbook in Drive; existing links with family and scientific name still work. Source scans appear below the transcription, centered and labelled by side.
+Spreadsheet links open this viewer and retrieve the latest available species report at click time. The form accepts an E-number alone and reads its family/species from the catalogue CSV export in Drive; existing links with family and scientific name still work. The page shows record text first, then loads source scans separately below it. If no transcription exists, it finds available scans by the complete E-number and keeps each physical card’s sides together.
 
 No transcription text is stored in the spreadsheet, hidden sheets, script properties, or a persistent cache. The viewer reads existing Drive files and makes no transcription-service requests. A link can be created before a record has been transcribed; opening it again after a report has synced searches afresh.
 
 ## Access for people who can open the master Excel file
 
-The deployment accepts signed-in Google accounts and runs as **the user accessing the web app**. Before showing a search or reading reports, it checks that account can read the configured master workbook in Drive. Direct permissions, Google Group membership, and inherited access are evaluated by Google Drive. The workbook check runs on every page request, so the application does not maintain a separate user list.
+The deployment accepts signed-in Google accounts and runs as **the user accessing the web app**. Before showing a search or reading reports, it checks that account can read the configured master workbook in Drive. Direct permissions, Google Group membership, and inherited access are evaluated by Google Drive. The workbook check runs on every page request and again on every image-loading request, so the application does not maintain a separate user list.
 
-The catalogue and access check use the same [master Excel workbook](https://docs.google.com/spreadsheets/d/1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc/edit?gid=1539383110), identified by WORKBOOK_FILE_ID. No CSV file or common-parent-folder access is needed by the viewer. Update the ID if the master file is replaced.
+The access check uses the [master Excel workbook](https://docs.google.com/spreadsheets/d/1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc/edit?gid=1539383110), identified by WORKBOOK_FILE_ID. The viewer reads only workbook metadata for this access check; catalogue lookup uses the separate CSV export. Update WORKBOOK_FILE_ID if the master file is replaced.
 
 Workbook sharing does not automatically share separate data folders. To let the same readers use the whole viewer:
 
 1. Keep the master Excel file shared with the intended people or Google Group.
 2. Share the **Family root folder**, including its reports and JPEG subfolders, with the same people/group as **Viewer**.
-3. Deploy with **Execute as: User accessing the web app** and **Who has access: Anyone with a Google account**. The manifest represents these settings as USER_ACCESSING and ANYONE.
-4. Readers sign in with the account used for the master Excel file and authorize the viewer's read-only Drive access.
+3. Share the **catalogue CSV** with the same people/group as **Viewer**. For automatic discovery, readers also need access to the `Egg Slip Scanning` parent folder; alternatively set CATALOGUE_FILE_ID to the CSV’s Drive file ID to avoid parent-folder discovery.
+4. Deploy with **Execute as: User accessing the web app** and **Who has access: Anyone with a Google account**. The manifest represents these settings as USER_ACCESSING and ANYONE.
+5. Readers sign in with the account used for the master Excel file and authorize the viewer's read-only Drive access.
 
 The broad signed-in deployment audience lets the app check external collaborators as well as institutional accounts. The workbook check still runs before any report or scan is read. Keep the execution identity set to the accessing user; the check relies on that identity. Institutional Google Workspace policies may limit the audience options or external-account authorization.
 
-These source files do not change Google Drive sharing or copy the workbook's permissions to other files. Apply the matching folder sharing in Drive. Using one Google Group for both the workbook and Family data makes future membership changes easier to manage. Sharing the Apps Script project's source with every reader is not required.
+These source files do not change Google Drive sharing or copy the workbook's permissions to other files. Apply the matching folder sharing in Drive. Using one Google Group for the workbook, CSV, and Family data makes future membership changes easier to manage. Sharing the Apps Script project's source with every reader is not required.
 
 See [Google's execution-permission documentation](https://developers.google.com/apps-script/guides/web#permissions), [web-app manifest settings](https://developers.google.com/apps-script/manifest/web-app-api-executable), and [Drive file/folder sharing](https://support.google.com/drive/answer/7166529).
 
@@ -30,28 +31,36 @@ Use a separate Apps Script project from the Egg Scan Linker.
 1. Open [Google Apps Script](https://script.google.com/) with the maintaining account. For a new project, name it **Egg Transcription Viewer**.
 2. Replace **Code.gs** with [Code.gs](Code.gs).
 3. Add or replace the HTML file named **Viewer** using [Viewer.html](Viewer.html).
-4. In **Project Settings**, enable **Show appsscript.json manifest file in editor** and replace it with [appsscript.json](appsscript.json). This update needs all three installation files. The OAuth scope remains read-only Drive access.
-5. Confirm WORKBOOK_FILE_ID, ROOT_FOLDER_ID, and CATALOGUE_SHEET_NAME near the top of Code.gs. ROOT_FOLDER_ID identifies the Family root, not a species or JPEG folder.
+4. In **Project Settings**, enable **Show appsscript.json manifest file in editor** and replace it with [appsscript.json](appsscript.json). New installations need all three source files. This revision changes Code.gs and Viewer.html; an existing manifest matching the supplied file can stay as it is. The OAuth scope remains read-only Drive access.
+5. Confirm WORKBOOK_FILE_ID and ROOT_FOLDER_ID near the top of Code.gs. ROOT_FOLDER_ID identifies the Family root, not a species or JPEG folder. The configured CSV filename matches the existing export beside Family; optionally set CATALOGUE_FILE_ID as described below.
 6. For an existing deployment, save and choose **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**. Check the execution identity and audience settings described above. Keep the existing deployment URL so spreadsheet links stay valid.
 7. For a first deployment, choose **Deploy → New deployment → Web app**, use the settings above, and copy the resulting URL ending in **/exec**.
 
 Saving source alone does not update a versioned /exec deployment. Do not upload this README or the test file as Apps Script source. Running doGet in the editor does not open the viewer; use the deployed URL.
 
-## Master catalogue and spreadsheet links
+## CSV lookup and direct viewer links
 
-The viewer reads the **saved .xlsx file in Google Drive** directly. It does not need Apps Script to run inside the Excel file, does not convert or copy the workbook, and does not read the exported CSV.
+The master Excel workbook remains the authoritative catalogue and access gate. E-number lookup now reads its **UTF-8 CSV export**, avoiding XLSX download, unzip, and XML parsing. The existing export is:
+
+~~~text
+G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv
+~~~
+
+Apps Script uses the corresponding Drive file, not the Windows drive letter. With CATALOGUE_FILE_ID blank, it searches for the exact configured filename beside the Family root and inside its sibling `Transcription` folder. It deduplicates the same file ID and rejects multiple different matching files. It does not choose an arbitrary export.
 
 Configuration in Code.gs:
 
-- WORKBOOK_FILE_ID: **1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc** (the supplied master workbook).
-- CATALOGUE_SHEET_NAME: **Full List**, taken from the existing export's tab name. Confirm the visible tab has this exact name; update this setting if it was renamed.
+- WORKBOOK_FILE_ID: **1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc**, used for access checks only.
 - ROOT_FOLDER_ID: the existing **Family** folder containing species reports and JPEG directories.
+- CATALOGUE_FILE_ID: optional direct CSV Drive file ID. This is preferable when readers can open the shared CSV but cannot browse its parent folder. Copy the ID from the CSV’s Drive link, not the Excel workbook link. Replacing a file with a new Drive file requires updating this ID.
+- CATALOGUE_FILE_NAME: **EggSlipReorganizationProject_FULL.xlsx - Full List.csv**.
+- CATALOGUE_FOLDER_NAME: **Transcription**, the additional sibling location supported for existing installations.
 
-The selected tab must have exactly one column each named **catalogNumber**, **Family**, and **Scientific Name** in its first nonempty row. Columns may move. Only these values for the requested E-number are used; duplicate rows that agree on family/species work, while conflicting or incomplete matches produce an error. The browser's gid is not used as an Excel worksheet number.
+The CSV needs exactly one column each named **catalogNumber**, **Family**, and **Scientific Name**. Columns may move and surrounding header whitespace is ignored. The full existing export works; a separate compact export containing only these columns also works if explicitly configured. Duplicate rows agreeing on family/species work; conflicting or incomplete matches, extra columns beyond the header, unreadable exports, and ambiguous locations produce explicit errors. UTF-8 with or without a BOM, quoted commas, and quoted line breaks are supported.
 
-Every E-number-only search reads the saved workbook again. Save online edits before searching; changes still being saved or synced are not yet available. Formula cells use their saved results: the viewer does not recalculate Excel formulas. If a lookup formula has no saved result, recalculate and save the workbook. Shared strings, inline/rich text, and simple numeric zero-padding formats are supported. Store E-numbers as text for unambiguous digits. A shortcut, legacy .xls file, encrypted workbook, or converted native Google Sheet is not this .xlsx source; unsupported types fail explicitly rather than falling back to an old CSV.
+Refresh the export after catalogue changes. Saving the Excel workbook alone does not refresh the CSV. Every E-number search rereads the saved export; there is no persistent catalogue cache. E-numbers must retain their complete digits in the export: `E001` and `E1` are different. The viewer cannot recover leading zeros already lost during export. The viewer does not create, replace, or synchronize the CSV. Python continues to use its configured local CSV unchanged.
 
-**Python follow-up:** the maintainer wants this same online workbook to be the catalogue source for the local transcription program too. That change is deferred to a separate conversation. Python still reads its configured local CSV in this revision; do not remove its export until that migration is implemented.
+To share the viewer independently of the spreadsheet, use the deployment URL ending in **/exec**, with no query string. Readers enter an E-number in the form. A direct link ending in **/exec?e=E4268** opens that record. The same sharing and authorization requirements apply.
 
 The known catalogue columns are **Family in C**, **Scientific Name in G**, and **catalogNumber in N**. Confirm these headers if columns have moved. On row 2, a direct-location link is:
 
@@ -65,11 +74,11 @@ An E-number-only link is also supported:
 =HYPERLINK("PASTE_DEPLOYED_EXEC_URL_HERE?e="&ENCODEURL(N2),"View transcription")
 ~~~
 
-Replace only PASTE_DEPLOYED_EXEC_URL_HERE with the complete deployment URL. Keep the **?e=** delimiter. Adapt row references and fill down as needed. The longer link uses the supplied family/species without reading catalogue contents; use E-number-only links to pick up saved catalogue corrections. Both link types require master-workbook access.
+Replace only PASTE_DEPLOYED_EXEC_URL_HERE with the complete deployment URL. Keep the **?e=** delimiter. Adapt row references and fill down as needed. The longer link uses the supplied family/species without reading CSV contents; use E-number-only links to pick up refreshed CSV corrections. Both link types require master-workbook access.
 
 An ordinary hyperlink to the resulting URL also works in the Excel file. If copying formulas between the native Sheet and Excel loses the link, build the URL in the native Sheet and use it as the target of an ordinary hyperlink.
 
-Keep meaningful leading zeros as text: E001 and E1 are different records. Simple 000-style or E-prefixed zero-padding formats are also preserved, but the viewer cannot restore zeros already lost by the spreadsheet. Submitting the form sends only its E-number, so a new search does not inherit an old record's family/species.
+Keep meaningful leading zeros as text: E001 and E1 are different records. Check that exported values retain their zeros; spreadsheet display formatting alone is not a guarantee. Submitting the form sends only its E-number, so a new search does not inherit an old record's family/species.
 
 ## Transcription and source-scan display
 
@@ -80,22 +89,24 @@ Keep meaningful leading zeros as text: E001 and E1 are different records. Simple
 - Notes presence alone does not trigger a review warning. Other reasons and unexplained REVIEW statuses remain flagged. OK means structural acceptance, not human verification.
 - A newest matching FAILED, PAUSED, MISSING, or malformed record does not silently become an older successful reading. Available failed response text stays visible; service/debug error details are omitted.
 - Shows the report date, not a claimed date of fresh transcription, and identifies reused readings.
-- Returns only the source JPGs listed in that report's FILES header. Newly added scans are not attached to an older transcription. Images show current files at those filenames, not guaranteed archived versions from the report date.
+- When a transcription exists (including failed/paused attempts), returns only the source JPGs listed in that report’s FILES header. The separate image request rereads the displayed report by ID, verifies its family/species and checks its record/file manifest. A newer report arriving meanwhile cannot replace its scans; changed record/file references or a moved report produce a reload message, while a deleted or inaccessible report produces an image-load error. Images show current files at those filenames, not guaranteed archived versions from the report date.
+- When no matching report exists, or the matching blocks are all catalogue-only MISSING records, searches the routed species JPEG folder by complete E-number. These current scans are displayed separately and explicitly identified as having no image transcription. Existing catalogue-only text/status remains unchanged. Shared slips match any complete number; leading zeros remain significant; distinct physical cards stay separate. Invalid/duplicate sides are reported without selecting an arbitrary image. Malformed matching names and missing/ambiguous folders are explicit messages, not evidence of absent cards.
 - Displays scans in report order as Front, Back, Back 2, and further supplied sides. A lone back remains Back; missing sides are not invented.
 - Resolves both Family/family/species/JPEG and Family/family/genus/species/JPEG layouts, with case-insensitive folder matching and exact source-filename matching.
-- Reads image bytes with the accessing user's Drive permissions, embeds them transiently in the returned page, and links to each original Drive JPG. No public image host or public-sharing change is required.
-- Keeps transcription visible if scans are missing, ambiguous, unreadable, or too large. Catalogue-only MISSING blocks do not receive a source gallery.
+- Returns text and a loading indicator before reading JPG bytes. After the page loads, one asynchronous google.script.run request fetches the galleries under the reader’s current Drive permissions. The client builds captions using plain text and links each original JPG. RPC failures offer a retry without replacing record text. No public image host, persistent text/image cache, extra OAuth scope, or public-sharing change is required.
+- Uses the existing full-resolution JPGs; this change does not generate smaller previews or reduce total image bytes. Images no longer hold up the initial text, but the gallery still waits for its image request to complete.
+- Keeps transcription visible if scans are missing, ambiguous, unreadable, or too large. Catalogue-only blocks may now have a separate gallery of current scans found by E-number.
 - Uses escaped HTML printing for text and links. Opening the original source report shows its unfiltered technical metadata.
 
 ## Limits and verification
 
-The viewer reads at most **40 candidate reports**, lists at most **5,000 family-directory files**, accepts master Excel files up to **25 MiB**, parsed workbook XML parts up to **80 MiB combined**, and reports up to **10 MiB**, and checks a **45-second** elapsed-time budget between Drive operations. Reaching a report-search limit produces an explicit incomplete-search message. One slow Drive operation or workbook unzip/XML operation can itself exceed the elapsed-time budget. Large workbooks can take longer to search because they are read fresh, without a persistent catalogue cache.
+The viewer reads at most **40 candidate reports**, lists at most **5,000 family-directory files**, accepts CSV exports and reports up to **10 MiB** each, and checks a separate **45-second** elapsed-time budget for text lookup and image loading between Drive operations. Reaching a report-search limit produces an explicit incomplete-search message. One slow Drive operation can itself exceed the elapsed-time budget. Scan-only discovery lists at most **5,000 files** and accepts at most **40 matching JPEGs**; limit errors explicitly report an incomplete search. Missing, inaccessible, or ambiguous directories do not become “no scans found.”
 
 Source images are limited to **12 MiB each**, **24 MiB total bytes per page**, and **40 images**. When a file is found but cannot be embedded, its original Drive link remains available. Image failures do not replace the selected transcription.
 
 Drive sync delays affect new reports and scans. Filename timestamps use the report writer's local wall time, so clock/time-zone changes on that computer affect ordering.
 
-Check the deployed app with a second account that has the same Excel and Family sharing. Confirm the catalogue tab is Full List. After the next intended catalogue correction is saved, confirm a fresh E-number-only search sees it. Confirm it can search E382 and another family, display fronts/backs, and open originals. Check a denied account receives an access message without report/scan data. Check notes-only, genuine review, shared-slip, catalogue-only, and unavailable-scan examples. Reopen the same link after an ordinary authorized run later creates a report; no new paid request is needed solely to test the viewer.
+Check the deployed app with a second account that has the workbook, CSV, and Family sharing. Confirm an E-number-only search uses the CSV, and a full-location link works without reading it. Confirm text appears with a loading indicator before scans arrive. Test a record without a report, a shared slip, a lone back, a catalogue-only block whose scans have since arrived, and a missing/ambiguous scan folder. Confirm source links work and image failure/retry leaves text intact. A denied account must receive no report/scan data, including when access is revoked before the image request. After the next intended catalogue correction, refresh the CSV and confirm a fresh search sees it. No paid transcription request is needed for these checks.
 
 From the local repository root, run:
 
@@ -104,8 +115,8 @@ node --test apps_script/transcription_viewer/test_viewer.cjs
 python -m unittest -v test_transcribe.py
 ~~~
 
-The viewer tests use synthetic Drive objects, real in-memory XLSX ZIP/XML fixtures parsed through Python's standard library, and existing local saved responses. Node.js and Python are required for these offline tests; no third-party test package is needed. They make no network requests. Local browser checks cover centering, mobile layout and image-error fallback. Real Google authorization, group propagation, sharing, deployment settings, and native template rendering must be checked in the deployed account.
+The viewer tests use synthetic Drive objects, CSV fixtures parsed through Python’s standard library, a deferred browser-RPC/DOM adapter, and existing local saved responses. Node.js and Python are required for these offline tests; no third-party test package is needed. They make no network requests. Local browser checks cover initial text/loading, asynchronous success/failure/retry, centering, mobile layout, and image-error fallback. Real Google authorization, group propagation, sharing, deployment settings, and native template rendering must be checked in the deployed account.
 
-Workbook reading uses [Apps Script ZIP support](https://developers.google.com/apps-script/reference/utilities/utilities#unzip(BlobSource)) and [XML parsing](https://developers.google.com/apps-script/reference/xml-service), following [Microsoft's SpreadsheetML structure](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/structure-of-a-spreadsheetml-document) and [shared-string rules](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-the-shared-string-table).
+CSV parsing uses [Apps Script CSV support](https://developers.google.com/apps-script/reference/utilities/utilities#parseCsv(String)). Deferred image loading uses [HTML service asynchronous communication](https://developers.google.com/apps-script/guides/html/communication). Reducing initial Drive reads follows [Google’s performance guidance](https://developers.google.com/apps-script/guides/support/best-practices); no live speed measurement is claimed.
 
 Implementation references: [deployment versions](https://developers.google.com/apps-script/concepts/deployments), [escaped template printing](https://developers.google.com/apps-script/guides/html/templates), [Drive file access](https://developers.google.com/apps-script/reference/drive/file).

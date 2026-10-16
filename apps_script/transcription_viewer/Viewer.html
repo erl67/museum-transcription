@@ -67,42 +67,93 @@
           <? if (record.reused) { ?><small>This report reused an earlier reading.</small><? } ?>
         </div>
         <? if (record.text) { ?><pre><?= record.text ?></pre><? } else { ?><p>No response text was saved.</p><? } ?>
-        <? if (record.files.length || record.imageMessage) { ?>
-          <section class="scans" aria-label="Source scans">
-            <h3>Source scans</h3>
-            <? if (record.imageMessage) { ?><p class="scan-notice"><?= record.imageMessage ?></p><? } ?>
-            <? for (const scan of record.images) { ?>
-              <figure class="scan">
-                <? if (scan.base64) { ?>
-                  <img class="scan-photo" data-jpeg="<?= scan.base64 ?>" alt="<?= scan.label + ': ' + scan.name ?>" loading="lazy">
-                  <p class="scan-notice scan-error" hidden>The image could not be displayed. Open the original JPG below.</p>
-                <? } else { ?>
-                  <p class="scan-notice"><?= scan.message ?></p>
-                <? } ?>
-                <figcaption>
-                  <strong><?= scan.label ?></strong>
-                  <? if (scan.url) { ?>
-                    <a href="<?= scan.url ?>" target="_blank" rel="noopener noreferrer"><?= scan.name ?></a>
-                  <? } else { ?><?= scan.name ?><? } ?>
-                </figcaption>
-              </figure>
-            <? } ?>
-          </section>
-        <? } ?>
       </article>
     <? } ?>
   <? } ?>
+  <? if (result && !result.error) { ?>
+    <section class="message scans" id="source-scans" aria-label="Source scans" aria-busy="true"
+      data-request="<?= JSON.stringify(result.imageRequest) ?>">
+      <h2>Source scans</h2>
+      <p id="scan-status" role="status">Loading source scans…</p>
+      <div id="scan-galleries"></div>
+      <button id="retry-scans" type="button" hidden>Retry loading scans</button>
+      <noscript>Enable JavaScript to load source scans. The available record text is shown above.</noscript>
+    </section>
+  <? } ?>
 </main>
 <script>
-  // Set a fixed JPEG data URL from escaped base64; no public image sharing is required.
-  document.querySelectorAll('img[data-jpeg]').forEach(function (image) {
-    image.addEventListener('error', function () {
-      image.closest('figure').querySelector('.scan-error').hidden = false;
-      image.remove();
+(function () {
+  const section = document.getElementById('source-scans');
+  if (!section) return;
+  const status = document.getElementById('scan-status');
+  const galleries = document.getElementById('scan-galleries');
+  const retry = document.getElementById('retry-scans');
+  const request = JSON.parse(section.dataset.request);
+  section.removeAttribute('data-request');
+  function element(tag, text, className) {
+    const node = document.createElement(tag);
+    if (text) node.textContent = text;
+    if (className) node.className = className;
+    return node;
+  }
+  function failed(message) {
+    section.setAttribute('aria-busy', 'false');
+    status.textContent = message;
+    retry.hidden = false;
+  }
+  function showScans(result) {
+    if (!result || result.error) {
+      failed(result && result.error || 'Source scans could not be loaded. Try again.');
+      return;
+    }
+    section.setAttribute('aria-busy', 'false');
+    status.textContent = result.scanOnly ?
+      'Current scans located by E-number. No image transcription is available for these cards.' : '';
+    if (result.message) status.textContent += (status.textContent ? ' ' : '') + result.message;
+    result.galleries.forEach(function (gallery) {
+      const group = element('div');
+      group.appendChild(element('h3', gallery.numbers.join(' · ')));
+      if (gallery.message) group.appendChild(element('p', gallery.message, 'scan-notice'));
+      gallery.images.forEach(function (scan) {
+        const figure = element('figure', '', 'scan');
+        if (scan.base64) {
+          const photo = element('img', '', 'scan-photo');
+          photo.alt = scan.label + ': ' + scan.name;
+          photo.loading = 'lazy';
+          photo.addEventListener('error', function () {
+            photo.replaceWith(element('p', 'The image could not be displayed. Open the original JPG below.', 'scan-notice'));
+          });
+          photo.src = 'data:image/jpeg;base64,' + scan.base64;
+          figure.appendChild(photo);
+        } else figure.appendChild(element('p', scan.message, 'scan-notice'));
+        const caption = element('figcaption');
+        caption.appendChild(element('strong', scan.label));
+        if (scan.url) {
+          const link = element('a', scan.name);
+          link.href = scan.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          caption.appendChild(link);
+        } else caption.appendChild(element('span', scan.name));
+        figure.appendChild(caption);
+        group.appendChild(figure);
+      });
+      galleries.appendChild(group);
     });
-    image.src = 'data:image/jpeg;base64,' + image.dataset.jpeg;
-    image.removeAttribute('data-jpeg');
-  });
+  }
+  function loadScans() {
+    retry.hidden = true;
+    section.setAttribute('aria-busy', 'true');
+    status.textContent = 'Loading source scans…';
+    galleries.replaceChildren();
+    google.script.run.withSuccessHandler(showScans).withFailureHandler(function () {
+      failed('Source scans could not be loaded. Try again or reload the page.');
+    }).loadSourceScans(request);
+  }
+  retry.addEventListener('click', loadScans);
+  // Let the text paint before starting Drive image reads.
+  window.addEventListener('load', function () { setTimeout(loadScans, 0); });
+})();
 </script>
 </body>
 </html>

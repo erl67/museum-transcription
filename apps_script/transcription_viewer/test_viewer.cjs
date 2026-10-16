@@ -263,7 +263,7 @@ test('conflicting, missing and invalid catalogue routes fail explicitly', () => 
   for (const extra of [['E001', 'Other', 'Genus species'], ['E001', 'Family', 'Other species']]) {
     assert.throws(() => ctx.routeFromCatalogue_(q, [...catalogueRows, extra]), /conflicting/);
   }
-  assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader]), /not found in the master catalogue/);
+  assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader]), /not found in the catalogue CSV/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader, ['E001', '', 'Genus species']]), /missing the family/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader, ['E001', 'Family', 'Genus']]), /invalid family or scientific name/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [['catalogNumber', 'Family']]), /one column each/);
@@ -276,240 +276,108 @@ test('partial hints must agree with the catalogue', () => {
   assert.throws(() => ctx.routeFromCatalogue_(ctx.normalizeQuery_({ e: '001', species: 'Other species' }), catalogueRows), /does not match/);
 });
 
-// Apps Script's ZIP/XML services are adapted with Python's standard library.
-// These tests parse real XLSX ZIP bytes and XML; they never contact Google.
+// Adapt Google's CSV parser using Python's standard library, with no network requests.
 const { spawnSync } = require('node:child_process');
-function pythonJson(script, payload) {
-  const run = spawnSync('python', ['-X', 'utf8', '-c', script], {
-    input: JSON.stringify(payload), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024
-  });
+const csvUtilities = { parseCsv(text) {
+  const run = spawnSync('python', ['-X', 'utf8', '-c',
+    'import csv,io,json,sys; print(json.dumps(list(csv.reader(io.StringIO(json.load(sys.stdin)), strict=True))))'],
+    { input: JSON.stringify(text), encoding: 'utf8' });
   if (run.error) throw run.error;
-  if (run.status) throw new Error(run.stderr.trim());
+  if (run.status) throw new Error(run.stderr);
   return JSON.parse(run.stdout);
-}
-const xmlCache = new Map();
-function xmlElement(node) {
-  const children = node.children.map(xmlElement);
-  const attribute = (key, value) => ({ getName: () => key.replace(/^.*\}/, ''), getValue: () => value });
-  return {
-    getName: () => node.name, getNamespace: () => node.ns,
-    getText: () => node.text,
-    getChildren: (name, ns) => children.filter(child => !name || child.getName() === name && child.getNamespace() === ns),
-    getChild: (name, ns) => children.find(child => child.getName() === name && child.getNamespace() === ns) || null,
-    getAttribute: name => Object.hasOwn(node.attributes, name) ? attribute(name, node.attributes[name]) : null,
-    getAttributes: () => Object.entries(node.attributes).map(([key, value]) => attribute(key, value))
-  };
-}
-const XmlService = { parse(text) {
-  if (!xmlCache.has(text)) xmlCache.set(text, pythonJson(String.raw`
-import json, sys, xml.etree.ElementTree as ET
-def node(element):
-    tag = element.tag
-    return dict(name=tag.split("}")[-1], ns=tag[1:].split("}")[0] if tag.startswith("{") else "",
-                attributes=element.attrib, text=(element.text or "") + "".join(c.tail or "" for c in element),
-                children=[node(child) for child in element])
-print(json.dumps(node(ET.fromstring(json.load(sys.stdin)))))
-`, text));
-  return { getRootElement: () => xmlElement(xmlCache.get(text)) };
 } };
-function blob(bytes, name = '') {
-  return { getName: () => name, getBytes: () => [...bytes], getDataAsString: () => bytes.toString('utf8'),
-    setContentType(type) { assert.equal(type, 'application/zip'); return this; } };
+function csvFile(text = 'catalogNumber,Family,Scientific Name\nE001,Family,Genus species\n') {
+  return { ...fakeFile('lookup.csv', text), getMimeType: () => 'text/csv' };
 }
-const zipCache = new Map();
-const workbookUtilities = { unzip(source) {
-  const base64 = Buffer.from(source.getBytes()).toString('base64');
-  if (!zipCache.has(base64)) zipCache.set(base64, pythonJson(String.raw`
-import base64, io, json, sys, zipfile
-with zipfile.ZipFile(io.BytesIO(base64.b64decode(json.load(sys.stdin)))) as z:
-    print(json.dumps([[i.filename, base64.b64encode(z.read(i)).decode()] for i in z.infolist()]))
-`, base64));
-  return zipCache.get(base64).map(([name, bytes]) => blob(Buffer.from(bytes, 'base64'), name));
-} };
-const xlsxNS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-const relNS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-const escapeXml = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const inlineCell = (address, text) => '<c r="' + address + '" t="inlineStr"><is><t>' + escapeXml(text) + '</t></is></c>';
-function xlsxParts(rows = catalogueRows) {
-  const columns = ['N', 'C', 'G'];
-  return {
-    'xl/workbook.xml': '<workbook xmlns="' + xlsxNS + '" xmlns:r="' + relNS + '"><sheets>' +
-      '<sheet name="Other tab" sheetId="1" r:id="rId1"/><sheet name="Full List" sheetId="8" r:id="rId8"/></sheets></workbook>',
-    'xl/_rels/workbook.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-      '<Relationship Id="rId1" Type="' + relNS + '/worksheet" Target="worksheets/sheet1.xml"/>' +
-      '<Relationship Id="rId8" Type="' + relNS + '/worksheet" Target="/xl/worksheets/sheet8.xml"/>' +
-      '</Relationships>',
-    'xl/worksheets/sheet1.xml': 'This unrelated worksheet must not be parsed',
-    'xl/worksheets/sheet8.xml': '<worksheet xmlns="' + xlsxNS + '"><sheetData>' + rows.map((row, i) =>
-      '<row r="' + (i + 1) + '">' + row.map((value, j) => inlineCell(columns[j] + (i + 1), value)).join('') + '</row>'
-    ).join('') + '</sheetData></worksheet>'
-  };
+const csvCode = code.replace("CATALOGUE_FILE_ID: ''", "CATALOGUE_FILE_ID: 'catalogue-csv-id'");
+function catalogueDrive(csv, reports = []) {
+  return { ...fakeDrive([family(reports)]), getFileById: id => id === 'catalogue-csv-id' ? csv : workbookFile(id) };
 }
-function zipParts(parts) {
-  return Buffer.from(pythonJson(String.raw`
-import base64, io, json, sys, zipfile
-out = io.BytesIO()
-with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-    for name, text in json.load(sys.stdin).items(): z.writestr(name, text)
-print(json.dumps(base64.b64encode(out.getvalue()).decode()))
-`, parts), 'base64');
+function csvContext(csv = csvFile(), reports = [], source = csvCode, extra = {}) {
+  return context({ DriveApp: catalogueDrive(csv, reports), Utilities: csvUtilities, ...extra }, source);
 }
-function xlsxFile(parts = xlsxParts()) {
-  const bytes = zipParts(parts);
-  return { getName: () => 'Master.xlsx', getMimeType: () => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    getSize: () => bytes.length, getBlob: () => blob(bytes) };
-}
-function catalogueDrive(workbook, reportFiles = []) {
-  return { getFileById: id => {
-    assert.equal(id, '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc');
-    return workbook;
-  }, getFolderById: () => ({ getFolders: () => iterator([family(reportFiles)]) }) };
-}
-function workbookContext(workbook = xlsxFile(), reports = [], source = code, extra = {}) {
-  return context({ DriveApp: catalogueDrive(workbook, reports), XmlService, Utilities: workbookUtilities, ...extra }, source);
-}
-const readWorkbook = (parts, e = 'E001', source = code) => {
-  const local = workbookContext(xlsxFile(parts), [], source);
-  return local.readCatalogue_(local.normalizeQuery_({ e }), () => {});
-};
 
-test('E-number-only lookup reads the master XLSX and only the routed species reports', () => {
+test('E-number-only lookup reads CSV and full-location links bypass it', () => {
   let reads = 0;
-  const workbook = xlsxFile(), getBlob = workbook.getBlob;
-  workbook.getBlob = () => { reads++; return getBlob(); };
+  const file = csvFile(), getBlob = file.getBlob;
+  file.getBlob = () => { reads++; return getBlob(); };
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block()),
     { getName: () => 'Other_species_transcriptions_20261015_1200.txt',
       getBlob: () => { throw new Error('Unrelated report read'); } }];
-  const local = workbookContext(workbook, reports);
-  const result = local.lookupTranscription_({ e: 'E001', workbook: 'untrusted-other-id' });
+  const local = csvContext(file, reports);
+  const result = local.lookupTranscription_({ e: 'E001', catalogue: 'untrusted-id' });
   assert.equal(result.query.family, 'Family');
-  assert.equal(result.query.species, 'Genus_species');
   assert.equal(result.records[0].numbers.join(), 'E001');
   assert.equal(reads, 1);
   local.lookupTranscription_(query);
-  assert.equal(reads, 1, 'Existing full links bypass catalogue content but doGet still checks workbook access');
+  assert.equal(reads, 1);
 });
 
-test('E-number-only search works before reports exist and rereads saved workbook changes', () => {
-  let workbook = xlsxFile(), reads = 0;
-  const current = { getName: () => workbook.getName(), getMimeType: () => workbook.getMimeType(),
-    getSize: () => workbook.getSize(), getBlob: () => { reads++; return workbook.getBlob(); } };
-  const local = workbookContext(current);
+test('CSV searches work before reports exist and reread refreshed exports', () => {
+  let current = csvFile();
+  const file = { ...current, getBlob: () => current.getBlob(), getSize: () => current.getSize() };
+  const local = csvContext(file);
   assert.equal(local.lookupTranscription_({ e: 'E001' }).records.length, 0);
-  assert.throws(() => local.lookupTranscription_({ e: 'E002' }), /not found in the master catalogue/);
-  workbook = xlsxFile(xlsxParts([...catalogueRows, ['E002', 'Family', 'Genus species']]));
+  assert.throws(() => local.lookupTranscription_({ e: 'E002' }), /not found in the catalogue CSV/);
+  current = csvFile('catalogNumber,Family,Scientific Name\nE002,Family,Genus species\n');
   assert.equal(local.lookupTranscription_({ e: 'E002' }).records.length, 0);
-  assert.equal(reads, 3);
 });
 
-test('wrong file type, oversized workbooks and corrupt ZIP/XML fail without CSV fallback', () => {
-  const workbook = xlsxFile();
-  for (const mime of ['text/csv', 'application/vnd.google-apps.spreadsheet', 'application/vnd.google-apps.shortcut']) {
-    assert.throws(() => workbookContext({ ...workbook, getMimeType: () => mime }).lookupTranscription_({ e: 'E001' }), /master Excel/);
+test('CSV reads BOM, Unicode, quoted commas/newlines and exact leading zeros', () => {
+  const local = csvContext(csvFile('\uFEFFScientific Name,catalogNumber,Family,Notes\r\n' +
+    'Génus spéciès,E001,Family,"historical, text\nsecond line"\r\nOther species,E1,Other,x\n'));
+  assert.equal(local.lookupTranscription_({ e: 'E001' }).query.species, 'Génus_spéciès');
+  const rows = local.readCatalogue_({}, () => {});
+  assert.equal(rows[1][3], 'historical, text\nsecond line');
+});
+
+test('CSV missing/duplicate headers, conflicting rows and malformed exports fail explicitly', () => {
+  for (const text of ['catalogNumber,Family\nE001,Family',
+    'catalogNumber,Family,Scientific Name,Family\nE001,Family,Genus species,Family']) {
+    assert.throws(() => csvContext(csvFile(text)).lookupTranscription_({ e: 'E001' }), /one column each/);
   }
-  assert.throws(() => workbookContext({ ...workbook, getSize: () => 26 * 1024 * 1024 })
-    .lookupTranscription_({ e: 'E001' }), /workbook exceeds/);
-  assert.throws(() => workbookContext({ ...workbook, getBlob: () => blob(Buffer.from('not a zip')) })
-    .lookupTranscription_({ e: 'E001' }), /could not be read/);
-  for (const patch of [{ 'xl/workbook.xml': '<broken' }, { 'xl/workbook.xml': '<!DOCTYPE workbook><workbook/>' },
-    { 'xl/_rels/workbook.xml.rels': '<Relationships/>' }]) {
-    assert.throws(() => readWorkbook({ ...xlsxParts(), ...patch }), /could not be read/);
+  for (const row of ['E001,Other,Genus species', 'E001,Family,Other species', 'E001,,Genus species']) {
+    assert.throws(() => csvContext(csvFile('catalogNumber,Family,Scientific Name\nE001,Family,Genus species\n' + row))
+      .lookupTranscription_({ e: 'E001' }), /conflicting|missing the family/);
+  }
+  assert.throws(() => csvContext(csvFile('catalogNumber,Family,Scientific Name\nE001,Family,Genus species,extra'))
+    .lookupTranscription_({ e: 'E001' }), /extra columns/);
+  for (const text of ['"unterminated', 'catalogNumber\u0000', 'catalogNumber\uFFFD']) {
+    assert.throws(() => csvContext(csvFile(text)).lookupTranscription_({ e: 'E001' }), /CSV could not be read/);
   }
 });
 
-test('catalogue tab is selected by name and workbook relationship rather than gid or sheet order', () => {
-  const parts = xlsxParts();
-  assert.equal(readWorkbook(parts)[1].join('|'), 'E001|Family|Genus species');
-  const relative = { ...parts, 'xl/_rels/workbook.xml.rels':
-    parts['xl/_rels/workbook.xml.rels'].replace('/xl/worksheets/sheet8.xml', './worksheets/sheet8.xml') };
-  assert.equal(readWorkbook(relative)[1][0], 'E001');
-  assert.throws(() => readWorkbook(parts, 'E001', code.replace("CATALOGUE_SHEET_NAME: 'Full List'", "CATALOGUE_SHEET_NAME: 'Missing'")),
-    /one catalogue tab named "Missing"/);
-  const external = { ...parts, 'xl/_rels/workbook.xml.rels':
-    parts['xl/_rels/workbook.xml.rels'].replace('Target="/xl/worksheets/sheet8.xml"', 'TargetMode="External" Target="https://example.com/remote"') };
-  assert.throws(() => readWorkbook(external), /could not be read/);
-});
-
-test('XLSX shared strings, rich text, Unicode and sparse reordered columns preserve exact numbers', () => {
-  const parts = xlsxParts();
-  parts['xl/_rels/workbook.xml.rels'] = parts['xl/_rels/workbook.xml.rels'].replace('</Relationships>',
-    '<Relationship Id="rIdShared" Type="' + relNS + '/sharedStrings" Target="sharedStrings.xml"/></Relationships>');
-  parts['xl/sharedStrings.xml'] = '<sst xmlns="' + xlsxNS + '"><si><t>E001</t></si>' +
-    '<si><r><t>Fam</t></r><r><t>ily</t></r><rPh><t>ignored phonetic guide</t></rPh></si></sst>';
-  parts['xl/worksheets/sheet8.xml'] = parts['xl/worksheets/sheet8.xml'].replace(inlineCell('N2', 'E001'), '<c r="N2" t="s"><v>0</v></c>')
-    .replace(inlineCell('C2', 'Family'), '<c r="C2" t="s"><v>1</v></c>')
-    .replace(inlineCell('G2', 'Genus species'), inlineCell('G2', 'Génus spéciès'))
-    .replace('</sheetData>', '<row r="99">' + inlineCell('N99', 'E1') + inlineCell('C99', 'Other') + inlineCell('G99', 'Other species') + '</row></sheetData>');
-  assert.equal(readWorkbook(parts)[1].join('|'), 'E001|Family|Génus spéciès');
-  const bad = { ...parts, 'xl/worksheets/sheet8.xml': parts['xl/worksheets/sheet8.xml'].replace('<v>0</v>', '<v>999</v>') };
-  assert.throws(() => readWorkbook(bad), /could not be read/);
-});
-
-test('numeric catalogue cells respect simple leading-zero formats and never guess unsupported formats', () => {
-  for (const format of ['000', '&quot;E&quot;000', '\\E000']) {
-    const parts = xlsxParts();
-    parts['xl/_rels/workbook.xml.rels'] = parts['xl/_rels/workbook.xml.rels'].replace('</Relationships>',
-      '<Relationship Id="rIdStyles" Type="' + relNS + '/styles" Target="styles.xml"/></Relationships>');
-    parts['xl/styles.xml'] = '<styleSheet xmlns="' + xlsxNS + '"><numFmts><numFmt numFmtId="164" formatCode="' +
-      format + '"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>';
-    parts['xl/worksheets/sheet8.xml'] = parts['xl/worksheets/sheet8.xml'].replace(inlineCell('N2', 'E001'), '<c r="N2" s="1"><v>1</v></c>');
-    assert.equal(ctx.routeFromCatalogue_(query, readWorkbook(parts)).e, 'E001');
-    const bad = { ...parts, 'xl/styles.xml': parts['xl/styles.xml'].replace(format, '#,##0') };
-    assert.throws(() => readWorkbook(bad), /unsupported number format/);
+test('CSV size, wrong type, denied file and elapsed-time limits are explicit', () => {
+  const file = csvFile();
+  assert.throws(() => csvContext({ ...file, getSize: () => 11 * 1024 * 1024 }).lookupTranscription_({ e: 'E001' }), /size limit/);
+  for (const patch of [{ getName: () => 'Master.xlsx' }, { getMimeType: () => 'application/vnd.google-apps.spreadsheet' }]) {
+    assert.throws(() => csvContext({ ...file, ...patch }).lookupTranscription_({ e: 'E001' }), /UTF-8 CSV file/);
   }
-  const parts = xlsxParts();
-  parts['xl/worksheets/sheet8.xml'] = parts['xl/worksheets/sheet8.xml'].replace(inlineCell('N2', 'E001'), '<c r="N2"><v>1</v></c>');
-  assert.equal(readWorkbook(parts).length, 1, 'Unformatted 1 must not match E001');
-  assert.equal(readWorkbook(parts, 'E1')[1][0], '1');
+  assert.throws(() => csvContext({ ...file, getBlob: () => { throw new Error('Private Drive failure'); } })
+    .lookupTranscription_({ e: 'E001' }), /sharing and UTF-8/);
+  assert.throws(() => csvContext().readCatalogue_({}, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
 });
 
-test('XLSX lookup reads saved formula results and fails explicitly on missing results or cell errors', () => {
-  const parts = xlsxParts();
-  parts['xl/worksheets/sheet8.xml'] = parts['xl/worksheets/sheet8.xml'].replace(inlineCell('N2', 'E001'),
-    '<c r="N2" t="str"><f>CONCAT("E","001")</f><v>E001</v></c>');
-  assert.equal(readWorkbook(parts)[1][0], 'E001');
-  const empty = { ...parts, 'xl/worksheets/sheet8.xml': parts['xl/worksheets/sheet8.xml'].replace('<v>E001</v>', '') };
-  assert.throws(() => readWorkbook(empty), /formula has no saved result/);
-  const error = { ...parts, 'xl/worksheets/sheet8.xml': parts['xl/worksheets/sheet8.xml'].replace('t="str"', 't="e"').replace('<v>E001</v>', '<v>#VALUE!</v>') };
-  assert.throws(() => readWorkbook(error), /error or unsupported value/);
-});
-
-test('workbook header errors, conflicting routes and missing family/species remain explicit', () => {
-  const missing = xlsxParts();
-  missing['xl/worksheets/sheet8.xml'] = missing['xl/worksheets/sheet8.xml'].replace('Scientific Name', 'wrong header');
-  assert.throws(() => readWorkbook(missing), /one column each/);
-  const duplicated = xlsxParts();
-  duplicated['xl/worksheets/sheet8.xml'] = duplicated['xl/worksheets/sheet8.xml'].replace('</row>', inlineCell('Z1', 'Family') + '</row>');
-  assert.throws(() => readWorkbook(duplicated), /one column each/);
-  for (const extra of [['E001', 'Other', 'Other species'], ['E001', '', 'Genus species']]) {
-    const local = workbookContext(xlsxFile(xlsxParts([...catalogueRows, extra])));
-    assert.throws(() => local.lookupTranscription_({ e: 'E001' }), /conflicting|missing the family/);
+function csvParent(direct = [], sibling = []) {
+  return { getFilesByName: () => iterator(direct),
+    getFoldersByName: () => iterator(sibling.map(files => ({ getFilesByName: () => iterator(files) }))) };
+}
+test('CSV discovery supports the Family parent and sibling Transcription folder without arbitrary searches', () => {
+  const file = csvFile();
+  for (const parent of [csvParent([file]), csvParent([], [[file]]), csvParent([file], [[file]])]) {
+    const local = context({ Utilities: csvUtilities });
+    const rows = local.readCatalogue_({ getParents: () => iterator([parent]) }, () => {});
+    assert.equal(rows[1][0], 'E001');
   }
-  assert.equal(workbookContext(xlsxFile(xlsxParts([...catalogueRows, catalogueRows[1]])))
-    .lookupTranscription_({ e: 'E001' }).query.species, 'Genus_species');
 });
 
-test('expanded workbook and elapsed-time limits produce incomplete-search errors', () => {
-  const local = workbookContext(xlsxFile(), [], code.replace('MAX_CATALOGUE_XML_BYTES: 80 * 1024 * 1024', 'MAX_CATALOGUE_XML_BYTES: 10'));
-  assert.throws(() => local.lookupTranscription_({ e: 'E001' }), /expanded workbook data exceeds/);
-  let checks = 0;
-  assert.throws(() => workbookContext().readCatalogue_(query, () => {
-    if (++checks === 5) throw ctx.viewerError_('Search time limit reached');
-  }), /Search time limit/);
-});
-
-
-
-test('blank styled rows are skipped and unrelated cell errors do not block a matching catalogue row', () => {
-  const parts = xlsxParts([...catalogueRows, ['E002', 'Other family', 'Other species']]);
-  const sheet = parts['xl/worksheets/sheet8.xml'];
-  parts['xl/worksheets/sheet8.xml'] = sheet
-    .replace(inlineCell('G3', 'Other species'), '<c r="G3" t="e"><v>#VALUE!</v></c>')
-    .replace(inlineCell('G2', 'Genus species'), inlineCell('G2', 'Genus species') + '<c r="X2" t="e"><v>#N/A</v></c>')
-    .replace(/\br="([A-Z]*)(\d+)"/g, (_, column, row) => 'r="' + column + (Number(row) + 4) + '"')
-    .replace('<sheetData>', '<sheetData><row r="1"><c r="A1" s="7"/></row><row r="2">' + inlineCell('A2', ' ') + '</row>');
-  assert.equal(readWorkbook(parts)[1].join('|'), 'E001|Family|Genus species');
-  assert.throws(() => readWorkbook(parts, 'E002'), /error or unsupported value/);
+test('CSV discovery rejects absent and ambiguous exports instead of choosing one', () => {
+  const local = context({ Utilities: csvUtilities });
+  const second = { ...csvFile(), getId: () => 'second-csv' };
+  for (const [parent, pattern] of [[csvParent(), /not found or is not accessible/],
+    [csvParent([csvFile()], [[second]]), /More than one catalogue CSV/]]) {
+    assert.throws(() => local.readCatalogue_({ getParents: () => iterator([parent]) }, () => {}), pattern);
+  }
 });
 
 test('form submits only E-number so a new search cannot inherit stale family or species', () => {
@@ -523,15 +391,15 @@ test('doGet resolves an E-number-only request and passes the resolved location t
   let template;
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block())];
   const local = context({
-    DriveApp: catalogueDrive(xlsxFile(), reports),
-    Utilities: workbookUtilities, XmlService,
+    DriveApp: catalogueDrive(csvFile(), reports),
+    Utilities: csvUtilities,
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/example/exec' }) },
     HtmlService: { createTemplateFromFile: name => {
       assert.equal(name, 'Viewer');
       template = { evaluate: () => ({ setTitle() { return this; }, addMetaTag() { return this; } }) };
       return template;
     } }
-  });
+  }, csvCode);
   local.doGet({ parameter: { e: 'E001' } });
   assert.equal(template.query.e, 'E001');
   assert.equal(template.result.query.species, 'Genus_species');
@@ -587,7 +455,8 @@ const imageContext = () => context({ Utilities: { base64Encode: bytes => Buffer.
 function scanFolder(name, children = [], namedFiles = {}) {
   return { getName: () => name, getId: () => 'folder-' + name,
     getFolders: () => iterator(children),
-    getFilesByName: name => iterator(namedFiles[name] || []) };
+    getFilesByName: name => iterator(namedFiles[name] || []),
+    getFiles: () => iterator(Object.entries(namedFiles).flatMap(([name, files]) => files.map(file => ({ ...file, getName: () => name })))) };
 }
 function jpgFile(id, bytes = [-1, -40, -1, -32]) {
   let reads = 0;
@@ -751,7 +620,7 @@ test('image timeout is nonfatal and does not cause fallback to an older report',
   assert.equal(result.records[0].text, 'transcribed text\nTRANSCRIPTION NOTES:\nNone.');
 });
 
-test('lookup integrates images from the selected report only, without changing its status', () => {
+test('initial lookup returns transcription and image request without reading any JPG bytes', () => {
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt',
     block(['001'], 'newest text', 'OK').replace('FILES: source.jpg', 'FILES: ' + scanA))];
   const family = directScans({ [scanA]: [jpgFile('a')] });
@@ -761,7 +630,9 @@ test('lookup integrates images from the selected report only, without changing i
   const result = local.lookupTranscription_(query);
   assert.equal(result.records[0].text, 'newest text');
   assert.equal(result.records[0].status, 'OK');
-  assert.equal(result.records[0].images[0].base64, '/9j/4A==');
+  assert.equal(result.records[0].images.length, 0);
+  assert.equal(result.imageRequest.reportId, 'file-id');
+  assert.equal(result.imageRequest.manifest, local.imageManifest_(result.records));
 });
 
 
@@ -842,5 +713,242 @@ test('deployment accepts signed-in accounts and runs with each readers own read-
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'appsscript.json'), 'utf8').replace(/^\ufeff/, ''));
   assert.deepEqual(manifest.webapp, { access: 'ANYONE', executeAs: 'USER_ACCESSING' });
   assert.deepEqual(manifest.oauthScopes, ['https://www.googleapis.com/auth/drive.readonly']);
+});
+
+function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]: [jpgFile('b')] }) {
+  const folder = directScans(namedFiles);
+  let reports = text === null ? [] : [fakeFile('Genus_species_transcriptions_20261014_1200.txt', text)];
+  let allowed = true;
+  folder.getFiles = () => iterator(reports);
+  const drive = fakeDrive([folder]);
+  drive.getFileById = id => {
+    if (id === '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc') {
+      if (!allowed) throw new Error('Private permission denied');
+      return workbookFile(id);
+    }
+    const report = reports.find(file => file.getId() === id);
+    if (!report) throw new Error('Private report missing');
+    return { ...report, getParents: () => iterator([folder]) };
+  };
+  const local = context({ DriveApp: drive, Utilities: { base64Encode: bytes => Buffer.from(bytes).toString('base64') } });
+  return { local, folder, drive, namedFiles,
+    setReports: value => { reports = value; }, revoke: () => { allowed = false; } };
+}
+const imageReport = (files = [scanA, scanB], status = 'OK') =>
+  block(['001'], 'selected text', status).replace('FILES: source.jpg', 'FILES: ' + files.join('; '));
+
+test('text-first lookup reads no image bytes; RPC reads only selected-report images', () => {
+  const fixture = rpcFixture(imageReport([scanB, scanA]));
+  const result = fixture.local.lookupTranscription_(query);
+  for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
+  const loaded = fixture.local.loadSourceScans(result.imageRequest);
+  assert.equal(loaded.scanOnly, false);
+  assert.equal(loaded.galleries[0].images.map(scan => scan.name).join('|'), scanB + '|' + scanA);
+  assert.ok(loaded.galleries[0].images.every(scan => scan.base64));
+  assert.equal(result.records[0].text, 'selected text');
+});
+
+test('newer reports arriving after text render cannot switch the image source', () => {
+  const fixture = rpcFixture(imageReport([scanA]));
+  const request = fixture.local.lookupTranscription_(query).imageRequest;
+  fixture.setReports([fakeFile('Genus_species_transcriptions_20261014_1200.txt', imageReport([scanA])),
+    { ...fakeFile('Genus_species_transcriptions_20261015_1200.txt', imageReport([scanB])), getId: () => 'newer' }]);
+  const loaded = fixture.local.loadSourceScans(request);
+  assert.equal(loaded.galleries[0].images[0].name, scanA);
+  assert.equal(fixture.namedFiles[scanB][0].reads(), 0);
+});
+
+test('changed, deleted, malformed and out-of-folder pinned reports do not select alternative scans', () => {
+  for (const kind of ['changed', 'deleted', 'malformed', 'moved', 'wrong species']) {
+    const fixture = rpcFixture(imageReport([scanA]));
+    const request = fixture.local.lookupTranscription_(query).imageRequest;
+    if (kind === 'changed') fixture.setReports([fakeFile('Genus_species_transcriptions_20261014_1200.txt', imageReport([scanB]))]);
+    if (kind === 'deleted') fixture.setReports([]);
+    if (kind === 'malformed') fixture.setReports([fakeFile('Genus_species_transcriptions_20261014_1200.txt', banner('001') + '\nID: partial')]);
+    if (kind === 'wrong species') fixture.setReports([fakeFile('Other_species_transcriptions_20261014_1200.txt', imageReport())]);
+    if (kind === 'moved') {
+      const getFile = fixture.drive.getFileById;
+      fixture.drive.getFileById = id => id === 'file-id' ?
+        { ...getFile(id), getParents: () => iterator([{ getId: () => 'outside' }]) } : getFile(id);
+    }
+    const loaded = fixture.local.loadSourceScans(request);
+    assert.ok(loaded.error, kind);
+    assert.equal(loaded.galleries, undefined);
+    for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
+  }
+});
+
+test('RPC rechecks workbook access before any folder or scan read', () => {
+  const fixture = rpcFixture(imageReport());
+  const request = fixture.local.lookupTranscription_(query).imageRequest;
+  fixture.revoke();
+  fixture.drive.getFolderById = () => { throw new Error('Must not reach folder access'); };
+  const loaded = fixture.local.loadSourceScans(request);
+  assert.match(loaded.error, /access to the master Excel file/);
+  assert.doesNotMatch(loaded.error, /Private|Must not/);
+  for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
+});
+
+test('RPC rejects tampered manifests and invalid or incomplete queries', () => {
+  const fixture = rpcFixture(imageReport());
+  const request = fixture.local.lookupTranscription_(query).imageRequest;
+  assert.match(fixture.local.loadSourceScans({ ...request, manifest: '[]' }).error, /report has changed/);
+  for (const bad of [null, {}, { query: { e: 'E001' } }, { query: { ...query, family: '../escape' } }]) {
+    assert.ok(fixture.local.loadSourceScans(bad).error);
+  }
+  for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
+});
+
+test('no-report pages discover complete numbers and shared slips without prefix collisions', () => {
+  const sharedA = 'Genus_species_E777_E001(A).jpg', sharedB = 'Genus_species_E777_E001(B).jpg';
+  const fixture = rpcFixture(null, { [sharedB]: [jpgFile('b')],
+    'Genus_species_E0010.jpg': [jpgFile('wrong')], 'Genus_species_E1.jpg': [jpgFile('wrong-zero')],
+    [sharedA]: [jpgFile('a')] });
+  const page = fixture.local.lookupTranscription_(query);
+  assert.equal(page.records.length, 0);
+  const loaded = fixture.local.loadSourceScans(page.imageRequest);
+  assert.equal(loaded.scanOnly, true);
+  assert.equal(loaded.galleries.length, 1);
+  assert.equal(loaded.galleries[0].numbers.join('|'), 'E777|E001');
+  assert.equal(loaded.galleries[0].images.map(scan => scan.name).join('|'), sharedA + '|' + sharedB);
+  assert.equal(fixture.namedFiles['Genus_species_E0010.jpg'][0].reads(), 0);
+  assert.equal(fixture.namedFiles['Genus_species_E1.jpg'][0].reads(), 0);
+});
+
+test('CSV-only record text remains catalogue-only while newly arrived scans load separately', () => {
+  const fixture = rpcFixture(missing('Collector: A\nDate: June 1924'));
+  const page = fixture.local.lookupTranscription_(query);
+  const loaded = fixture.local.loadSourceScans(page.imageRequest);
+  assert.equal(loaded.scanOnly, true);
+  assert.equal(loaded.galleries[0].images.length, 2);
+  assert.equal(page.records[0].status, 'MISSING');
+  assert.equal(page.records[0].text, 'Collector: A\nDate: June 1924');
+  assert.equal(page.records[0].files.length, 0);
+});
+
+test('failed and paused reports keep their own scan references and retained response', () => {
+  for (const status of ['FAILED', 'PAUSED']) {
+    const fixture = rpcFixture(imageReport([scanB], status));
+    const page = fixture.local.lookupTranscription_(query);
+    const loaded = fixture.local.loadSourceScans(page.imageRequest);
+    assert.equal(loaded.scanOnly, false);
+    assert.equal(loaded.galleries[0].images.length, 1);
+    assert.equal(loaded.galleries[0].images[0].name, scanB);
+    assert.equal(page.records[0].status, status);
+    assert.equal(page.records[0].text, 'selected text');
+  }
+});
+
+test('scan-only discovery keeps distinct cards separate and orders sides numerically', () => {
+  const files = { 'Other_prefix_E001(B).jpg': [jpgFile('lone')],
+    'Genus_species_E001(10).jpg': [jpgFile('ten')],
+    'Genus_species_E001(2).jpg': [jpgFile('two')],
+    'Genus_species_E001(1)_exchanged.jpg': [jpgFile('one')] };
+  const fixture = rpcFixture(null, files);
+  const loaded = fixture.local.loadSourceScans(fixture.local.lookupTranscription_(query).imageRequest);
+  assert.equal(loaded.galleries.length, 2);
+  assert.equal(loaded.galleries[0].images.map(scan => scan.label).join('|'), 'Front|Back|Back 2');
+  assert.equal(loaded.galleries[0].images[1].name, 'Genus_species_E001(2).jpg');
+  assert.match(loaded.galleries[0].message, /Gap/);
+  assert.equal(loaded.galleries[1].images[0].label, 'Back');
+  assert.match(loaded.galleries[1].message, /Front image is missing/);
+});
+
+test('ambiguous and invalid side groups are reported without choosing any side', () => {
+  for (const extra of ['Genus_species_E001.jpg', 'Genus_species_E001(1).jpg',
+    'Genus_species_E001(A)_exchanged.jpg', 'Genus_species_E001(0).jpg', 'Genus_species_E001(WRONG).jpg']) {
+    const fixture = rpcFixture(null, { [scanA]: [jpgFile('a')], [extra]: [jpgFile('extra')] });
+    const loaded = fixture.local.loadSourceScans(fixture.local.lookupTranscription_(query).imageRequest);
+    assert.match(loaded.galleries[0].message, /Ambiguous or invalid side/);
+    assert.equal(loaded.galleries[0].images.length, 0);
+    assert.equal(fixture.namedFiles[scanA][0].reads(), 0);
+  }
+});
+
+test('malformed matching filenames, absent images and absent folders remain distinct', () => {
+  const malformed = rpcFixture(null, { 'Genus_species_E001_rescan.jpg': [jpgFile('bad')] });
+  const bad = malformed.local.loadSourceScans(malformed.local.lookupTranscription_(query).imageRequest);
+  assert.match(bad.message, /unrecognized filename/);
+  assert.doesNotMatch(bad.message, /No matching/);
+  const absent = rpcFixture(null, {});
+  assert.match(absent.local.loadSourceScans(absent.local.lookupTranscription_(query).imageRequest).message, /No matching source JPGs/);
+  absent.folder.getFolders = () => iterator([]);
+  assert.match(absent.local.loadSourceScans(absent.local.lookupTranscription_(query).imageRequest).error, /not found or is not accessible/);
+});
+
+test('scan discovery limits and timeout never become a false absence', () => {
+  const jpeg = scanFolder('JPEG', [], { [scanA]: [jpgFile('a')], [scanB]: [jpgFile('b')] });
+  for (const source of [code.replace('MAX_FILES_LISTED: 5000', 'MAX_FILES_LISTED: 1'),
+    code.replace('MAX_IMAGES: 40', 'MAX_IMAGES: 1')]) {
+    assert.throws(() => context({}, source).discoverSourceScans_(jpeg, query, () => {}), /incomplete/);
+  }
+  assert.throws(() => ctx.discoverSourceScans_(jpeg, query, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
+});
+
+// Execute the actual client script with a small DOM adapter and a deferred RPC.
+function clientPage() {
+  class Element {
+    constructor(tag) { this.tagName = tag; this.children = []; this.events = {}; this.attributes = {}; this.textContent = ''; }
+    appendChild(node) { this.children.push(node); node.parent = this; return node; }
+    replaceChildren() { this.children = []; }
+    replaceWith(node) { this.parent.children[this.parent.children.indexOf(this)] = node; }
+    addEventListener(name, handler) { this.events[name] = handler; }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    removeAttribute(name) { delete this.attributes[name]; }
+    set innerHTML(value) { throw new Error('Unescaped HTML must not be used'); }
+  }
+  const nodes = Object.fromEntries(['source-scans', 'scan-status', 'scan-galleries', 'retry-scans']
+    .map(id => [id, new Element('div')]));
+  const request = { query, reportId: 'file-id', manifest: '[]' };
+  nodes['source-scans'].dataset = { request: JSON.stringify(request) };
+  const events = {}, tasks = [], calls = [];
+  let success, failure;
+  const runner = {
+    withSuccessHandler(fn) { success = fn; return this; },
+    withFailureHandler(fn) { failure = fn; return this; },
+    loadSourceScans(request) { calls.push(request); }
+  };
+  const script = fs.readFileSync(path.join(__dirname, 'Viewer.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
+  vm.runInNewContext(script, { document: { getElementById: id => nodes[id], createElement: tag => new Element(tag) },
+    window: { addEventListener: (name, handler) => { events[name] = handler; } },
+    setTimeout: fn => tasks.push(fn), google: { script: { run: runner } } });
+  return { nodes, calls, request, start() { events.load(); tasks.shift()(); },
+    success: result => success(result), failure: () => failure(new Error('Private server detail')) };
+}
+
+test('browser script defers RPC until page load and displays returned scans in order as plain text', () => {
+  const page = clientPage();
+  assert.equal(page.calls.length, 0, 'Text can be displayed before RPC starts');
+  page.start();
+  assert.equal(JSON.stringify(page.calls[0]), JSON.stringify(page.request));
+  const unsafeName = '<img src=x onerror=alert(1)>.jpg';
+  page.success({ scanOnly: true, message: '', galleries: [{ numbers: ['E001'], message: 'Front missing',
+    images: [{ label: 'Back', name: unsafeName, url: 'https://drive.google.com/file/d/a/view', base64: '/9j/4A==' }] }] });
+  assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'false');
+  assert.match(page.nodes['scan-status'].textContent, /No image transcription/);
+  const group = page.nodes['scan-galleries'].children[0], figure = group.children[2];
+  assert.equal(figure.children[0].alt, 'Back: ' + unsafeName);
+  assert.equal(figure.children[1].children[1].textContent, unsafeName);
+  assert.equal(figure.children[1].children[0].textContent, 'Back');
+  figure.children[0].events.error();
+  assert.match(figure.children[0].textContent, /could not be displayed/);
+  assert.equal(figure.children[1].children[1].href, 'https://drive.google.com/file/d/a/view');
+});
+
+test('browser RPC failures and server errors offer retry without replacing record text', () => {
+  for (const serverError of [false, true]) {
+    const page = clientPage();
+    page.start();
+    if (serverError) page.success({ error: 'Check your workbook access.' });
+    else page.failure();
+    assert.equal(page.nodes['retry-scans'].hidden, false);
+    assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'false');
+    assert.doesNotMatch(page.nodes['scan-status'].textContent, /Private server detail/);
+    page.nodes['retry-scans'].events.click();
+    assert.equal(page.calls.length, 2);
+    assert.equal(page.nodes['retry-scans'].hidden, true);
+    page.success({ scanOnly: true, message: 'No matching source JPGs.', galleries: [] });
+    assert.match(page.nodes['scan-status'].textContent, /No matching source JPGs/);
+  }
 });
 

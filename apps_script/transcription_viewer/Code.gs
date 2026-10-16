@@ -4,10 +4,11 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   WORKBOOK_FILE_ID: '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc',
   // Family root already used by Egg_Scan_Linker.gs.
   ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ',
-  // Tab name in the saved Excel workbook; the browser gid is not an XLSX worksheet ID.
-  CATALOGUE_SHEET_NAME: 'Full List',
-  MAX_CATALOGUE_BYTES: 25 * 1024 * 1024,
-  MAX_CATALOGUE_XML_BYTES: 80 * 1024 * 1024,
+  // Optional direct CSV ID avoids parent-folder discovery for shared readers.
+  CATALOGUE_FILE_ID: '',
+  CATALOGUE_FOLDER_NAME: 'Transcription',
+  CATALOGUE_FILE_NAME: 'EggSlipReorganizationProject_FULL.xlsx - Full List.csv',
+  MAX_CATALOGUE_BYTES: 10 * 1024 * 1024,
   MAX_REPORT_BYTES: 10 * 1024 * 1024,
   MAX_REPORTS_READ: 40,
   MAX_FILES_LISTED: 5000,
@@ -80,174 +81,58 @@ function normalizeQuery_(query) {
   return { e: 'E' + match[1], digits: match[1], family: family, species: species };
 }
 
-/** Read the saved master Excel workbook directly; never convert it or fall back to a CSV. */
-function readCatalogue_(query, checkTime) {
-  checkTime();
-  const file = DriveApp.getFileById(TRANSCRIPTION_VIEWER.WORKBOOK_FILE_ID);
-  if (file.getMimeType() !== 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
-    throw viewerError_('The catalogue must be the master Excel (.xlsx) file. Check WORKBOOK_FILE_ID; a shortcut or a converted Google Sheet is a different file.');
-  }
-  if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
-    throw viewerError_('The master workbook exceeds the viewer size limit. The E-number search could not be completed.');
-  }
+/** Read the exported lookup CSV; the workbook remains the access gate. */
+function readCatalogue_(root, checkTime) {
+  let file;
   try {
-    const blob = file.getBlob().setContentType('application/zip');
-    const parts = new Map();
-    for (const part of Utilities.unzip(blob)) {
-      checkTime();
-      const name = part.getName();
-      if (parts.has(name)) throw new Error('Duplicate workbook part');
-      parts.set(name, part);
-    }
-    let xmlBytes = 0;
-    const xml = name => {
-      checkTime();
-      if (!parts.has(name)) throw new Error('Missing workbook part');
-      const bytes = parts.get(name).getBytes();
-      xmlBytes += bytes.length;
-      if (xmlBytes > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_XML_BYTES) {
-        throw viewerError_('The expanded workbook data exceeds the viewer size limit. The E-number search is incomplete.');
+    if (TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID) {
+      file = DriveApp.getFileById(TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID);
+    } else {
+      const candidates = new Map();
+      const addFiles = folder => {
+        const files = folder.getFilesByName(TRANSCRIPTION_VIEWER.CATALOGUE_FILE_NAME);
+        while (files.hasNext()) {
+          checkTime();
+          const found = files.next();
+          candidates.set(found.getId(), found);
+        }
+      };
+      const parents = root.getParents();
+      while (parents.hasNext()) {
+        checkTime();
+        const parent = parents.next();
+        addFiles(parent);
+        const folders = parent.getFoldersByName(TRANSCRIPTION_VIEWER.CATALOGUE_FOLDER_NAME);
+        while (folders.hasNext()) { checkTime(); addFiles(folders.next()); }
       }
-      const text = parts.get(name).getDataAsString('UTF-8');
-      // The catalogue needs no document types, external entities or external relationships.
-      if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Unsupported XML declarations');
-      const root = XmlService.parse(text).getRootElement();
-      checkTime();
-      return root;
-    };
-    return catalogueFromXlsx_(query, xml, checkTime);
+      if (candidates.size !== 1) {
+        throw viewerError_(candidates.size ?
+          'More than one catalogue CSV was found. Set CATALOGUE_FILE_ID to the intended export.' :
+          'The catalogue CSV was not found or is not accessible. Check CSV sharing and CATALOGUE_FILE_ID.');
+      }
+      file = candidates.values().next().value;
+    }
+    checkTime();
+    if (!/\.csv$/i.test(file.getName()) || /^application\/vnd\.google-apps\./.test(file.getMimeType())) {
+      throw viewerError_('The lookup catalogue must be a UTF-8 CSV file. Check CATALOGUE_FILE_ID.');
+    }
+    if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
+      throw viewerError_('The catalogue CSV exceeds the viewer size limit. The E-number search could not be completed.');
+    }
+    const text = file.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '');
+    if (/[\u0000\uFFFD]/.test(text)) throw new Error('Invalid UTF-8 export');
+    checkTime();
+    const rows = Utilities.parseCsv(text);
+    checkTime();
+    return rows;
   } catch (error) {
     if (error.viewerMessage) throw error;
-    throw viewerError_('The master Excel workbook could not be read. Check that it is a saved, unencrypted .xlsx file and that the catalogue tab is configured correctly.');
+    throw viewerError_('The catalogue CSV could not be read. Check its sharing and UTF-8 export format.');
   }
-}
-
-function xlsxAttribute_(element, name) {
-  const value = element && element.getAttribute(name);
-  return value ? value.getValue() : '';
-}
-
-function xlsxChildren_(element, name) {
-  return element ? element.getChildren(name, element.getNamespace()) : [];
-}
-
-function xlsxChild_(element, name) {
-  return element ? element.getChild(name, element.getNamespace()) : null;
-}
-
-// Exclude phonetic guides and formatting metadata from rich text.
-function xlsxText_(element) {
-  return element ? element.getChildren().map(child => child.getName() === 't' ? child.getText() :
-    child.getName() === 'r' ? xlsxText_(child) : '').join('') : '';
-}
-
-/** A deliberately small reader for the three catalogue columns, not a calculation engine. */
-function catalogueFromXlsx_(query, xml, checkTime) {
-  const workbook = xml('xl/workbook.xml');
-  const sheets = xlsxChildren_(xlsxChild_(workbook, 'sheets'), 'sheet')
-    .filter(sheet => xlsxAttribute_(sheet, 'name') === TRANSCRIPTION_VIEWER.CATALOGUE_SHEET_NAME);
-  if (sheets.length !== 1) {
-    throw viewerError_('The master workbook needs one catalogue tab named "' +
-      TRANSCRIPTION_VIEWER.CATALOGUE_SHEET_NAME + '". Check CATALOGUE_SHEET_NAME in Code.gs.');
-  }
-  const id = sheets[0].getAttributes().find(attribute => attribute.getName() === 'id');
-  const relationships = xml('xl/_rels/workbook.xml.rels');
-  const links = xlsxChildren_(relationships, 'Relationship');
-  // Use workbook relationships, not the browser gid or a guessed sheet1.xml path.
-  const partName = relationship => {
-    if (!relationship || xlsxAttribute_(relationship, 'TargetMode') === 'External') {
-      throw new Error('Invalid workbook relationship');
-    }
-    const target = xlsxAttribute_(relationship, 'Target');
-    const segments = (target.startsWith('/') ? target.slice(1) : 'xl/' + target).split('/');
-    const resolved = [];
-    for (const segment of segments) {
-      if (segment === '..') {
-        if (!resolved.length) throw new Error('Invalid workbook path');
-        resolved.pop();
-      } else if (segment && segment !== '.') resolved.push(segment);
-    }
-    return resolved.join('/');
-  };
-  const sheetLinks = links.filter(link => id && xlsxAttribute_(link, 'Id') === id.getValue() &&
-    /\/worksheet$/.test(xlsxAttribute_(link, 'Type')));
-  if (sheetLinks.length !== 1) throw new Error('Missing worksheet relationship');
-  const optionalPart = type => {
-    const matches = links.filter(link => xlsxAttribute_(link, 'Type').endsWith('/' + type));
-    if (matches.length > 1) throw new Error('Ambiguous workbook relationship');
-    return matches.length ? xml(partName(matches[0])) : null;
-  };
-  const shared = xlsxChildren_(optionalPart('sharedStrings'), 'si').map(item => xlsxText_(item));
-  const styles = optionalPart('styles');
-  const formats = new Map(xlsxChildren_(xlsxChild_(styles, 'numFmts'), 'numFmt')
-    .map(format => [xlsxAttribute_(format, 'numFmtId'), xlsxAttribute_(format, 'formatCode')]));
-  const cellStyles = xlsxChildren_(xlsxChild_(styles, 'cellXfs'), 'xf');
-  const cellValue = (cell, numberColumn = false) => {
-    if (!cell) return '';
-    const type = xlsxAttribute_(cell, 't');
-    const value = xlsxChild_(cell, 'v');
-    if (xlsxChild_(cell, 'f') && !value) {
-      throw viewerError_('A catalogue formula has no saved result. Recalculate and save the master workbook, then try again.');
-    }
-    if (type === 'inlineStr') return xlsxText_(xlsxChild_(cell, 'is'));
-    const text = value ? value.getText() : '';
-    if (type === 's') {
-      if (!/^\d+$/.test(text) || Number(text) >= shared.length) throw new Error('Invalid shared string');
-      return shared[Number(text)];
-    }
-    if (type === 'str') return text;
-    if (type && type !== 'n') {
-      throw viewerError_('A catalogue lookup cell contains an error or unsupported value. Check catalogNumber, Family and Scientific Name in the master workbook.');
-    }
-    if (!numberColumn || !text) return text;
-    const number = Number(text);
-    if (!Number.isSafeInteger(number) || number < 0) throw new Error('Invalid catalogue number');
-    const styleIndex = xlsxAttribute_(cell, 's') || '0';
-    if (!/^\d+$/.test(styleIndex) || (Number(styleIndex) && !cellStyles[Number(styleIndex)])) {
-      throw new Error('Invalid cell style');
-    }
-    const formatId = xlsxAttribute_(cellStyles[Number(styleIndex)], 'numFmtId') || '0';
-    if (formatId === '0' || formatId === '49') return String(number);
-    const format = formats.get(formatId) || '';
-    const match = /^(?:(E)|"E"|\\E)?(0+)$/i.exec(format);
-    if (!match) {
-      throw viewerError_('A catalogue number uses an unsupported number format. Store E-numbers as text to preserve their exact digits and leading zeros.');
-    }
-    return (/E/i.test(format) ? 'E' : '') + String(number).padStart(match[2].length, '0');
-  };
-  const sheet = xml(partName(sheetLinks[0]));
-  const rows = xlsxChildren_(xlsxChild_(sheet, 'sheetData'), 'row');
-  const first = rows.findIndex(row => xlsxChildren_(row, 'c').some(cell => cellValue(cell).trim()));
-  const headerCells = first < 0 ? [] : xlsxChildren_(rows[first], 'c');
-  const fields = ['catalogNumber', 'Family', 'Scientific Name'];
-  const columns = fields.map(field => {
-    const matches = headerCells.filter(cell => cellValue(cell).trim() === field);
-    if (matches.length !== 1) {
-      throw viewerError_('The catalogue needs one column each named catalogNumber, Family, and Scientific Name in its first nonempty row.');
-    }
-    const address = /^([A-Z]+)[1-9]\d*$/.exec(xlsxAttribute_(matches[0], 'r'));
-    if (!address) throw new Error('Invalid column address');
-    return address[1];
-  });
-  const result = [fields];
-  for (const row of rows.slice(first + 1)) {
-    checkTime();
-    const cells = new Map();
-    for (const cell of xlsxChildren_(row, 'c')) {
-      const address = /^([A-Z]+)[1-9]\d*$/.exec(xlsxAttribute_(cell, 'r'));
-      if (!address || !columns.includes(address[1])) continue;
-      if (cells.has(address[1])) throw new Error('Duplicate lookup cell');
-      cells.set(address[1], cell);
-    }
-    const number = cellValue(cells.get(columns[0]), true);
-    const match = /^E?([0-9]+)$/i.exec(number.trim());
-    if (!match || match[1] !== query.digits) continue;
-    result.push([number, cellValue(cells.get(columns[1])), cellValue(cells.get(columns[2]))]);
-  }
-  return result;
 }
 
 function routeFromCatalogue_(query, rows) {
+  rows = rows.filter(row => row.some(value => String(value).trim()));
   const header = (rows[0] || []).map(value => String(value).trim());
   const fields = ['catalogNumber', 'Family', 'Scientific Name'];
   const columns = fields.map(name => header.indexOf(name));
@@ -256,6 +141,7 @@ function routeFromCatalogue_(query, rows) {
   }
   const routes = new Map();
   for (const row of rows.slice(1)) {
+    if (row.length > header.length) throw viewerError_('The catalogue CSV has a row with extra columns. Check its export format.');
     const number = /^E?([0-9]+)$/i.exec(String(row[columns[0]] || '').trim());
     if (!number || number[1] !== query.digits) continue;
     let route;
@@ -270,7 +156,7 @@ function routeFromCatalogue_(query, rows) {
     routes.set(route.family.toLowerCase() + '\n' + route.species.toLowerCase(), route);
   }
   if (!routes.size) {
-    throw viewerError_(query.e + ' was not found in the master catalogue. Check the number and the saved workbook.');
+    throw viewerError_(query.e + ' was not found in the catalogue CSV. Check the number or refresh the catalogue export.');
   }
   if (routes.size !== 1) {
     throw viewerError_('The catalogue lists conflicting families or species for ' + query.e + '. Check the duplicate catalogue rows.');
@@ -293,21 +179,11 @@ function lookupTranscription_(rawQuery) {
   };
   const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
   if (!query.family || !query.species) {
-    query = routeFromCatalogue_(query, readCatalogue_(query, checkTime));
+    query = routeFromCatalogue_(query, readCatalogue_(root, checkTime));
     checkTime();
   }
-  const folders = root.getFolders();
-  const matches = [];
-  while (folders.hasNext()) {
-    checkTime();
-    const folder = folders.next();
-    if (folder.getName().trim().toLowerCase() === query.family.toLowerCase()) matches.push(folder);
-  }
-  if (matches.length !== 1) {
-    throw viewerError_(matches.length ? 'More than one matching family folder was found. The folder needs to be checked.' :
-      'The family folder was not found or is not accessible. Check the Family value and your Drive access.');
-  }
-  const files = matches[0].getFiles();
+  const family = familyFolder_(root, query, checkTime);
+  const files = family.getFiles();
   const candidates = [];
   let listed = 0;
   while (files.hasNext()) {
@@ -326,8 +202,24 @@ function lookupTranscription_(rawQuery) {
     }
     return file.getBlob().getDataAsString('UTF-8');
   }, checkTime);
-  if (result.records.length) attachSourceImages_(result, matches[0], checkTime);
+  result.imageRequest = { query: result.query, reportId: result.reportId || '',
+    manifest: imageManifest_(result.records) };
   return result;
+}
+
+function familyFolder_(root, query, checkTime) {
+  const folders = root.getFolders();
+  const matches = [];
+  while (folders.hasNext()) {
+    checkTime();
+    const folder = folders.next();
+    if (folder.getName().trim().toLowerCase() === query.family.toLowerCase()) matches.push(folder);
+  }
+  if (matches.length !== 1) {
+    throw viewerError_(matches.length ? 'More than one matching family folder was found. The folder needs to be checked.' :
+      'The family folder was not found or is not accessible. Check the Family value and your Drive access.');
+  }
+  return matches[0];
 }
 
 function reportName_(name, species) {
@@ -361,12 +253,12 @@ function selectLatestRecord_(candidates, query, readText, checkTime) {
     }
     const records = parseReport_(readText(candidate.file), query.digits);
     if (records.length) {
-      return { query: query, records: records, reportDate: candidate.info.date,
+      return { query: query, records: records, reportDate: candidate.info.date, reportId: candidate.file.getId(),
         sourceUrl: 'https://drive.google.com/file/d/' + encodeURIComponent(candidate.file.getId()) + '/view' };
     }
   }
   return { query: query, records: [], message: 'No transcription available in the species reports yet. ' +
-    'Use this same link again after a report has been created and synced to Drive.' };
+    'Available source scans will load below. Use this link again after a report has synced to Drive.' };
 }
 
 function reportBanner_(line) {
@@ -479,13 +371,117 @@ function sourceScanSide_(name) {
   return Number.isSafeInteger(number) && number >= 1 ? number : null;
 }
 
-/** Images are transient, authenticated reads of the exact FILES listed in the report. */
-function attachSourceImages_(result, family, checkTime) {
+function imageManifest_(records) {
+  return JSON.stringify(records.map(record => [record.numbers, record.status, record.files]));
+}
+
+/** Public RPC: always authorize again, and never trust client-supplied filenames. */
+function loadSourceScans(request) {
+  try {
+    requireWorkbookAccess_();
+    const started = Date.now();
+    const checkTime = () => {
+      if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
+        throw viewerError_('The scan search time limit was reached. Reload the page to try again.');
+      }
+    };
+    const query = normalizeQuery_(request && request.query || {});
+    if (!query.family || !query.species) throw viewerError_('Reload the page before loading scans.');
+    const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
+    const family = familyFolder_(root, query, checkTime);
+    let records = [];
+    if (request.reportId) {
+      const file = DriveApp.getFileById(String(request.reportId));
+      const parents = file.getParents();
+      let inFamily = false;
+      while (parents.hasNext()) {
+        checkTime();
+        if (parents.next().getId() === family.getId()) inFamily = true;
+      }
+      if (!inFamily || !reportName_(file.getName(), query.species)) {
+        throw viewerError_('The displayed report is no longer in its expected folder. Reload the page.');
+      }
+      if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_REPORT_BYTES) {
+        throw viewerError_('The displayed report exceeds the viewer size limit.');
+      }
+      records = parseReport_(file.getBlob().getDataAsString('UTF-8'), query.digits);
+      checkTime();
+      if (!records.length || imageManifest_(records) !== request.manifest) {
+        throw viewerError_('The displayed report has changed. Reload the page before viewing its scans.');
+      }
+    }
+    const scanOnly = !records.length || records.every(record => record.status === 'MISSING');
+    let message = '';
+    let jpeg;
+    if (scanOnly) {
+      jpeg = sourceJpegFolder_(family, query.species, checkTime);
+      const discovered = discoverSourceScans_(jpeg, query, checkTime);
+      records = discovered.records;
+      message = discovered.message;
+    }
+    const result = { query: query, records: records };
+    attachSourceImages_(result, family, checkTime, jpeg);
+    return { scanOnly: scanOnly, message: message,
+      galleries: records.filter(record => record.status !== 'MISSING').map(record => ({
+        numbers: record.numbers, images: record.images, message: record.imageMessage
+      })) };
+  } catch (error) {
+    return { error: error.viewerMessage || 'Source scans could not be loaded. Check your Drive access and reload the page to try again.' };
+  }
+}
+
+/** Used only without a transcription: exact numbers and complete physical-card groups. */
+function discoverSourceScans_(jpeg, query, checkTime) {
+  const files = jpeg.getFiles();
+  const groups = new Map();
+  const issues = [];
+  let listed = 0, selected = 0;
+  while (files.hasNext()) {
+    checkTime();
+    if (++listed > TRANSCRIPTION_VIEWER.MAX_FILES_LISTED) {
+      throw viewerError_('The scan folder listing limit was reached. The search is incomplete.');
+    }
+    const name = files.next().getName();
+    if (!/\.jpe?g$/i.test(name)) continue;
+    const numbers = Array.from(name.matchAll(/(?:^|_)E([0-9]+)(?=[^0-9]|$)/gi), match => match[1]);
+    if (!numbers.includes(query.digits)) continue;
+    if (++selected > TRANSCRIPTION_VIEWER.MAX_IMAGES) {
+      throw viewerError_('Too many matching scans were found. The scan search is incomplete.');
+    }
+    const match = /^(.+?_E\d+(?:_E\d+)*)(?:\(([A-Z0-9]+)\)|[_-]([A-Z]|\d+)-?)?(?:_exchanged)?\.jpe?g$/i.exec(name);
+    if (!match || /[/\\\x00-\x1f]/.test(name)) {
+      issues.push('A matching scan has an unrecognized filename: ' + name);
+      continue;
+    }
+    const key = match[1].toLowerCase();
+    if (!groups.has(key)) groups.set(key, { base: match[1], items: [] });
+    groups.get(key).items.push({ name: name, side: sourceScanSide_(name) });
+  }
+  const records = Array.from(groups.values()).sort((a, b) =>
+    a.base.localeCompare(b.base, undefined, { numeric: true, sensitivity: 'base' })).map(group => {
+    group.items.sort((a, b) => a.side - b.side || a.name.localeCompare(b.name));
+    const sides = group.items.map(item => item.side);
+    const invalid = sides.includes(null) || new Set(sides).size !== sides.length;
+    const warnings = [];
+    if (invalid) warnings.push('Ambiguous or invalid side labels for ' + group.base + '. No images from this card were selected.');
+    else {
+      if (sides[0] !== 1) warnings.push('Front image is missing; supplied images are labelled as backs.');
+      if (sides.some((side, i) => i && side - sides[i - 1] > 1)) warnings.push('Gap in side labels; an image may be missing.');
+    }
+    return { numbers: Array.from(group.base.matchAll(/_E(\d+)(?=_|$)/gi), match => 'E' + match[1]),
+      status: 'SCANS', files: invalid ? [] : group.items.map(item => item.name),
+      images: [], imageMessage: warnings.join(' ') };
+  });
+  return { records: records, message: issues.join('\n') || (records.length ? '' :
+    'No matching source JPGs were found in the accessible species folder.') };
+}
+
+/** Read only report-listed or independently discovered filenames in the resolved folder. */
+function attachSourceImages_(result, family, checkTime, jpeg) {
   const records = result.records.filter(record => record.status !== 'MISSING');
   if (!records.length) return;
-  let jpeg;
   try {
-    jpeg = sourceJpegFolder_(family, result.query.species, checkTime);
+    if (!jpeg) jpeg = sourceJpegFolder_(family, result.query.species, checkTime);
   } catch (error) {
     for (const record of records) record.imageMessage = error.viewerMessage ||
       'Source scans could not be loaded. Check your access to the JPEG folder.';
@@ -494,7 +490,10 @@ function attachSourceImages_(result, family, checkTime) {
   let totalBytes = 0;
   let imageCount = 0;
   for (const record of records) {
-    if (!record.files.length) record.imageMessage = 'Source filenames are not listed in this report.';
+    if (!record.files.length) {
+      if (!record.imageMessage) record.imageMessage = 'Source filenames are not listed in this report.';
+      continue;
+    }
     let backCount = 0;
     for (const name of record.files) {
       const side = sourceScanSide_(name);
