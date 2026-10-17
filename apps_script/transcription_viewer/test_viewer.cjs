@@ -385,6 +385,8 @@ test('form submits only E-number so a new search cannot inherit stale family or 
   assert.match(template.replace(/<\?[\s\S]*?\?>/g, ""), /name="e"[^>]*required/);
   assert.doesNotMatch(template, /name="(?:family|species)"/);
   assert.ok(template.includes('<?= result.query.family ?>'));
+  assert.match(template, /<input name="e" placeholder="E4268" required/);
+  assert.doesNotMatch(template, /<input[^>]*\bvalue=/);
 });
 
 test('doGet resolves an E-number-only request and passes the resolved location to the view', () => {
@@ -642,12 +644,23 @@ function requestRenderer(drive, source = code) {
     DriveApp: drive,
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/example/exec' }) },
     HtmlService: { createTemplateFromFile: () => {
-      page = { evaluate: () => ({ setTitle() { return this; }, addMetaTag() { return this; } }) };
+      page = { evaluate: () => ({ setTitle(title) { page.title = title; return this; }, addMetaTag() { return this; } }) };
       return page;
     } }
   }, source);
   return params => { local.doGet({ parameter: params }); return page; };
 }
+
+test('browser title identifies the search page and normalized records, including scan-only searches', () => {
+  const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block())];
+  const request = requestRenderer(fakeDrive([family(reports)]));
+  assert.equal(request({}).title, 'Egg Slip Record Search');
+  assert.equal(request({ ...query, e: 'cm001' }).title, 'E001 Egg Slip Record');
+  assert.equal(request({ ...query, e: '4268' }).title, 'E4268 Egg Slip Record');
+  assert.equal(request({ ...query, e: 'not a number' }).title, 'Egg Slip Record Search');
+  const denied = requestRenderer({ getFileById: () => { throw new Error('Access denied'); } });
+  assert.equal(denied(query).title, 'Egg Slip Record Search');
+});
 
 test('viewer checks the master workbook before returning a record', () => {
   const calls = [];

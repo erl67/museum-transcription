@@ -1,8 +1,18 @@
-# Egg Transcription Viewer
+# Egg Slip Record Search
 
 Spreadsheet links open this viewer and retrieve the latest available species report at click time. The form accepts an E-number alone and reads its family/species from the catalogue CSV export in Drive; existing links with family and scientific name still work. The page shows record text first, then loads source scans separately below it. If no transcription exists, it finds available scans by the complete E-number and keeps each physical card’s sides together.
 
 No transcription text is stored in the spreadsheet, hidden sheets, script properties, or a persistent cache. The viewer reads existing Drive files and makes no transcription-service requests. A link can be created before a record has been transcribed; opening it again after a report has synced searches afresh.
+
+## Open Egg Slip Record Search
+
+[Open Egg Slip Record Search](https://script.google.com/macros/s/AKfycbzisn0ISa_2hwEh_vIaQporGeXxruTwscyAOalTgubqPV9EXvkleFlXyKx8aTezEa6EyA/exec?).
+
+Share or bookmark the deployed web-app URL ending in **/exec** to open **Egg Slip Record Search** directly. Readers do not need to open the spreadsheet first. The page heading is **Egg-slip transcription / scan viewer**, with the instruction **Enter an E-number to view the available transcription and card scans.** The empty E-number field shows **E4268** as an example; it is a placeholder rather than a preselected record. Enter the complete number and choose **Find record**. After a search, the field is empty and ready for another number.
+
+The browser tab is titled **Egg Slip Record Search** on the initial search page and when a search returns an error. A successful lookup uses the normalized E-number, for example **E4268 Egg Slip Record**. That title also applies when only scans or catalogue information are available. Leading zeros remain part of the title, so E001 is shown as **E001 Egg Slip Record**.
+
+Viewer.html is Apps Script template source. Opening the local HTML file directly previews the layout but does not run the search, evaluate template expressions, or load Drive scans. Use the deployed **/exec** URL for the working viewer. Paste the HTML source into the Apps Script HTML file named **Viewer**, and the JavaScript source into **Code.gs**.
 
 ## Access for people who can open the master Excel file
 
@@ -28,7 +38,7 @@ See [Google's execution-permission documentation](https://developers.google.com/
 
 Use a separate Apps Script project from the Egg Scan Linker.
 
-1. Open [Google Apps Script](https://script.google.com/) with the maintaining account. For a new project, name it **Egg Transcription Viewer**.
+1. Open [Google Apps Script](https://script.google.com/) with the maintaining account. For a new project, name it **Egg Slip Record Search**.
 2. Replace **Code.gs** with [Code.gs](Code.gs).
 3. Add or replace the HTML file named **Viewer** using [Viewer.html](Viewer.html).
 4. In **Project Settings**, enable **Show appsscript.json manifest file in editor** and replace it with [appsscript.json](appsscript.json). New installations need all three source files. This revision changes Code.gs and Viewer.html; an existing manifest matching the supplied file can stay as it is. The OAuth scope remains read-only Drive access.

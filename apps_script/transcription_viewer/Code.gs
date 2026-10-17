@@ -37,7 +37,9 @@ function doGet(e) {
     page.result = { error: error.viewerMessage ||
       'The reports could not be read. Check your Google account has access to the Family folder and its reports, then try again.' };
   }
-  return page.evaluate().setTitle('Egg-slip transcription')
+  const title = page.result && !page.result.error ?
+    page.result.query.e + ' Egg Slip Record' : 'Egg Slip Record Search';
+  return page.evaluate().setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

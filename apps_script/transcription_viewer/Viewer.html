@@ -3,6 +3,7 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <title>Egg Slip Record Search</title>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; background: #f5f3ef; color: #263b37; font: 16px/1.55 Arial, Helvetica, sans-serif; }
@@ -34,11 +35,11 @@
 </head>
 <body>
 <main>
-  <h1>Egg-slip transcription</h1>
-  <div class="subtitle">Enter an E-number to find its latest available transcription.</div>
+  <h1>Egg-slip transcription / scan viewer</h1>
+  <div class="subtitle">Enter an E-number to view the available transcription and card scans.</div>
   <form method="get" action="<?= appUrl ?>">
-    <label>E-number<input name="e" value="<?= query.e ?>" placeholder="E4268" required maxlength="80"></label>
-    <button type="submit">Find transcription</button>
+    <label>E-number<input name="e" placeholder="E4268" required maxlength="80"></label>
+    <button type="submit">Find record</button>
   </form>
   <? if (result && result.error) { ?>
     <div class="message error" role="alert"><?= result.error ?></div>
