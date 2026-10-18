@@ -15,6 +15,16 @@ again after implementation and still pointed to the starting SHA.
 
 ## Delivered and changed files
 
+**18 October 2026 scheduling update:** At the maintainer's request, the default daily
+start is now 20:00 Windows local time. The home-desktop task was actually registered
+for 20:00 Eastern, under the collection user's interactive account, and verified
+**disabled**. It retains the delayed logon recovery trigger. No worker was launched
+and no API calls were made. The installer now resolves its repository default after
+parameter binding so it works in Windows PowerShell 5.1 as well as PowerShell 7.
+Actual registration and trigger/state inspection passed; the Python runtime files
+were unchanged. Separate computer counters still require coordination for a combined
+self-imposed daily cap; recognized provider daily exhaustion preserves campaign progress.
+
 - `campaign.py`: local SQLite queue/history, physical-card fingerprints, durable
   completion, read-only checkpoint import beyond 48 hours, conservative attempt intents,
   bounded daily continuation, status/JSON/logs, pause/resume, explicit retry/refresh,

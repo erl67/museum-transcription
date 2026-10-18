@@ -6,12 +6,15 @@ Enabling it is a separate, explicitly authorized deployment step.
 param(
     [Parameter(Mandatory)][string]$Python,
     [Parameter(Mandatory)][string]$Config,
-    [string]$Repository = (Split-Path $PSScriptRoot -Parent),
+    [string]$Repository = '',
     [string]$TaskName = 'Museum transcription campaign',
-    [ValidatePattern('^\d{2}:\d{2}$')][string]$At = '04:15',
+    [ValidatePattern('^\d{2}:\d{2}$')][string]$At = '20:00',
     [switch]$Install
 )
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($Repository)) {
+    $Repository = Split-Path -Path $PSScriptRoot -Parent
+}
 $pythonPath = (Resolve-Path -LiteralPath $Python).Path
 $configPath = (Resolve-Path -LiteralPath $Config).Path
 $repoPath = (Resolve-Path -LiteralPath $Repository).Path

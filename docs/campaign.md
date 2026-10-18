@@ -76,12 +76,14 @@ Run `reconcile` after Drive returns. Journals are appended using result IDs; rep
 The helper previews by default; `-Install` registers a **disabled** task and refuses to overwrite an existing task. It uses the selected Python executable, absolute config/script paths, a daily trigger, a five-minute delayed user-logon trigger, missed-start recovery, wake request and `IgnoreNew` overlap handling. Execution is bounded to 20 hours, with no automatic failure-restart loop. These settings use Microsoft's [ScheduledTasks settings](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset) and [interactive principal](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtaskprincipal).
 
 ```powershell
-.\scripts\install-campaign-task.ps1 -Python "$PWD\.venv\Scripts\python.exe" -Config $cfg -At '04:15'
+.\scripts\install-campaign-task.ps1 -Python "$PWD\.venv\Scripts\python.exe" -Config $cfg -At '20:00'
 # Only after reviewing the preview:
-.\scripts\install-campaign-task.ps1 -Python "$PWD\.venv\Scripts\python.exe" -Config $cfg -At '04:15' -Install
+.\scripts\install-campaign-task.ps1 -Python "$PWD\.venv\Scripts\python.exe" -Config $cfg -At '20:00' -Install
 ```
 
-04:15 is a suggested **Eastern local time**, after the configured Pacific reset. Adjust for the actual Windows timezone; the counter itself remains the final guard. The interactive principal needs the user signed in (locking the screen is fine) and Drive running. After reboot, the logon trigger resumes once the user signs in. The helper does not configure Windows automatic sign-in, start Drive under another account, store a Windows password, or claim access to an absent user-session mount. A completely signed-out deployment would need independently accessible local inputs/output staging and a separately reviewed service-account task.
+The default is **20:00 (8 p.m.) Windows local time**, as requested for the Eastern-time home desktop. This changes the launch time; quota still resets at Pacific midnight. Requests made at work earlier in that quota day can reduce the provider allowance available that evening. Local counters do not automatically synchronize across computers. A recognized provider daily-quota error stops the worker and preserves progress until a later invocation. A combined, self-imposed 500-attempt ceiling across computers additionally requires coordinating counts; two independent local caps do not enforce one shared cap. The interactive principal needs the user signed in (locking the screen is fine) and Drive running. After reboot, the logon trigger resumes once the user signs in. The helper does not configure Windows automatic sign-in, start Drive under another account, store a Windows password, or claim access to an absent user-session mount. A completely signed-out deployment would need independently accessible local inputs/output staging and a separately reviewed service-account task.
+
+After enabling the installed task, use **Task Scheduler Library > Museum transcription campaign > Run** to start early, or `Start-ScheduledTask -TaskName 'Museum transcription campaign'`. An early start retains the daily trigger, completion tracking and quota limits. The worker lock prevents overlap with another campaign invocation; a separate scan also holds that lock, so wait for it to finish. Reaching quota stops the current invocation; the next automatic daily start is at 20:00, rather than immediately at the quota reset.
 
 Only after separate authorization to spend production quota:
 
