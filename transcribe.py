@@ -334,6 +334,10 @@ def child_directory(parent: Path, name: str) -> Path | None:
     return matches[0] if matches else None
 
 
+class MissingJPEGDirectory(ValueError):
+    """The family resolved, but this species has no supported JPEG directory."""
+
+
 def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]:
     families = db.families.get(species, set())
     distinct = {name.casefold() for name in families}
@@ -353,7 +357,8 @@ def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]
         if jpeg_dir is not None and jpeg_dir not in candidates:
             candidates.append(jpeg_dir)
     if len(candidates) != 1:
-        raise ValueError(f"Expected one JPEG folder for {species}; found {len(candidates)} in {family_dir}.")
+        problem = MissingJPEGDirectory if not candidates else ValueError
+        raise problem(f"Expected one JPEG folder for {species}; found {len(candidates)} in {family_dir}.")
     return family_dir, candidates[0]
 
 

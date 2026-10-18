@@ -68,7 +68,7 @@ class Config:
         data = json.loads(self.path.read_text(encoding="utf-8-sig"))
         required = {"base_dir", "csv", "output_dir", "state_dir", "quota_file", "worker_host"}
         optional = {"fallback_dir", "output_policy", "env_file", "model", "rpd", "rpm",
-                    "retry_days", "status_file", "log_file", "extra_species"}
+                    "retry_days", "status_file", "log_file", "extra_species", "skip_missing_species"}
         if required - data.keys() or data.keys() - required - optional:
             raise ValueError("Configuration has missing or unknown fields: " +
                              str(sorted((required - data.keys()) | (data.keys() - required - optional))))
@@ -91,6 +91,14 @@ class Config:
         if type(self.retry_days) is not int or not 1 <= self.retry_days <= 30:
             raise ValueError("retry_days must be an integer from 1 to 30")
         self.extra_species = data.get("extra_species", {})
+        skipped = data.get("skip_missing_species", {})
+        if not isinstance(skipped, dict):
+            raise ValueError("skip_missing_species must map exact species names to nonempty reasons")
+        self.skip_missing_species = {}
+        for species, reason in skipped.items():
+            if t.species_name(species) != species or not isinstance(reason, str) or not reason.strip():
+                raise ValueError("skip_missing_species requires Genus_species names and nonempty reasons")
+            self.skip_missing_species[species] = reason.strip()
         for species, family in self.extra_species.items():
             if t.species_name(species) != species:
                 raise ValueError("extra_species keys must use Genus_species names")
@@ -376,7 +384,7 @@ def inventory(config, *, verify=False):
             raise ValueError(f"extra_species conflicts with CSV: {species}")
         db.families.setdefault(species, {family})
         targets.setdefault(species, set())
-    items, missing, issues = [], [], []
+    items, missing, issues, unavailable = [], [], [], []
     started = time.monotonic()
     print("Checking filenames, sides and file metadata" +
           ("; full image verification requested." if verify else "; image contents are not read."), flush=True)
@@ -384,7 +392,17 @@ def inventory(config, *, verify=False):
     for index, species in enumerate(sorted(targets, key=t.natural_key), 1):
         print(f"[{index}/{len(targets)}] {species}", flush=True)
         try:
-            family, folder = t.resolve_folders(config.base_dir, db, species)
+            try:
+                family, folder = t.resolve_folders(config.base_dir, db, species)
+            except t.MissingJPEGDirectory as exc:
+                reason = config.skip_missing_species.get(species)
+                if not reason:
+                    raise
+                unavailable.append(dict(species=species, family=sorted(db.families[species])[0],
+                    reason=reason, catalogue_rows=sum(len(db.by_enum.get(enum, [])) for enum in targets[species]),
+                    detail=str(exc)))
+                print(f"  NO SCANS (acknowledged): {reason}", flush=True)
+                continue
             # Species scope includes numbered scans absent from CSV and explicit uncatalogued cards.
             cards, problems, _ = t.discover_cards(folder, None, include_uncatalogued=True)
             issues.extend(f"{species}: {p}" for p in problems)
@@ -412,14 +430,15 @@ def inventory(config, *, verify=False):
             issues.append(f"{species}: {exc}")
             print(f"  ERROR: {species}: {exc}", flush=True)
     print(f"Discovery finished: {len(items):,} cards, {images:,} images; {len(issues)} issue(s); "
-          f"{time.monotonic() - started:.1f}s.", flush=True)
-    return db, items, missing, issues
+          f"{len(unavailable)} acknowledged species without scan folders; {time.monotonic() - started:.1f}s.", flush=True)
+    return db, items, missing, issues, unavailable
 
 
 def scan(config, store, found=None, *, verify=False):
-    db, items, missing, issues = found or inventory(config, verify=verify)
+    db, items, missing, issues, unavailable = found or inventory(config, verify=verify)
     # A disconnected/malformed tree must not deactivate formerly known cards.
     store.set("discovery_issues", issues)
+    store.set("skipped_missing_species", unavailable)
     if issues:
         raise ValueError("Discovery requires attention: " + " | ".join(issues[:20]))
     checkpoints = {}
@@ -492,6 +511,11 @@ def scan(config, store, found=None, *, verify=False):
     for row in store.rows():
         states[row["state"]] = states.get(row["state"], 0) + 1
     print("Queue saved: " + ", ".join(f"{count:,} {state}" for state, count in sorted(states.items())), flush=True)
+    if not config.pause_path.exists():
+        attention = states.get("stale", 0) or states.get("permanent", 0)
+        store.set("status", "attention" if attention else "ready")
+        if not attention:
+            store.set("last_error", None)
     return db
 
 
@@ -675,6 +699,8 @@ def status(config, store):
         completed_cards=completed, remaining_cards=remaining, review_required=counts.get("review", 0),
         failed_cards=counts.get("retryable", 0) + counts.get("permanent", 0), states=counts,
         missing_source_catalogue_entries=sum(m["rows"] for m in store.get("missing", [])),
+        skipped_missing_species=store.get("skipped_missing_species", []),
+        skipped_species_catalogue_rows=sum(s["catalogue_rows"] for s in store.get("skipped_missing_species", [])),
         attempts_used_today=used if state is not None else None,
         remaining_daily_attempts=(0 if exhausted else max(0, config.args.rpd - used)) if state is not None else None,
         quota_day=quota.day(), quota_timezone=quota.timezone, campaign_api_attempts=len(attempts),
@@ -893,9 +919,10 @@ def main(argv=None):
     try:
         config = Config(args.config)
         if args.command == "dry-run":
-            _, items, missing, issues = inventory(config)
+            _, items, missing, issues, unavailable = inventory(config)
             print(json.dumps(dict(physical_cards=len(items), source_images=sum(len(i["card"]["paths"]) for i in items),
                 missing_source_catalogue_entries=sum(m["rows"] for m in missing), issues=issues,
+                skipped_missing_species=unavailable,
                 cards=[{"id": i["id"], "images": i["card"]["paths"]} for i in items]), indent=2))
             return 20 if issues else 0
         if args.command == "init":

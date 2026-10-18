@@ -4,6 +4,14 @@ Originally prepared 22 September 2026 for moving development from ChatGPT Work t
 
 ## Production choice and documentation update - 7 October 2026
 
+**18 October 2026 unavailable-source update:** The maintainer confirmed the 13
+remaining unresolved species folders have no available scans and cannot be supplied.
+Campaign configuration now accepts an explicit `skip_missing_species` map of names
+and reasons. It records those source gaps separately and allows the other cards to
+proceed. `transcribe.MissingJPEGDirectory` distinguishes a missing species JPEG folder
+from ambiguity, access errors or missing family/root storage; the interactive error
+text and other transcription behavior remain unchanged. See the automation handoff.
+
 **18 October 2026 scanning update:** Routine campaign discovery now uses file metadata
 and shows progress, without reading JPG contents. Selected cards are prepared from one
 image read with unchanged request bytes and cache fingerprints; full `verify` remains

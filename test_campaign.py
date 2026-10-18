@@ -150,7 +150,7 @@ class CampaignTest(unittest.TestCase):
         self.assertEqual(self.counts()["attempts_used_today"], 0)
 
     def test_existing_checkpoint_over_48_hours_imported_without_rewrite(self):
-        db, items, _, _ = c.inventory(self.config, verify=True)
+        db, items, _, _, _ = c.inventory(self.config, verify=True)
         item = items[0]
         card = c.restore_card(item["card"], self.config.base_dir)
         entry = dict(key=item["request_key"], cache_version=t.CACHE_VERSION, status="ok",
@@ -201,7 +201,7 @@ class CampaignTest(unittest.TestCase):
 
     def test_rejected_side_group_remains_error_not_csv_missing(self):
         self.image("Test_bird_E01.jpg")
-        _, _, missing, issues = c.inventory(self.config)
+        _, _, missing, issues, _ = c.inventory(self.config)
         self.assertTrue(issues)
         self.assertNotIn("E01", [m["enum"] for m in missing])
         with self.assertRaises(ValueError):
@@ -355,7 +355,7 @@ class CampaignTest(unittest.TestCase):
         extra.mkdir(parents=True)
         with Image.new("RGB", (20, 20)) as image:
             image.save(extra / "Other_bird_Uncatalogued.jpg")
-        _, items, _, issues = c.inventory(self.config)
+        _, items, _, issues, _ = c.inventory(self.config)
         self.assertEqual(issues, [])
         self.assertEqual(len(items), 4)
 
@@ -638,6 +638,119 @@ class CampaignTest(unittest.TestCase):
         self.assertEqual(self.store.get("schema"), 1)
         columns = [row[1] for row in self.store.conn.execute("PRAGMA table_info(cards)")]
         self.assertNotIn("signature", columns)
+
+    def add_unavailable_species(self):
+        with self.csv.open("a", encoding="utf-8") as out:
+            out.write("E10,Test absent,Birds,Person\nE10,Test absent,Birds,Person\n")
+        (self.family / "Test_absent").mkdir()
+
+    def acknowledge_unavailable_species(self):
+        self.config = self.configure(skip_missing_species={"Test_absent": "Collection staff confirmed no scans available."})
+
+    def test_unacknowledged_missing_scan_directory_still_blocks_campaign(self):
+        self.add_unavailable_species()
+        with self.assertRaisesRegex(ValueError, "Discovery requires attention"):
+            self.run_worker()
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_acknowledged_missing_species_allows_available_cards_and_is_reported(self):
+        self.add_unavailable_species()
+        self.acknowledge_unavailable_species()
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        status = self.counts()
+        self.assertEqual(status["campaign_status"], "ready")
+        self.assertEqual(status["discovery_issues"], [])
+        self.assertEqual(status["total_physical_cards"], 3)
+        self.assertEqual(status["skipped_missing_species"][0]["species"], "Test_absent")
+        self.assertEqual(status["skipped_species_catalogue_rows"], 2)
+        self.assertEqual(status["missing_source_catalogue_entries"], 1)
+        self.config.args.rpd = 500
+        code, client = self.run_worker()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual(self.counts()["completed_cards"], 3)
+        report = Path(self.counts()["outputs"][-1]["destination"]).read_text(encoding="utf-8")
+        self.assertNotIn("CM10", report)
+        self.assertIn("CM9 (MISSING)", report)
+        self.assertFalse((self.family / "Test_absent" / "JPEG").exists())
+
+    def test_acknowledgement_does_not_hide_ambiguous_directories(self):
+        genus = self.family / "Test" / "Test_bird" / "JPEG"
+        genus.mkdir(parents=True)
+        self.config = self.configure(skip_missing_species={"Test_bird": "No scans expected."})
+        with self.assertRaisesRegex(ValueError, "found 2"):
+            self.run_worker()
+        self.assertEqual(self.counts()["skipped_missing_species"], [])
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_acknowledgement_does_not_hide_invalid_existing_scans(self):
+        self.config = self.configure(skip_missing_species={"Test_bird": "No scans expected."})
+        self.image("unrecognized.jpg")
+        with self.assertRaisesRegex(ValueError, "Unrecognized JPEG filename"):
+            self.run_worker()
+        self.assertEqual(self.counts()["skipped_missing_species"], [])
+
+    def test_acknowledged_species_is_included_when_scans_become_available(self):
+        self.add_unavailable_species()
+        self.acknowledge_unavailable_species()
+        c.scan(self.config, self.store)
+        folder = self.family / "Test_absent" / "JPEG"
+        folder.mkdir()
+        with Image.new("RGB", (20, 20)) as image:
+            image.save(folder / "Test_absent_E10.jpg")
+        c.scan(self.config, self.store)
+        self.assertEqual(self.counts()["skipped_missing_species"], [])
+        self.assertEqual(self.counts()["total_physical_cards"], 4)
+
+    def test_acknowledgement_does_not_hide_storage_access_errors(self):
+        self.add_unavailable_species()
+        self.acknowledge_unavailable_species()
+        resolve = t.resolve_folders
+        def denied(root, db, species):
+            if species == "Test_absent":
+                raise PermissionError("Source folder is inaccessible")
+            return resolve(root, db, species)
+        with patch.object(t, "resolve_folders", side_effect=denied):
+            with self.assertRaisesRegex(ValueError, "inaccessible"):
+                self.run_worker()
+        self.assertEqual(self.counts()["skipped_missing_species"], [])
+
+    def test_acknowledgement_does_not_hide_missing_family_or_drive(self):
+        self.add_unavailable_species()
+        self.acknowledge_unavailable_species()
+        self.family.rename(self.family.with_name("Birds_offline"))
+        with self.assertRaisesRegex(ValueError, "Family directory not found"):
+            self.run_worker()
+        self.config.base_dir.rename(self.config.base_dir.with_name("Family_offline"))
+        with self.assertRaises(OSError):
+            self.run_worker()
+
+    def test_unknown_missing_species_remains_an_error_with_other_acknowledgements(self):
+        c.scan(self.config, self.store)
+        self.add_unavailable_species()
+        self.acknowledge_unavailable_species()
+        with self.csv.open("a", encoding="utf-8") as out:
+            out.write("E11,Other absent,Birds,Person\n")
+        with self.assertRaisesRegex(ValueError, "Other_absent"):
+            self.run_worker()
+        self.assertEqual(self.counts()["total_physical_cards"], 3)
+        self.assertEqual(len(self.counts()["skipped_missing_species"]), 1)
+
+    def test_missing_species_configuration_requires_exact_names_and_reasons(self):
+        for value in (["Test_absent"], {"Test_absent": ""}, {"Test absent": "No scans"}, {"*": "Skip all"}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.configure(skip_missing_species=value)
+
+    def test_successful_scan_clears_previous_discovery_failure(self):
+        self.add_unavailable_species()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(c.main(["--config", str(self.config_path), "scan"]), 20)
+        self.assertEqual(self.counts()["campaign_status"], "attention")
+        self.acknowledge_unavailable_species()
+        self.assertEqual(c.main(["--config", str(self.config_path), "scan"]), 0)
+        self.assertEqual(self.counts()["campaign_status"], "ready")
+        self.assertIsNone(self.counts()["last_error"])
 
 
 if __name__ == "__main__":

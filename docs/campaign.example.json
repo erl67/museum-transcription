@@ -10,6 +10,7 @@
   "rpm": 15,
   "rpd": 500,
   "retry_days": 3,
+  "skip_missing_species": {},
   "output_policy": "stop",
   "fallback_dir": "C:\\MuseumCampaign\\fallback",
   "log_file": "C:\\MuseumCampaign\\campaign.log"

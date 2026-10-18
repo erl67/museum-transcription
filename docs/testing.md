@@ -11,6 +11,11 @@ compare prepared requests and legacy fingerprints for both providers, verify pre
 metadata content changes only in full verification, and check transactional schema upgrades
 and rollback. All model outcomes remain simulated.
 
+Known-unavailable-species coverage checks explicit acknowledgement and status counts,
+duplicate catalogue rows, no fabricated missing-card blocks, automatic inclusion when
+scans arrive, and continued rejection of unexpected absence, ambiguity, invalid files,
+storage access failures and a disconnected collection root.
+
 Routine verification is the deterministic offline regression suite. Fresh transcription checks use the service and consume quota; they require an authorized run. Neither activity establishes an accuracy benchmark without human-reviewed source readings.
 
 The maintainer intends to continue production with `gemini-3.5-flash-lite` and is satisfied with its current readings. No paid GPT/OpenAI comparison campaign is planned. Build the future extraction baseline from existing Gemini reports, deliberately reviewed readings, and offline response fixtures; changing providers is not a prerequisite.

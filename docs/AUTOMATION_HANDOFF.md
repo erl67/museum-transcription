@@ -15,6 +15,30 @@ again after implementation and still pointed to the starting SHA.
 
 ## Delivered and changed files
 
+**18 October 2026 acknowledged unavailable sources:** The maintainer confirmed the
+13 unresolved species folders have no available scans and cannot be fixed. The
+campaign now accepts `skip_missing_species`, an explicit mapping of exact species
+names to nonempty reasons in private configuration. Only a typed missing-JPEG-folder
+error for a listed species is non-blocking. Unknown missing species, ambiguous
+layouts, missing family/root storage, access errors and rejected filenames remain
+blocking. Scans supplied later are included automatically. Skipped species and their
+catalogue-row counts remain separate in CLI/JSON status; they are not transcribed,
+not counted complete and not converted into CSV-only `(MISSING)` blocks.
+
+The engine only gains the egg-specific `MissingJPEGDirectory(ValueError)` subtype
+with the existing error text. No prompts, request/cache fingerprints, validation,
+providers or quota behavior changed. `campaign.inventory` now returns an additional
+fifth value for acknowledged unavailable species. No database schema migration is
+needed. A successful scan clears previous discovery errors while preserving a pause.
+
+Baseline: **215 tests, 214 passed, one optional fixture skip**. Final offline suite:
+**225 tests, 224 passed, the same skip**, including both mocked provider transports.
+Ten new cases cover explicit source-gap acknowledgement, separate status and duplicate
+row counts, available-card processing, future scan arrival, invalid configuration,
+strict handling of ambiguity/names/access/root failures and clearing resolved errors.
+No live requests are part of these checks. Apply private configuration changes under
+the worker lock after backing up settings/state and preserving all quota history.
+
 **18 October 2026 fast-scan update:** The maintainer confirmed the JPG collection
 is expected to remain stable and requested replacing the expensive repeated full
 scan. Routine `scan`, `dry-run` and worker discovery now inspect names, grouping,
