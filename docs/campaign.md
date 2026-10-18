@@ -32,7 +32,7 @@ Stop all production writers on both computers first. The local clone has no hist
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
 $cfg = 'C:\MuseumCampaign\campaign.local.json'
-& $python campaign.py --config $cfg init --quota-source 'G:\My Drive\Egg Slip Scanning\Transcription\transcribe_request_usage.json'
+& $python campaign.py --config $cfg init --quota-source 'G:\My Drive\Egg Slip Scanning\transcription-old\transcribe_request_usage.json'
 ```
 
 `init` validates and preserves every model entry and original bytes, pins the runtime file hashes and configured locations, and creates local state. It makes no API calls. An existing destination is an error rather than a reset or overwrite. If already using a validated local quota file, omit `--quota-source`. Initialization refuses to invent an empty quota history. A damaged counter, deleted counter, unsupported campaign schema or changed bound locations stops execution. Keep a backup of the original history. Do not resume writes to the old file after copying it: that creates diverging counts. Point authorized interactive runs to the same local `--quota-file`, and coordinate any laptop requests explicitly.

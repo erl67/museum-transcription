@@ -23,6 +23,14 @@ context. They display per-species progress and do not open JPG contents. The exp
 `verify` command reads all images once and compares compatible content fingerprints.
 Changes that preserve all checked metadata require this explicit content audit.
 
+Code commit: `ccc0dbe` (`Make campaign scans metadata-only with lazy image verification`).
+The pre-existing local database and quota file were backed up under the ignored
+`private/campaign-upgrade-2026-10-18-abb6c1af` directory before applying the upgrade.
+The database had zero queue records and zero historical results; its schema was
+upgraded and the tested runtime approved with the existing offline `accept-code`
+command. The scheduled task remained disabled. The normal CLI scan was then run
+to record the remaining discovery issues; quota bytes were checked unchanged.
+
 The worker prepares selected cards from a single read of each image and checks for
 metadata changes during preparation. `transcribe.prepare_image_bytes` factors the
 existing byte-based preparation; `prepare_card` accepts a concrete optional loader
@@ -50,10 +58,18 @@ Real metadata discovery took **132.98 seconds**, identifying **10,014 groups / 1
 JPGs**, with an enforced guard confirming **zero image-content opens**. It found two
 filename/grouping issues and 13 unresolved species-folder locations; 201 CSV-only
 missing rows are separate. Detailed current findings are in the ignored local
-`private/naming-check-fast-2026-10-18.txt`. The older October 12 findings below remain
+`private/naming-issues-2026-10-18.md` (readable checklist) and
+`private/naming-check-fast-2026-10-18.txt` (machine summary). The older October 12 findings below remain
 historical. No collection files were changed. The prior scan was stopped and the
 20:00 scheduled task was verified disabled before changing runtime files. The user's
 pre-existing `.gitignore` edit (`*.lnk`) is preserved separately.
+
+The subsequent normal CLI scan completed discovery in **133.4 seconds**, with
+**10,015 groups / 11,495 images**. It accepted the now-corrected Larus argentatus
+filename and reported **one remaining filename/grouping issue plus 13 unresolved
+species-folder locations**. The short Markdown checklist reflects this newer run.
+The CLI exited 20 for those input issues, retained the existing queue, and confirmed
+the local quota file was byte-for-byte unchanged. No production run was started.
 
 **18 October 2026 scheduling update:** At the maintainer's request, the default daily
 start is now 20:00 Windows local time. The home-desktop task was actually registered
