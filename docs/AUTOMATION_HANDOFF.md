@@ -39,6 +39,15 @@ strict handling of ambiguity/names/access/root failures and clearing resolved er
 No live requests are part of these checks. Apply private configuration changes under
 the worker lock after backing up settings/state and preserving all quota history.
 
+Applied code commit `87d3776` locally. Settings, database and quota history were backed
+up under the ignored `private/unavailable-species-2026-10-18-ad4edec3` directory before
+adding the 13 confirmed species and approving the tested runtime. The actual offline
+scan succeeded in **132.3 seconds**: **10,015 groups / 11,496 images, zero discovery
+issues, 13 acknowledged unavailable species**, and **10,015 pending queue cards**.
+Quota-file bytes were unchanged. The task was not enabled and no transcription was
+started. The short local naming checklist now distinguishes these acknowledged source
+gaps from errors rather than telling staff to repair empty folders.
+
 **18 October 2026 fast-scan update:** The maintainer confirmed the JPG collection
 is expected to remain stable and requested replacing the expensive repeated full
 scan. Routine `scan`, `dry-run` and worker discovery now inspect names, grouping,
