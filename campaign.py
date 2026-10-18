@@ -18,6 +18,7 @@ from pathlib import Path
 import platform
 import sqlite3
 import sys
+import time
 from types import SimpleNamespace
 import uuid
 
@@ -25,7 +26,7 @@ import egg_slip_prompt
 import token_usage
 import transcribe as t
 
-SCHEMA = 1
+SCHEMA = 2
 SUCCESS = {"completed", "review"}
 EXIT = {"complete": 0, "quota": 10, "paused": 11, "service": 12,
         "attention": 20, "unavailable": 21, "running": 0}
@@ -133,7 +134,7 @@ def worker_lock(config):
 
 
 class Store:
-    def __init__(self, path, create=False):
+    def __init__(self, path, create=False, *, migrate=True):
         if not create and not path.is_file():
             raise ValueError("Campaign is not initialized; run init first")
         self.conn = sqlite3.connect(path, timeout=5)
@@ -145,7 +146,7 @@ class Store:
                 CREATE TABLE cards (id TEXT PRIMARY KEY, family TEXT, species TEXT,
                     card TEXT, fingerprint TEXT, request_key TEXT, state TEXT,
                     result TEXT, active INTEGER, failures INTEGER DEFAULT 0,
-                    retry_after TEXT, refresh INTEGER DEFAULT 0);
+                    retry_after TEXT, refresh INTEGER DEFAULT 0, signature TEXT);
                 CREATE TABLE history (seq INTEGER PRIMARY KEY, card_id TEXT,
                     fingerprint TEXT, result TEXT, saved_at TEXT);
                 CREATE TABLE attempts (seq INTEGER PRIMARY KEY, card_id TEXT,
@@ -156,7 +157,21 @@ class Store:
             """)
             self.set("schema", SCHEMA)
             self.set("campaign_id", uuid.uuid4().hex)
-        if self.get("schema") != SCHEMA:
+        version = self.get("schema")
+        if version == 1 and migrate:
+            # Add metadata without rewriting content fingerprints, results or history.
+            # Old completed cards need explicit verification before a fast baseline
+            # can be established; they are never silently retranscribed on upgrade.
+            try:
+                with self.conn:
+                    self.conn.execute("BEGIN IMMEDIATE")
+                    self.conn.execute("ALTER TABLE cards ADD COLUMN signature TEXT")
+                    self.conn.execute("UPDATE meta SET value=? WHERE key='schema'", (encode(SCHEMA),))
+            except BaseException:
+                self.conn.close()
+                raise
+            version = SCHEMA
+        if version != SCHEMA and not (version == 1 and not migrate):
             self.conn.close()
             raise ValueError("Unsupported campaign schema; preserve database and migrate deliberately")
 
@@ -241,11 +256,35 @@ def restore_card(data, base):
                   tuple(base / p for p in data["paths"]), tuple(data["sections"]), data["warnings"])
 
 
+def source_stats(card):
+    values = []
+    for path in card.paths:
+        stat = path.stat()
+        values.append(dict(size=stat.st_size, mtime_ns=stat.st_mtime_ns,
+                           device=stat.st_dev, inode=stat.st_ino))
+    return values
+
+
+def source_signature(card, db, args, base):
+    """Fast stable-collection check. Does not open or decode image contents."""
+    identity = dict(card=card_data(card, base), files=source_stats(card),
+        catalogue=[db.by_enum.get(e, []) for e in card.enums], model=args.model,
+        provider=args.provider, config=t.generation_config(args), max_edge=args.max_edge,
+        image_detail=args.image_detail if args.provider == "openai" else None,
+        prompt=egg_slip_prompt.build_prompt(card, db, not args.no_csv_hints))
+    return digest(encode(identity).encode("utf-8"))
+
+
 def prepare(card, db, args, base):
     prompt = egg_slip_prompt.build_prompt(card, db, not args.no_csv_hints)
-    raw = [digest(p.read_bytes()) for p in card.paths]
-    key, contents = t.prepare_card(card, prompt, args)
-    if raw != [digest(p.read_bytes()) for p in card.paths]:
+    before = source_stats(card)
+    raw = []
+    def load(path, max_edge):
+        data = path.read_bytes()
+        raw.append(digest(data))
+        return t.prepare_image_bytes(data, max_edge)
+    key, contents = t.prepare_card(card, prompt, args, image_loader=load)
+    if before != source_stats(card):
         raise OSError("Source changed while preparing request")
     identity = dict(card=card_data(card, base), raw_sha256=raw, request_key=key,
                     catalogue=[db.by_enum.get(e, []) for e in card.enums])
@@ -273,30 +312,33 @@ def validated(entry, card, key):
     return {**entry, "warnings": warnings, "status": "review" if warnings else "ok"}
 
 
-def old_checkpoint(path, card, key):
+def old_checkpoint(path, card, key, cache=None):
     """Read only: no Journal context (which would append/repair historical bytes)."""
-    if not path.exists():
-        return None
-    latest = None
-    with path.open(encoding="utf-8") as stream:
-        for line in stream:
-            try:
-                entry = json.loads(line)
-                if isinstance(entry, dict) and entry.get("key") == key:
-                    latest = entry
-            except (ValueError, UnicodeError):
-                continue
+    cache = cache if cache is not None else {}
+    if path not in cache:
+        entries = {}
+        if path.exists():
+            with path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    try:
+                        entry = json.loads(line)
+                        if isinstance(entry, dict) and isinstance(entry.get("key"), str):
+                            entries[entry["key"]] = entry
+                    except (ValueError, UnicodeError):
+                        continue
+        cache[path] = entries
+    latest = cache[path].get(key)
     if latest:
         return validated(latest, card, key)
     return None
 
 
-def checkpoint_for(config, item):
+def checkpoint_for(config, item, cache=None):
     card = restore_card(item["card"], config.base_dir)
     for root in dict.fromkeys([config.output_dir, config.base_dir]):
         try:
             entry = old_checkpoint(root / item["family"] /
-                f"{item['species']}_transcriptions_cache.jsonl", card, item["request_key"])
+                f"{item['species']}_transcriptions_cache.jsonl", card, item["request_key"], cache)
         except OSError:
             if root == config.output_dir and config.output_policy == "fallback":
                 continue
@@ -307,7 +349,8 @@ def checkpoint_for(config, item):
     return None
 
 
-def inventory(config):
+def inventory(config, *, verify=False):
+    print("Discovering collection folders...", flush=True)
     if not config.base_dir.is_dir() or not config.csv.is_file():
         raise OSError("Collection root or catalogue is unavailable; no work is inferred missing")
     db = t.load_database(config.csv)
@@ -334,31 +377,52 @@ def inventory(config):
         db.families.setdefault(species, {family})
         targets.setdefault(species, set())
     items, missing, issues = [], [], []
-    for species in sorted(targets, key=t.natural_key):
+    started = time.monotonic()
+    print("Checking filenames, sides and file metadata" +
+          ("; full image verification requested." if verify else "; image contents are not read."), flush=True)
+    images = 0
+    for index, species in enumerate(sorted(targets, key=t.natural_key), 1):
+        print(f"[{index}/{len(targets)}] {species}", flush=True)
         try:
             family, folder = t.resolve_folders(config.base_dir, db, species)
             # Species scope includes numbered scans absent from CSV and explicit uncatalogued cards.
             cards, problems, _ = t.discover_cards(folder, None, include_uncatalogued=True)
             issues.extend(f"{species}: {p}" for p in problems)
+            for problem in problems:
+                print(f"  FILE CHECK: {problem}", flush=True)
             for enum in sorted(t.missing_catalogue_numbers(folder, db, species, None), key=t.natural_key):
                 missing.append(dict(family=family.name, species=species, enum=enum,
                                     rows=len(db.by_enum[enum]), block=t.missing_output_block(enum, db.by_enum[enum])))
             for card in cards:
-                fingerprint, key, _, _ = prepare(card, db, config.args, config.base_dir)
+                signature = source_signature(card, db, config.args, config.base_dir)
+                fingerprint, key = None, None
+                if verify:
+                    print(f"  Verifying {card.base_id} ({len(card.paths)} image(s))", flush=True)
+                    fingerprint, key, _, _ = prepare(card, db, config.args, config.base_dir)
+                    if signature != source_signature(card, db, config.args, config.base_dir):
+                        raise OSError("Source metadata changed during verification")
                 identifier = "/".join((family.name, species, card.base_id)).casefold()
                 items.append(dict(id=identifier, family=family.name, species=species,
-                                  card=card_data(card, config.base_dir), fingerprint=fingerprint, request_key=key))
+                                  card=card_data(card, config.base_dir), signature=signature,
+                                  fingerprint=fingerprint, request_key=key))
+            images += sum(len(card.paths) for card in cards)
+            print(f"  {len(cards)} card(s); {len(items):,} cards / {images:,} images checked so far "
+                  f"({time.monotonic() - started:.1f}s).", flush=True)
         except (OSError, ValueError) as exc:
             issues.append(f"{species}: {exc}")
+            print(f"  ERROR: {species}: {exc}", flush=True)
+    print(f"Discovery finished: {len(items):,} cards, {images:,} images; {len(issues)} issue(s); "
+          f"{time.monotonic() - started:.1f}s.", flush=True)
     return db, items, missing, issues
 
 
-def scan(config, store, found=None):
-    db, items, missing, issues = found or inventory(config)
+def scan(config, store, found=None, *, verify=False):
+    db, items, missing, issues = found or inventory(config, verify=verify)
     # A disconnected/malformed tree must not deactivate formerly known cards.
     store.set("discovery_issues", issues)
     if issues:
         raise ValueError("Discovery requires attention: " + " | ".join(issues[:20]))
+    checkpoints = {}
     with store.conn:
         prior = {row["id"]: row for row in store.rows()}
         current_ids = {item["id"] for item in items}
@@ -368,44 +432,66 @@ def scan(config, store, found=None):
         for item in items:
             row = store.conn.execute("SELECT * FROM cards WHERE id=?", (item["id"],)).fetchone()
             state, result = "pending", None
+            fingerprint, key = item["fingerprint"], item["request_key"]
+            signature = item["signature"]
             if row:
                 state, result = row["state"], row["result"]
-                if row["fingerprint"] != item["fingerprint"]:
+                fingerprint, key = row["fingerprint"], row["request_key"]
+                if row["signature"] is not None and row["signature"] != signature:
                     state = "stale"
-                elif state in SUCCESS:
-                    checked = validated(json.loads(result), restore_card(item["card"], config.base_dir), item["request_key"])
+                if row["signature"] is None and result and json.loads(result).get("status") in {"ok", "review"}:
+                    state, signature = "stale", None  # Pre-upgrade completion needs one explicit content check.
+                if item["fingerprint"] is not None:
+                    if fingerprint is not None and fingerprint != item["fingerprint"]:
+                        state = "stale"
+                    else:
+                        fingerprint, key = item["fingerprint"], item["request_key"]
+                        signature = item["signature"]
+                        if result:
+                            checked = validated(json.loads(result), restore_card(item["card"], config.base_dir), key)
+                            if checked:
+                                result = encode(checked)
+                                state = "review" if checked["status"] == "review" else "completed"
+                if state in SUCCESS:
+                    checked = validated(json.loads(result), restore_card(item["card"], config.base_dir), key)
                     if checked is None:
                         state = "stale"
                     else:
                         result = encode(checked)
                         state = "review" if checked["status"] == "review" else "completed"
-                # A manual checkpoint may have arrived since queue creation. Explicit
-                # refresh deliberately bypasses it; normal pending work can reuse it.
-                if state == "pending" and not row["refresh"]:
-                    checkpoint = checkpoint_for(config, item)
+                # Metadata scans reuse an already established content key. First-time
+                # journal matching is deferred until this card is selected by the worker.
+                if state == "pending" and not row["refresh"] and key:
+                    checkpoint = checkpoint_for(config, {**item, "request_key": key}, checkpoints)
                     if checkpoint:
                         result = encode(checkpoint)
                         state = "review" if checkpoint["status"] == "review" else "completed"
                         store.conn.execute("INSERT INTO history(card_id,fingerprint,result,saved_at) VALUES (?,?,?,?)",
-                            (item["id"], item["fingerprint"], result, stamp()))
-                store.conn.execute("UPDATE cards SET family=?,species=?,card=?,fingerprint=?,request_key=?,state=?,result=?,active=1 WHERE id=?",
-                    (item["family"], item["species"], encode(item["card"]), item["fingerprint"], item["request_key"], state, result, item["id"]))
+                            (item["id"], fingerprint, result, stamp()))
+                store.conn.execute("UPDATE cards SET family=?,species=?,card=?,fingerprint=?,request_key=?,state=?,result=?,signature=?,active=1 WHERE id=?",
+                    (item["family"], item["species"], encode(item["card"]), fingerprint, key, state, result, signature, item["id"]))
             else:
-                card = restore_card(item["card"], config.base_dir)
-                checkpoint = checkpoint_for(config, item)
+                checkpoint = checkpoint_for(config, item, checkpoints) if key else None
                 if checkpoint:
                     result = encode(checkpoint)
                     state = "review" if checkpoint["status"] == "review" else "completed"
                 elif (item["family"], item["species"]) in disappeared_species:
                     state = "stale"  # Possible rename/regrouping; never silently repeat it.
-                store.conn.execute("INSERT INTO cards(id,family,species,card,fingerprint,request_key,state,result,active) VALUES (?,?,?,?,?,?,?,?,1)",
-                    (item["id"], item["family"], item["species"], encode(item["card"]), item["fingerprint"], item["request_key"], state, result))
+                store.conn.execute("INSERT INTO cards(id,family,species,card,fingerprint,request_key,state,result,signature,active) VALUES (?,?,?,?,?,?,?,?,?,1)",
+                    (item["id"], item["family"], item["species"], encode(item["card"]), fingerprint, key, state, result, signature))
                 if result:
                     store.conn.execute("INSERT INTO history(card_id,fingerprint,result,saved_at) VALUES (?,?,?,?)",
                         (item["id"], item["fingerprint"], result, stamp()))
         store.conn.execute("UPDATE cards SET state='stale' WHERE active=0")
     store.set("missing", missing)
     store.set("last_scan", stamp())
+    store.set("scan_mode", "full_content" if verify else "metadata")
+    if verify:
+        store.set("last_full_verification", stamp())
+    states = {}
+    for row in store.rows():
+        states[row["state"]] = states.get(row["state"], 0) + 1
+    print("Queue saved: " + ", ".join(f"{count:,} {state}" for state, count in sorted(states.items())), flush=True)
     return db
 
 
@@ -596,6 +682,9 @@ def status(config, store):
         token_usage=token_usage.aggregate(calls), estimated_cost=token_usage.cost_text(calls),
         current_or_last=store.get("current"), last_successful_run=store.get("last_successful_run"),
         last_error=store.get("last_error"), discovery_issues=store.get("discovery_issues", []),
+        scan_mode=store.get("scan_mode"), last_scan=store.get("last_scan"),
+        last_full_verification=store.get("last_full_verification"),
+        content_fingerprinted_cards=sum(bool(r["fingerprint"]) for r in rows if r["active"]),
         worker_host=store.get("worker_host"), runtime_matches_approved=store.get("approved_code") == code_identity(),
         estimated_remaining_days=math.ceil(remaining * ratio / config.args.rpd) if ratio is not None else None,
         minimum_remaining_days=math.ceil(remaining / config.args.rpd),
@@ -667,7 +756,7 @@ def run_worker(config, store, engine=None):
         raise ValueError("Quota history is missing; refusing to start a fresh counter")
     quota = CampaignQuota(t.DailyQuota(config.args), store, config)
     quota.recover()
-    # Inventory validates all routing and images before a single request.
+    # Routing/grouping/metadata are cheap; decode only the cards selected below.
     db = scan(config, store)
     families = {row["family"] for row in store.rows() if row["active"]}
     families.update(m["family"] for m in store.get("missing", []))
@@ -678,6 +767,7 @@ def run_worker(config, store, engine=None):
     engine.quota = quota
     stop = "complete"
     store.set("status", "running")
+    checkpoints = {}
     try:
         for row in store.rows():
             if not row["active"] or row["state"] not in {"pending", "retryable"}:
@@ -709,23 +799,37 @@ def run_worker(config, store, engine=None):
                     store.conn.execute("UPDATE cards SET state='stale' WHERE id=?", (row["id"],))
                 stop = "attention"
                 continue
-            fingerprint, key, contents, prompt = prepare(card, current_db, config.args, config.base_dir)
-            if fingerprint != row["fingerprint"]:
+            if source_signature(card, current_db, config.args, config.base_dir) != row["signature"]:
                 with store.conn:
                     store.conn.execute("UPDATE cards SET state='stale' WHERE id=?", (row["id"],))
                 stop = "attention"
                 continue
-            store.set("current", dict(family=row["family"], species=row["species"], card=card.base_id))
+            fingerprint, key, contents, prompt = prepare(card, current_db, config.args, config.base_dir)
+            if row["fingerprint"] and not row["refresh"] and fingerprint != row["fingerprint"]:
+                with store.conn:
+                    store.conn.execute("UPDATE cards SET state='stale' WHERE id=?", (row["id"],))
+                stop = "attention"
+                continue
+            if source_signature(card, current_db, config.args, config.base_dir) != row["signature"]:
+                raise OSError("Source changed while preparing request; no API call was made")
             with store.conn:
-                store.conn.execute("UPDATE cards SET state='in_progress' WHERE id=?", (row["id"],))
+                store.conn.execute("UPDATE cards SET fingerprint=?,request_key=? WHERE id=?", (fingerprint, key, row["id"]))
+            row = {**dict(row), "fingerprint": fingerprint, "request_key": key}
+            result = None if row["refresh"] else checkpoint_for(config,
+                dict(card=json.loads(row["card"]), family=row["family"], species=row["species"], request_key=key), checkpoints)
+            reused = result is not None
+            store.set("current", dict(family=row["family"], species=row["species"], card=card.base_id))
             quota.card_id = row["id"]
             start_seq = store.conn.execute("SELECT coalesce(max(seq),0) FROM attempts").fetchone()[0]
-            result = engine.transcribe(card, contents)
-            result = {**result, "request_metadata": t.request_metadata(prompt, config.args, key),
-                "provider": config.args.provider, "model": config.args.model, "key": key,
-                "cache_version": t.CACHE_VERSION, "base_id": card.base_id,
-                "catalog_numbers": list(card.enums), "files": [str(p) for p in card.paths],
-                "saved_at": stamp(), "campaign_result_id": uuid.uuid4().hex}
+            if not reused:
+                with store.conn:
+                    store.conn.execute("UPDATE cards SET state='in_progress' WHERE id=?", (row["id"],))
+                result = engine.transcribe(card, contents)
+                result = {**result, "request_metadata": t.request_metadata(prompt, config.args, key),
+                    "provider": config.args.provider, "model": config.args.model, "key": key,
+                    "cache_version": t.CACHE_VERSION, "base_id": card.base_id,
+                    "catalog_numbers": list(card.enums), "files": [str(p) for p in card.paths],
+                    "saved_at": stamp(), "campaign_result_id": uuid.uuid4().hex}
             stop_kind = result.get("stop_kind")
             if result["status"] in {"ok", "review"}:
                 state = "completed" if result["status"] == "ok" else "review"
@@ -735,6 +839,8 @@ def run_worker(config, store, engine=None):
                 state = "permanent"
             store.save_result(row, result, state, quota.quota.day(), config.retry_days)
             print(f"{stamp()} {row['id']}: {result['status'].upper()}")
+            if reused:
+                print("  Reused matching journal checkpoint; no API request.")
             if result.get("error"):
                 print("  " + result["error"])
             if result.get("stop_reason"):
@@ -744,7 +850,7 @@ def run_worker(config, store, engine=None):
                 records = store.conn.execute("SELECT seq FROM attempts WHERE seq>? AND state='reserved' ORDER BY seq", (start_seq,)).fetchall()
                 for attempt, call in zip(records, result.get("call_usage", [])):
                     store.conn.execute("UPDATE attempts SET state='returned',usage=? WHERE seq=?", (encode(call), attempt["seq"]))
-            if state in SUCCESS:
+            if state in SUCCESS and not reused:
                 store.set("fresh_completed", store.get("fresh_completed", 0) + 1)
             # Each response is already committed locally. Publish a species snapshot
             # at the end of this invocation, or recover it at the next startup.
@@ -778,7 +884,7 @@ def run_worker(config, store, engine=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="Machine-local JSON configuration")
-    parser.add_argument("command", choices=["init", "dry-run", "scan", "run", "status", "pause", "resume",
+    parser.add_argument("command", choices=["init", "dry-run", "scan", "verify", "run", "status", "pause", "resume",
                                             "retry", "refresh", "reconcile", "accept-code"])
     parser.add_argument("--quota-source", help="init only: copy existing history without overwrite")
     parser.add_argument("--card", help="Exact card ID from status/database; retry/refresh only")
@@ -803,7 +909,7 @@ def main(argv=None):
             print("Pause requested; any current request may finish and will be checkpointed.")
             return 0
         if args.command == "status":
-            store = Store(config.db_path)
+            store = Store(config.db_path, migrate=False)
             print(json.dumps(status(config, store), indent=2, ensure_ascii=False))
             return 0
         with worker_lock(config):
@@ -814,8 +920,8 @@ def main(argv=None):
             elif args.command == "accept-code":
                 store.set("approved_code", code_identity())
                 print("Approved current runtime files; next scan still checks fingerprints and validation.")
-            elif args.command == "scan":
-                scan(config, store)
+            elif args.command in {"scan", "verify"}:
+                scan(config, store, verify=args.command == "verify")
             elif args.command in {"retry", "refresh"}:
                 if not args.card:
                     raise ValueError("Select exactly one --card ID; routine continuation never refreshes successes")

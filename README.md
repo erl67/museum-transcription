@@ -117,6 +117,9 @@ Keep `transcribe_request_usage.json` beside the script when moving or updating t
 For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).
 The separate `campaign.py` worker retains completed cards beyond 48 hours, uses the existing
 daily attempt accounting, and provides offline status, pause/resume and recovery commands.
+Routine campaign scans check names and file metadata without reading image contents;
+they display progress. Images are read when selected for processing, with a separate
+`verify` command available for a deliberate full content check.
 Keep its transactional state on the designated home desktop's local disk. Scheduling support
 prepares a disabled Windows task; enabling production processing is a separate deployment step.
 

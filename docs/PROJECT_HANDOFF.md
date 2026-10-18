@@ -4,6 +4,13 @@ Originally prepared 22 September 2026 for moving development from ChatGPT Work t
 
 ## Production choice and documentation update - 7 October 2026
 
+**18 October 2026 scanning update:** Routine campaign discovery now uses file metadata
+and shows progress, without reading JPG contents. Selected cards are prepared from one
+image read with unchanged request bytes and cache fingerprints; full `verify` remains
+explicit. Schema 1-to-2 migration adds a metadata signature without deleting history.
+This supersedes the original campaign's expensive full-content scan on every startup.
+See [automation handoff](AUTOMATION_HANDOFF.md) for the upgrade and verification record.
+
 **12 October 2026 automation extension:** The dedicated
 `feature/unattended-transcription` branch adds `campaign.py`, offline acceptance tests,
 and a disabled-task Windows scheduling helper. See [automation development handoff](AUTOMATION_HANDOFF.md)

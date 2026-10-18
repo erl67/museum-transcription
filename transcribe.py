@@ -475,9 +475,13 @@ def missing_catalogue_numbers(folder: Path, db: Database, species: str,
 
 # --- 5. Image preparation and exact-input fingerprints for safe reuse ---
 def prepare_image(path: Path, max_edge: int) -> bytes:
+    return prepare_image_bytes(path.read_bytes(), max_edge)
+
+
+def prepare_image_bytes(raw: bytes, max_edge: int) -> bytes:
+    """Prepare already-read bytes using the same image policy as interactive runs."""
     from PIL import Image, ImageOps
 
-    raw = path.read_bytes()
     with Image.open(io.BytesIO(raw)) as source:
         source.load()  # Force decoding now so damaged JPEGs fail before an API call.
         resize = bool(max_edge and max(source.size) > max_edge)
@@ -513,7 +517,7 @@ def generation_config(args) -> dict:
     return config
 
 
-def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
+def prepare_card(card: Card, prompt: str, args, *, image_loader=None) -> tuple[str, list]:
     config = generation_config(args)
     manifest = {"cache_version": CACHE_VERSION, "model": args.model, "config": config,
                 "prompt": prompt, "max_edge": args.max_edge, "images": []}
@@ -524,7 +528,7 @@ def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
     parts: list[dict] = [{"text": prompt}]
     request_size = len(prompt.encode("utf-8")) + 4096
     for path, section in zip(card.paths, card.sections):
-        data = prepare_image(path, args.max_edge)
+        data = (image_loader or prepare_image)(path, args.max_edge)
         label = f"IMAGE: {path.name}\nSECTION: {section}"
         parts.extend([{"text": label}, {"inline_data": {"mime_type": "image/jpeg", "data": data}}])
         request_size += 4 * ((len(data) + 2) // 3) + len(label.encode("utf-8")) + 256

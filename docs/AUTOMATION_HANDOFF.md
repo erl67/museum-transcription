@@ -15,6 +15,46 @@ again after implementation and still pointed to the starting SHA.
 
 ## Delivered and changed files
 
+**18 October 2026 fast-scan update:** The maintainer confirmed the JPG collection
+is expected to remain stable and requested replacing the expensive repeated full
+scan. Routine `scan`, `dry-run` and worker discovery now inspect names, grouping,
+sizes, modification times and filesystem identity, plus prompt/settings/catalogue
+context. They display per-species progress and do not open JPG contents. The explicit
+`verify` command reads all images once and compares compatible content fingerprints.
+Changes that preserve all checked metadata require this explicit content audit.
+
+The worker prepares selected cards from a single read of each image and checks for
+metadata changes during preparation. `transcribe.prepare_image_bytes` factors the
+existing byte-based preparation; `prepare_card` accepts a concrete optional loader
+for the campaign. Default interactive behavior, prompts, image parts, request keys,
+full campaign fingerprints and provider/retry implementations remain unchanged.
+Journals are indexed per species per invocation; newly discovered manual completions
+are matched against actual image content when selected, before a request is sent.
+
+Schema 1-to-2 migration adds `cards.signature` in a transaction and preserves all
+results/history/attempts/publications. A failed migration rolls back both column and
+version. Read-only status never migrates. Previously completed schema-1 records lack
+a metadata baseline and are held stale until a one-time `verify` confirms their saved
+content fingerprint; routine continuation cannot silently retranscribe them. Initial
+pending cards do not require full-collection hashing before production can begin.
+
+Verification: baseline **203 tests (202 passed, one optional fixture skip)**; final
+**215 tests (214 passed, the same skip)**, including both mocked SDK transports.
+New cases forbid all image opens/decoding during metadata scans and unchanged
+continuation, count a single read per selected image even with retries, compare old
+fingerprints/request bytes for both providers and resizing, detect concurrent changes,
+exercise explicit full audits with preserved metadata, and verify migration/rollback.
+Compilation and `git diff --check` passed. No live model calls were made.
+
+Real metadata discovery took **132.98 seconds**, identifying **10,014 groups / 11,494
+JPGs**, with an enforced guard confirming **zero image-content opens**. It found two
+filename/grouping issues and 13 unresolved species-folder locations; 201 CSV-only
+missing rows are separate. Detailed current findings are in the ignored local
+`private/naming-check-fast-2026-10-18.txt`. The older October 12 findings below remain
+historical. No collection files were changed. The prior scan was stopped and the
+20:00 scheduled task was verified disabled before changing runtime files. The user's
+pre-existing `.gitignore` edit (`*.lnk`) is preserved separately.
+
 **18 October 2026 scheduling update:** At the maintainer's request, the default daily
 start is now 20:00 Windows local time. The home-desktop task was actually registered
 for 20:00 Eastern, under the collection user's interactive account, and verified

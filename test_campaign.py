@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import platform
 import tempfile
@@ -149,7 +150,7 @@ class CampaignTest(unittest.TestCase):
         self.assertEqual(self.counts()["attempts_used_today"], 0)
 
     def test_existing_checkpoint_over_48_hours_imported_without_rewrite(self):
-        db, items, _, _ = c.inventory(self.config)
+        db, items, _, _ = c.inventory(self.config, verify=True)
         item = items[0]
         card = c.restore_card(item["card"], self.config.base_dir)
         entry = dict(key=item["request_key"], cache_version=t.CACHE_VERSION, status="ok",
@@ -157,7 +158,7 @@ class CampaignTest(unittest.TestCase):
         path = self.family / "Test_bird_transcriptions_cache.jsonl"
         path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
         before = path.read_bytes()
-        c.scan(self.config, self.store)
+        c.scan(self.config, self.store, verify=True)
         self.assertEqual(self.store.rows()[0]["state"], "completed")
         self.assertEqual(path.read_bytes(), before)
         with t.Journal(path) as journal:
@@ -384,7 +385,8 @@ class CampaignTest(unittest.TestCase):
         c.scan(self.config, self.store)
         item = self.store.rows()[0]
         card = c.restore_card(json.loads(item["card"]), self.config.base_dir)
-        entry = dict(key=item["request_key"], cache_version=t.CACHE_VERSION, status="ok",
+        key = c.prepare(card, t.load_database(self.csv), self.config.args, self.config.base_dir)[1]
+        entry = dict(key=key, cache_version=t.CACHE_VERSION, status="ok",
                      text=fixtures.transcript(card.sections), warnings=[])
         path = self.family / "Test_bird_transcriptions_cache.jsonl"
         path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
@@ -452,6 +454,190 @@ class CampaignTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.initialize(config, source)
         self.assertEqual(config.quota_file.read_bytes(), source.read_bytes())
+
+    @contextlib.contextmanager
+    def no_image_reads(self):
+        read = Path.read_bytes
+        open_file = Path.open
+        def guarded(path):
+            if path.suffix.lower() in {".jpg", ".jpeg"}:
+                raise AssertionError(f"Metadata check read image bytes: {path}")
+            return read(path)
+        def guarded_open(path, *args, **kwargs):
+            if path.suffix.lower() in {".jpg", ".jpeg"}:
+                raise AssertionError(f"Metadata check opened an image: {path}")
+            return open_file(path, *args, **kwargs)
+        with patch.object(Path, "read_bytes", guarded), patch.object(Path, "open", guarded_open), patch.object(t, "prepare_image_bytes",
+                side_effect=AssertionError("Metadata check decoded an image")):
+            yield
+
+    def test_metadata_scan_and_dry_run_never_read_or_decode_images(self):
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+            self.assertEqual(c.main(["--config", str(self.config_path), "dry-run"]), 0)
+        self.assertTrue(all(row["fingerprint"] is None and row["request_key"] is None for row in self.store.rows()))
+        self.assertEqual(self.store.get("scan_mode"), "metadata")
+        self.assertIn("[1/1] Test_bird", self.output.getvalue())
+        self.assertIn("3 cards / 4 images checked", self.output.getvalue())
+        self.assertIn("Queue saved:", self.output.getvalue())
+
+    def test_completed_campaign_continuation_does_not_reread_images(self):
+        self.run_worker()
+        self.advance()
+        self.run_worker()
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+            self.assertEqual(self.run_worker()[1].calls, [])
+        self.assertEqual(self.counts()["completed_cards"], 3)
+
+    def test_worker_only_reads_selected_card_once_even_with_service_retry(self):
+        self.config.args.rpd = 2
+        read = Path.read_bytes
+        paths = []
+        def counted(path):
+            if path.suffix.lower() == ".jpg":
+                paths.append(path.name)
+            return read(path)
+        with patch.object(Path, "read_bytes", counted):
+            code, client = self.run_worker([fixtures.FakeAPIError(503)])
+        self.assertEqual(code, 10)
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(paths, ["Test_bird_E01(A).jpg", "Test_bird_E01(B).jpg"])
+        self.assertEqual(self.counts()["content_fingerprinted_cards"], 1)
+
+    def test_metadata_changes_mark_stale_without_image_reads(self):
+        self.run_worker()
+        path = self.jpeg / "Test_bird_E01(A).jpg"
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(self.store.rows()[1]["state"], "completed")
+
+    def test_full_verification_detects_content_change_with_preserved_metadata(self):
+        path = self.jpeg / "Test_bird_E01(A).jpg"
+        original = path.read_bytes() + b"original1234"
+        path.write_bytes(original)
+        self.run_worker()
+        before = path.stat()
+        path.write_bytes(original[:-12] + b"modified1234")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "completed")
+        c.scan(self.config, self.store, verify=True)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+        self.assertEqual(self.store.get("scan_mode"), "full_content")
+        self.assertTrue(self.store.get("last_full_verification"))
+
+    def test_prepared_request_and_legacy_content_fingerprints_are_identical(self):
+        db = t.load_database(self.csv)
+        card = t.discover_cards(self.jpeg, None)[0][0]
+        for model in ("gemini-3.5-flash-lite", "gpt-5.6-luna"):
+            args = t.parse_args(["--model", model])
+            for max_edge in (0, 10):
+                args.max_edge = max_edge
+                prompt = c.egg_slip_prompt.build_prompt(card, db, True)
+                key, contents = t.prepare_card(card, prompt, args)
+                identity = dict(card=c.card_data(card, self.config.base_dir),
+                    raw_sha256=[c.digest(p.read_bytes()) for p in card.paths], request_key=key,
+                    catalogue=[db.by_enum.get(e, []) for e in card.enums])
+                legacy = c.digest(c.encode(identity).encode("utf-8"))
+                fingerprint, actual_key, actual_contents, actual_prompt = c.prepare(card, db, args, self.config.base_dir)
+                self.assertEqual((actual_key, actual_contents, actual_prompt), (key, contents, prompt))
+                self.assertEqual(fingerprint, legacy)
+
+    def test_source_change_during_preparation_prevents_api_attempt(self):
+        original = t.prepare_image_bytes
+        path = self.jpeg / "Test_bird_E01(A).jpg"
+        def changed(data, max_edge):
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+            return original(data, max_edge)
+        engine, client = self.engine()
+        with patch.object(t, "prepare_image_bytes", side_effect=changed):
+            with self.assertRaisesRegex(OSError, "Source changed"):
+                c.run_worker(self.config, self.store, engine)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_full_verification_reads_each_image_once_without_requests(self):
+        read = Path.read_bytes
+        paths = []
+        def counted(path):
+            if path.suffix.lower() == ".jpg":
+                paths.append(path.name)
+            return read(path)
+        with patch.object(Path, "read_bytes", counted):
+            self.assertEqual(c.main(["--config", str(self.config_path), "verify"]), 0)
+        self.assertEqual(len(paths), 4)
+        self.assertEqual(len(set(paths)), 4)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_invalid_image_is_deferred_until_selected_and_spends_no_quota(self):
+        (self.jpeg / "Test_bird_E01(A).jpg").write_bytes(b"not a readable jpeg")
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        engine, client = self.engine()
+        with self.assertRaises(OSError):
+            c.run_worker(self.config, self.store, engine)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.counts()["campaign_api_attempts"], 0)
+
+    def test_explicit_refresh_bypasses_old_checkpoint_after_fast_scan(self):
+        self.run_worker()
+        identifier = self.store.rows()[0]["id"]
+        self.assertEqual(c.main(["--config", str(self.config_path), "refresh", "--card", identifier]), 0)
+        self.advance()
+        _, client = self.run_worker()
+        self.assertEqual(len(client.calls), 2)  # Explicit refresh plus remaining uncatalogued card.
+
+    def test_schema_upgrade_preserves_results_and_requires_legacy_verification(self):
+        self.run_worker()
+        history = self.store.conn.execute("SELECT * FROM history").fetchall()
+        results = [r["result"] for r in self.store.rows()]
+        with self.store.conn:
+            self.store.conn.execute("ALTER TABLE cards DROP COLUMN signature")
+        self.store.set("schema", 1)
+        before = self.config.db_path.read_bytes()
+        readonly = c.Store(self.config.db_path, migrate=False)
+        try:
+            c.status(self.config, readonly)
+            self.assertEqual(readonly.get("schema"), 1)
+        finally:
+            readonly.close()
+        self.assertEqual(before, self.config.db_path.read_bytes())
+        self.store.close()
+        self.store = c.Store(self.config.db_path)
+        self.addCleanup(self.store.close)
+        self.assertEqual(self.store.get("schema"), c.SCHEMA)
+        self.assertEqual(results, [r["result"] for r in self.store.rows()])
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        self.assertTrue(all(r["state"] == "stale" for r in self.store.rows() if r["result"]))
+        c.scan(self.config, self.store, verify=True)
+        self.assertEqual(self.counts()["completed_cards"], 2)
+        self.assertEqual(len(history), self.store.conn.execute("SELECT count(*) FROM history").fetchone()[0])
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+
+    def test_failed_schema_migration_rolls_back_column_and_version_together(self):
+        with self.store.conn:
+            self.store.conn.execute("ALTER TABLE cards DROP COLUMN signature")
+        self.store.set("schema", 1)
+        connect = c.sqlite3.connect
+        def fail_version_write(*args, **kwargs):
+            conn = connect(*args, **kwargs)
+            conn.set_authorizer(lambda action, table, *unused: c.sqlite3.SQLITE_DENY
+                if action == c.sqlite3.SQLITE_UPDATE and table == "meta" else c.sqlite3.SQLITE_OK)
+            return conn
+        with patch.object(c.sqlite3, "connect", side_effect=fail_version_write):
+            with self.assertRaises(c.sqlite3.DatabaseError):
+                c.Store(self.config.db_path)
+        self.assertEqual(self.store.get("schema"), 1)
+        columns = [row[1] for row in self.store.conn.execute("PRAGMA table_info(cards)")]
+        self.assertNotIn("signature", columns)
 
 
 if __name__ == "__main__":
