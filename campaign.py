@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager, redirect_stdout
+import ctypes
 from datetime import datetime, timezone, timedelta
 import hashlib
 import io
@@ -68,7 +69,8 @@ class Config:
         data = json.loads(self.path.read_text(encoding="utf-8-sig"))
         required = {"base_dir", "csv", "output_dir", "state_dir", "quota_file", "worker_host"}
         optional = {"fallback_dir", "output_policy", "env_file", "model", "rpd", "rpm",
-                    "retry_days", "status_file", "log_file", "extra_species", "skip_missing_species"}
+                    "retry_days", "status_file", "log_file", "extra_species", "skip_missing_species",
+                    "source_identity"}
         if required - data.keys() or data.keys() - required - optional:
             raise ValueError("Configuration has missing or unknown fields: " +
                              str(sorted((required - data.keys()) | (data.keys() - required - optional))))
@@ -115,6 +117,10 @@ class Config:
             if data.get(key) is not None:
                 args.extend(["--" + key.replace("_", "-"), str(data[key])])
         self.args = t.parse_args(args)
+        self.args.campaign_source_identity = data.get("source_identity", "filesystem")
+        if (not isinstance(self.args.campaign_source_identity, str)
+                or self.args.campaign_source_identity not in {"filesystem", "metadata"}):
+            raise ValueError("source_identity must be filesystem or metadata")
         if self.args.rpd is None:
             raise ValueError("Unattended campaigns require a finite daily cap")
         self.log_file = self.log_file or self.state_dir / "campaign.log"
@@ -139,6 +145,28 @@ def worker_lock(config):
         yield
     finally:
         conn.close()
+
+
+def _execution_state(flags):
+    function = ctypes.windll.kernel32.SetThreadExecutionState
+    function.argtypes = [ctypes.c_uint]
+    function.restype = ctypes.c_uint
+    return function(flags)
+
+
+@contextmanager
+def keep_awake():
+    """Prevent Windows automatic idle sleep for this worker only; allow display off."""
+    if sys.platform != "win32":
+        yield
+        return
+    previous = _execution_state(0x80000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+    if not previous:
+        raise OSError("Unable to prevent automatic idle sleep during campaign processing")
+    try:
+        yield
+    finally:
+        _execution_state(previous)
 
 
 class Store:
@@ -275,7 +303,14 @@ def source_stats(card):
 
 def source_signature(card, db, args, base):
     """Fast stable-collection check. Does not open or decode image contents."""
-    identity = dict(card=card_data(card, base), files=source_stats(card),
+    files = source_stats(card)
+    if getattr(args, "campaign_source_identity", "filesystem") == "metadata":
+        # Virtual Drive mounts may reassign device/inode values after reconnecting.
+        # Keep those identifiers in prepare()'s within-request race checks, but use
+        # portable size/mtime/path identity for this explicitly selected policy.
+        files = [{key: value for key, value in stat.items() if key in {"size", "mtime_ns"}}
+                 for stat in files]
+    identity = dict(card=card_data(card, base), files=files,
         catalogue=[db.by_enum.get(e, []) for e in card.enums], model=args.model,
         provider=args.provider, config=t.generation_config(args), max_edge=args.max_edge,
         image_detail=args.image_detail if args.provider == "openai" else None,
@@ -357,7 +392,7 @@ def checkpoint_for(config, item, cache=None):
     return None
 
 
-def inventory(config, *, verify=False):
+def inventory(config, *, verify=False, verify_ids=None):
     print("Discovering collection folders...", flush=True)
     if not config.base_dir.is_dir() or not config.csv.is_file():
         raise OSError("Collection root or catalogue is unavailable; no work is inferred missing")
@@ -387,7 +422,9 @@ def inventory(config, *, verify=False):
     items, missing, issues, unavailable = [], [], [], []
     started = time.monotonic()
     print("Checking filenames, sides and file metadata" +
-          ("; full image verification requested." if verify else "; image contents are not read."), flush=True)
+          ("; full image verification requested." if verify else
+           "; verifying previously prepared cards only." if verify_ids is not None else
+           "; image contents are not read."), flush=True)
     images = 0
     for index, species in enumerate(sorted(targets, key=t.natural_key), 1):
         print(f"[{index}/{len(targets)}] {species}", flush=True)
@@ -412,14 +449,14 @@ def inventory(config, *, verify=False):
                 missing.append(dict(family=family.name, species=species, enum=enum,
                                     rows=len(db.by_enum[enum]), block=t.missing_output_block(enum, db.by_enum[enum])))
             for card in cards:
+                identifier = "/".join((family.name, species, card.base_id)).casefold()
                 signature = source_signature(card, db, config.args, config.base_dir)
                 fingerprint, key = None, None
-                if verify:
+                if verify or (verify_ids is not None and identifier in verify_ids):
                     print(f"  Verifying {card.base_id} ({len(card.paths)} image(s))", flush=True)
                     fingerprint, key, _, _ = prepare(card, db, config.args, config.base_dir)
                     if signature != source_signature(card, db, config.args, config.base_dir):
                         raise OSError("Source metadata changed during verification")
-                identifier = "/".join((family.name, species, card.base_id)).casefold()
                 items.append(dict(id=identifier, family=family.name, species=species,
                                   card=card_data(card, config.base_dir), signature=signature,
                                   fingerprint=fingerprint, request_key=key))
@@ -434,8 +471,9 @@ def inventory(config, *, verify=False):
     return db, items, missing, issues, unavailable
 
 
-def scan(config, store, found=None, *, verify=False):
-    db, items, missing, issues, unavailable = found or inventory(config, verify=verify)
+def scan(config, store, found=None, *, verify=False, verify_saved=False):
+    verify_ids = {row["id"] for row in store.rows() if row["active"] and row["fingerprint"]} if verify_saved else None
+    db, items, missing, issues, unavailable = found or inventory(config, verify=verify, verify_ids=verify_ids)
     # A disconnected/malformed tree must not deactivate formerly known cards.
     store.set("discovery_issues", issues)
     store.set("skipped_missing_species", unavailable)
@@ -471,6 +509,27 @@ def scan(config, store, found=None, *, verify=False):
                             if checked:
                                 result = encode(checked)
                                 state = "review" if checked["status"] == "review" else "completed"
+                            elif verify_saved and state == "stale":
+                                prior_result = json.loads(result)
+                                # Interrupted attempts remain charged and keep their
+                                # original next-day retry gate; never call them complete.
+                                if prior_result.get("error", "").startswith("Interrupted request:"):
+                                    state = "retryable"
+                                elif prior_result.get("stop_kind") == "daily":
+                                    state = "pending"
+                                elif prior_result.get("stop_kind") == "service":
+                                    state = "retryable"
+                                elif prior_result.get("status") not in {"ok", "review"}:
+                                    state = "permanent"
+                if (verify_saved and state == "stale" and not result
+                        and (not row["fingerprint"] or row["fingerprint"] == item["fingerprint"])
+                        and row["card"] == encode(item["card"])
+                        and (item["family"], item["species"]) not in disappeared_species
+                        and not store.conn.execute("SELECT 1 FROM attempts WHERE card_id=?", (row["id"],)).fetchone()
+                        and not store.conn.execute("SELECT 1 FROM history WHERE card_id=?", (row["id"],)).fetchone()):
+                    # No result/request has ever existed for this unchanged physical
+                    # identity. Explicit recovery may requeue it without opening images.
+                    state = "pending"
                 if state in SUCCESS:
                     checked = validated(json.loads(result), restore_card(item["card"], config.base_dir), key)
                     if checked is None:
@@ -504,18 +563,19 @@ def scan(config, store, found=None, *, verify=False):
         store.conn.execute("UPDATE cards SET state='stale' WHERE active=0")
     store.set("missing", missing)
     store.set("last_scan", stamp())
-    store.set("scan_mode", "full_content" if verify else "metadata")
+    store.set("scan_mode", "full_content" if verify else "saved_content" if verify_saved else "metadata")
     if verify:
         store.set("last_full_verification", stamp())
+    if verify_saved:
+        store.set("last_saved_verification", stamp())
     states = {}
     for row in store.rows():
         states[row["state"]] = states.get(row["state"], 0) + 1
     print("Queue saved: " + ", ".join(f"{count:,} {state}" for state, count in sorted(states.items())), flush=True)
-    if not config.pause_path.exists():
-        attention = states.get("stale", 0) or states.get("permanent", 0)
-        store.set("status", "attention" if attention else "ready")
-        if not attention:
-            store.set("last_error", None)
+    attention = states.get("stale", 0) or states.get("permanent", 0)
+    store.set("status", "attention" if attention else "ready")
+    if not attention:
+        store.set("last_error", None)
     return db
 
 
@@ -710,6 +770,8 @@ def status(config, store):
         last_error=store.get("last_error"), discovery_issues=store.get("discovery_issues", []),
         scan_mode=store.get("scan_mode"), last_scan=store.get("last_scan"),
         last_full_verification=store.get("last_full_verification"),
+        last_saved_verification=store.get("last_saved_verification"),
+        source_identity=getattr(config.args, "campaign_source_identity", "filesystem"),
         content_fingerprinted_cards=sum(bool(r["fingerprint"]) for r in rows if r["active"]),
         worker_host=store.get("worker_host"), runtime_matches_approved=store.get("approved_code") == code_identity(),
         estimated_remaining_days=math.ceil(remaining * ratio / config.args.rpd) if ratio is not None else None,
@@ -910,7 +972,7 @@ def run_worker(config, store, engine=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="Machine-local JSON configuration")
-    parser.add_argument("command", choices=["init", "dry-run", "scan", "verify", "run", "status", "pause", "resume",
+    parser.add_argument("command", choices=["init", "dry-run", "scan", "verify", "verify-saved", "run", "status", "pause", "resume",
                                             "retry", "refresh", "reconcile", "accept-code"])
     parser.add_argument("--quota-source", help="init only: copy existing history without overwrite")
     parser.add_argument("--card", help="Exact card ID from status/database; retry/refresh only")
@@ -947,8 +1009,8 @@ def main(argv=None):
             elif args.command == "accept-code":
                 store.set("approved_code", code_identity())
                 print("Approved current runtime files; next scan still checks fingerprints and validation.")
-            elif args.command in {"scan", "verify"}:
-                scan(config, store, verify=args.command == "verify")
+            elif args.command in {"scan", "verify", "verify-saved"}:
+                scan(config, store, verify=args.command == "verify", verify_saved=args.command == "verify-saved")
             elif args.command in {"retry", "refresh"}:
                 if not args.card:
                     raise ValueError("Select exactly one --card ID; routine continuation never refreshes successes")
@@ -968,7 +1030,10 @@ def main(argv=None):
                 config.log_file.parent.mkdir(parents=True, exist_ok=True)
                 with config.log_file.open("a", encoding="utf-8", buffering=1) as log, redirect_stdout(log):
                     print(f"\n{stamp()} Campaign worker starting on {platform.node()}")
-                    return run_worker(config, store)
+                    with keep_awake():
+                        if sys.platform == "win32":
+                            print("Automatic idle sleep prevented while this worker runs; display may turn off.")
+                        return run_worker(config, store)
             export_status(config, store)
         return 0
     except KeyboardInterrupt:

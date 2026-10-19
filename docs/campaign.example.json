@@ -10,6 +10,7 @@
   "rpm": 15,
   "rpd": 500,
   "retry_days": 3,
+  "source_identity": "metadata",
   "skip_missing_species": {},
   "output_policy": "stop",
   "fallback_dir": "C:\\MuseumCampaign\\fallback",

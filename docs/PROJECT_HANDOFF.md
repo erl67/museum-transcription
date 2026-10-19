@@ -4,6 +4,16 @@ Originally prepared 22 September 2026 for moving development from ChatGPT Work t
 
 ## Production choice and documentation update - 7 October 2026
 
+**18/19 October 2026 restart recovery:** A Drive/sleep interruption left the campaign's
+entire queue stale, with completed responses still saved. Campaign-only configuration
+now supports explicit `source_identity: "metadata"` for virtual mounts; the default
+filesystem identity policy remains unchanged. The offline `verify-saved` command
+rechecks actual content only for previously fingerprinted cards, restores matching
+validated results and safe unattempted identities, and preserves interrupted attempt
+accounting and retry dates. Windows scheduled workers inhibit automatic idle sleep
+for their own lifetime. No transcription-engine, prompt or cache-key changes were made.
+See the automation handoff for deployment results and the preserved state backup.
+
 **18 October 2026 unavailable-source update:** The maintainer confirmed the 13
 remaining unresolved species folders have no available scans and cannot be supplied.
 Campaign configuration now accepts an explicit `skip_missing_species` map of names

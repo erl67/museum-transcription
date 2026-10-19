@@ -515,6 +515,154 @@ class CampaignTest(unittest.TestCase):
         self.assertEqual(self.store.rows()[0]["state"], "stale")
         self.assertEqual(self.store.rows()[1]["state"], "completed")
 
+    def test_metadata_identity_survives_virtual_drive_identifiers_changing(self):
+        self.config = self.configure(source_identity="metadata")
+        self.run_worker()
+        stats = c.source_stats
+        def remounted(card):
+            return [{**s, "device": s["device"] + 1, "inode": s["inode"] + 1000}
+                    for s in stats(card)]
+        with patch.object(c, "source_stats", side_effect=remounted), self.no_image_reads():
+            c.scan(self.config, self.store)
+            self.assertEqual(self.run_worker()[1].calls, [])
+        self.assertEqual(self.counts()["completed_cards"], 2)
+        self.advance()
+        with patch.object(c, "source_stats", side_effect=remounted):
+            self.assertEqual(len(self.run_worker()[1].calls), 1)
+        self.assertEqual(self.counts()["completed_cards"], 3)
+
+    def test_default_identity_still_detects_filesystem_replacements(self):
+        self.run_worker()
+        stats = c.source_stats
+        with patch.object(c, "source_stats", side_effect=lambda card:
+                          [{**s, "inode": s["inode"] + 1} for s in stats(card)]), self.no_image_reads():
+            c.scan(self.config, self.store)
+        self.assertTrue(all(row["state"] == "stale" for row in self.store.rows()))
+
+    def test_metadata_identity_still_detects_changed_modification_times(self):
+        self.config = self.configure(source_identity="metadata")
+        self.run_worker()
+        path = self.jpeg / "Test_bird_E01(A).jpg"
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(self.store.rows()[1]["state"], "completed")
+
+    def test_invalid_source_identity_policy_is_rejected(self):
+        for value in ("guess", None, [], {}):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "source_identity"):
+                self.configure(source_identity=value)
+
+    def test_verify_saved_recovers_results_and_unattempted_queue_without_full_audit(self):
+        self.run_worker()
+        quota = self.quota.read_bytes()
+        history = self.store.conn.execute("SELECT * FROM history").fetchall()
+        original = [r["result"] for r in self.store.rows()]
+        self.config = self.configure(source_identity="metadata")
+        c.scan(self.config, self.store)
+        self.assertTrue(all(row["state"] == "stale" for row in self.store.rows()))
+        self.config.pause_path.write_text("maintenance")
+        read = Path.read_bytes
+        opened = []
+        def counted(path):
+            if path.suffix.lower() == ".jpg":
+                opened.append(path.name)
+            return read(path)
+        with patch.object(Path, "read_bytes", counted):
+            self.assertEqual(c.main(["--config", str(self.config_path), "verify-saved"]), 0)
+        self.assertEqual(opened, ["Test_bird_E01(A).jpg", "Test_bird_E01(B).jpg", "Test_bird_E2_E3.jpg"])
+        self.assertEqual(self.counts()["states"], {"completed": 2, "pending": 1})
+        self.assertEqual(original, [r["result"] for r in self.store.rows()])
+        self.assertEqual(self.quota.read_bytes(), quota)
+        self.assertEqual(history, self.store.conn.execute("SELECT * FROM history").fetchall())
+        self.assertEqual(self.counts()["campaign_status"], "paused")
+        self.assertEqual(self.counts()["scan_mode"], "saved_content")
+        self.assertTrue(self.counts()["last_saved_verification"])
+        self.config.pause_path.unlink()
+        self.assertEqual(self.counts()["campaign_status"], "ready")
+        self.assertEqual(self.run_worker()[1].calls, [])
+        self.advance()
+        self.assertEqual(len(self.run_worker()[1].calls), 1)
+
+    def test_verify_saved_rejects_changed_source_content(self):
+        self.run_worker()
+        path = self.jpeg / "Test_bird_E01(A).jpg"
+        path.write_bytes(path.read_bytes() + b"changed source")
+        c.scan(self.config, self.store, verify_saved=True)
+        self.assertEqual(self.store.rows()[0]["state"], "stale")
+        self.assertEqual(self.store.rows()[1]["state"], "completed")
+        self.assertEqual(self.counts()["campaign_api_attempts"], 2)
+
+    def test_verify_saved_rejects_changed_prompt_and_catalogue(self):
+        self.run_worker()
+        build = c.egg_slip_prompt.build_prompt
+        with patch.object(c.egg_slip_prompt, "build_prompt", side_effect=lambda *a: build(*a) + "policy change"):
+            c.scan(self.config, self.store, verify_saved=True)
+        self.assertTrue(all(row["state"] == "stale" for row in self.store.rows() if row["result"]))
+        self.csv.write_text(self.csv.read_text().replace("Person", "Another collector"))
+        c.scan(self.config, self.store, verify_saved=True)
+        self.assertTrue(all(row["state"] == "stale" for row in self.store.rows() if row["result"]))
+
+    def test_verify_saved_does_not_requeue_renamed_or_unknown_attempted_cards(self):
+        c.scan(self.config, self.store)
+        pending = self.store.rows()[1]
+        with self.store.conn:
+            self.store.conn.execute("UPDATE cards SET state='stale' WHERE id=?", (pending["id"],))
+            self.store.conn.execute("INSERT INTO attempts(card_id,day,state) VALUES (?,?,'reserved')",
+                                    (pending["id"], self.day.date().isoformat()))
+        source = self.jpeg / "Test_bird_Uncatalogued1.jpg"
+        source.rename(source.with_name("Test_bird_Uncatalogued2.jpg"))
+        c.scan(self.config, self.store)
+        with self.no_image_reads():
+            c.scan(self.config, self.store, verify_saved=True)
+        self.assertEqual(self.store.conn.execute("SELECT state FROM cards WHERE id=?", (pending["id"],)).fetchone()[0], "stale")
+        renamed = next(r for r in self.store.rows() if "uncatalogued2" in r["id"])
+        self.assertEqual(renamed["state"], "stale")
+
+    def test_verify_saved_preserves_interrupted_attempt_and_next_day_gate(self):
+        engine, client = self.engine([KeyboardInterrupt()])
+        with self.assertRaises(KeyboardInterrupt):
+            c.run_worker(self.config, self.store, engine)
+        c.CampaignQuota(t.DailyQuota(self.config.args), self.store, self.config).recover()
+        before = dict(self.store.rows()[0])
+        quota = self.quota.read_bytes()
+        with self.store.conn:
+            self.store.conn.execute("UPDATE cards SET state='stale'")
+        c.scan(self.config, self.store, verify_saved=True)
+        recovered = dict(self.store.rows()[0])
+        self.assertEqual(recovered["state"], "retryable")
+        for field in ("result", "retry_after", "failures"):
+            self.assertEqual(before[field], recovered[field])
+        self.assertEqual(quota, self.quota.read_bytes())
+        self.assertEqual(self.counts()["uncertain_attempts"], 1)
+
+    def test_windows_idle_sleep_protection_restores_previous_state_on_failure(self):
+        with patch.object(c.sys, "platform", "win32"), patch.object(c, "_execution_state", return_value=0x80000000) as state:
+            with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                with c.keep_awake():
+                    raise RuntimeError("interrupted")
+        self.assertEqual([call.args[0] for call in state.call_args_list], [0x80000001, 0x80000000])
+
+    def test_windows_idle_sleep_protection_failure_stops_before_work(self):
+        with patch.object(c.sys, "platform", "win32"), patch.object(c, "_execution_state", return_value=0):
+            with self.assertRaisesRegex(OSError, "idle sleep"):
+                with c.keep_awake():
+                    self.fail("A worker must not run without the required idle-sleep protection")
+
+    def test_idle_sleep_protection_is_noop_on_other_platforms(self):
+        with patch.object(c.sys, "platform", "linux"), patch.object(c, "_execution_state") as state:
+            with c.keep_awake():
+                pass
+        state.assert_not_called()
+
+    def test_scheduled_entrypoint_uses_and_releases_idle_sleep_protection(self):
+        with patch.object(c.sys, "platform", "win32"), patch.object(c, "_execution_state", return_value=0x80000000) as state:
+            with patch.object(c, "run_worker", side_effect=ValueError("offline startup failure")):
+                self.assertEqual(c.main(["--config", str(self.config_path), "run"]), 20)
+        self.assertEqual([call.args[0] for call in state.call_args_list], [0x80000001, 0x80000000])
+
     def test_full_verification_detects_content_change_with_preserved_metadata(self):
         path = self.jpeg / "Test_bird_E01(A).jpg"
         original = path.read_bytes() + b"original1234"

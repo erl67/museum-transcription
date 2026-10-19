@@ -15,6 +15,37 @@ again after implementation and still pointed to the starting SHA.
 
 ## Delivered and changed files
 
+**18/19 October 2026 sleep/Drive restart recovery:** Starting revision `8aaca22`,
+clean `feature/unattended-transcription`; no merge, push or reset. After an interrupted
+production session, all 10,015 cards were stale, but 321 accepted results (215 OK,
+106 REVIEW), one paused result and 276 attempts (275 returned / one reserved) remained
+in the local database. The filesystem signature included volatile virtual-drive
+device/inode IDs. Fresh-process checks matched the post-restart signatures; the exact
+pre-reconnect stat values were not stored, so the changed fields cannot be proved
+retrospectively. This is not evidence that the source images changed.
+
+Campaign-only `source_identity: "metadata"` explicitly excludes device/inode values
+from durable signatures while retaining paths, ordered sides, sizes, mtimes, complete
+catalogue context, prompt and generation settings. The default `filesystem` policy
+and within-request identity/race checks are preserved. Request keys/full fingerprints
+and the interactive 48-hour policy are unchanged. `verify-saved` uses existing image
+preparation and validation to audit only content-backed queue records. It restores
+matching results, requeues unchanged never-attempted identities conservatively, keeps
+renames/content/context changes stale, and preserves interrupted retry dates/charges.
+No schema change or second provider/validator implementation was added.
+
+CLI/scheduled Windows `run` now holds a thread execution-state request against idle
+sleep for the invocation and restores its previous state in `finally`. It does not
+change the power plan or prevent deliberate sleep/shutdown. The log instructions use
+`$env:LOCALAPPDATA` rather than relying on a transient `$work` variable.
+
+Baseline **225 tests, 224 passed / one optional scan-fixture skip**. Added offline
+coverage for virtual-drive reconnection, strict defaults, scoped saved-result checks,
+changed source/prompt/catalogue, renamed or uncertain work, retry/quota/history
+preservation, and Windows power-request failure/cleanup. Local state, settings and
+quota were backed up under ignored `private/stale-recovery-2026-10-19-8c2a1b23` and
+the campaign paused before edits. No model requests are part of repair/testing.
+
 **18 October 2026 acknowledged unavailable sources:** The maintainer confirmed the
 13 unresolved species folders have no available scans and cannot be fixed. The
 campaign now accepts `skip_missing_species`, an explicit mapping of exact species
