@@ -1,5 +1,34 @@
 # Testing and the behavioral baseline
 
+For unattended-worker changes, also run `python -m unittest -v test_campaign.py`,
+or run both modules together. The campaign suite uses temporary generated images,
+simulated days, the existing fake model client, and process-lock recovery tests.
+See [campaign operations](campaign.md) and [automation handoff](AUTOMATION_HANDOFF.md).
+
+Family/species ordering tests cover catalogue rows supplied in a different order,
+mixed-case family names, both supported layouts, uncatalogued-only species, four
+simulated daily batches without repeats, preserved completed fingerprints, and
+continued rejection of conflicting family associations.
+
+The restart-recovery cases simulate changing virtual-drive device/inode identifiers,
+while retaining strict filesystem identity by default and detecting real metadata
+changes. `verify-saved` must read only previously fingerprinted images, restore valid
+saved results, retain source/prompt/catalogue changes as stale, preserve quota/history
+and interrupted next-day retry gates, and hold renamed or ambiguously attempted work.
+Windows idle-sleep protection is mocked at the execution-state boundary, including
+failure/exception cleanup and the actual CLI entry point. No real sleep or API is used.
+
+The fast-scan regression cases forbid opening/decoding any JPG during metadata discovery
+and unchanged-completion continuation. Additional cases count one read per selected image,
+compare prepared requests and legacy fingerprints for both providers, verify preserved-
+metadata content changes only in full verification, and check transactional schema upgrades
+and rollback. All model outcomes remain simulated.
+
+Known-unavailable-species coverage checks explicit acknowledgement and status counts,
+duplicate catalogue rows, no fabricated missing-card blocks, automatic inclusion when
+scans arrive, and continued rejection of unexpected absence, ambiguity, invalid files,
+storage access failures and a disconnected collection root.
+
 Routine verification is the deterministic offline regression suite. Fresh transcription checks use the service and consume quota; they require an authorized run. Neither activity establishes an accuracy benchmark without human-reviewed source readings.
 
 The maintainer intends to continue production with `gemini-3.5-flash-lite` and is satisfied with its current readings. No paid GPT/OpenAI comparison campaign is planned. Build the future extraction baseline from existing Gemini reports, deliberately reviewed readings, and offline response fixtures; changing providers is not a prerequisite.

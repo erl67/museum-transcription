@@ -80,6 +80,40 @@ Offline verification: 22 new Node tests passed, including synthetic Drive lookup
 
 ## Production choice and documentation update - 7 October 2026
 
+**18/19 October 2026 restart recovery:** A Drive/sleep interruption left the campaign's
+entire queue stale, with completed responses still saved. Campaign-only configuration
+now supports explicit `source_identity: "metadata"` for virtual mounts; the default
+filesystem identity policy remains unchanged. The offline `verify-saved` command
+rechecks actual content only for previously fingerprinted cards, restores matching
+validated results and safe unattempted identities, and preserves interrupted attempt
+accounting and retry dates. Windows scheduled workers inhibit automatic idle sleep
+for their own lifetime. No transcription-engine, prompt or cache-key changes were made.
+See the automation handoff for deployment results and the preserved state backup.
+
+**18 October 2026 unavailable-source update:** The maintainer confirmed the 13
+remaining unresolved species folders have no available scans and cannot be supplied.
+Campaign configuration now accepts an explicit `skip_missing_species` map of names
+and reasons. It records those source gaps separately and allows the other cards to
+proceed. `transcribe.MissingJPEGDirectory` distinguishes a missing species JPEG folder
+from ambiguity, access errors or missing family/root storage; the interactive error
+text and other transcription behavior remain unchanged. See the automation handoff.
+
+**18 October 2026 scanning update:** Routine campaign discovery now uses file metadata
+and shows progress, without reading JPG contents. Selected cards are prepared from one
+image read with unchanged request bytes and cache fingerprints; full `verify` remains
+explicit. Schema 1-to-2 migration adds a metadata signature without deleting history.
+This supersedes the original campaign's expensive full-content scan on every startup.
+See [automation handoff](AUTOMATION_HANDOFF.md) for the upgrade and verification record.
+
+**12 October 2026 automation extension:** The dedicated
+`feature/unattended-transcription` branch adds `campaign.py`, offline acceptance tests,
+and a disabled-task Windows scheduling helper. See [automation development handoff](AUTOMATION_HANDOFF.md)
+and [campaign operations](campaign.md). The existing engine owns grouping, prompts,
+provider calls, validation, pacing/quota and report rendering; no responsibilities
+were extracted or replaced. Its only execution change adds `stop_kind` metadata to
+existing stop results. Interactive 48-hour reuse and production settings remain unchanged.
+The historical execution map below predates the separate campaign orchestration layer.
+
 The maintainer intends to process the collection with **`gemini-3.5-flash-lite`** and is satisfied with its current readings. Retain the existing temperature 1.0 and high-thinking defaults. Paid GPT/OpenAI comparisons are not planned and are not a prerequisite for maintenance or modularization. Keep the optional adapter and offline transport coverage intact. The earlier roadmap calling for OpenAI comparisons is superseded by this decision.
 
 The README now leads with museum records, source fidelity, collection review, and practical operation. It avoids overt AI/large-language-model framing while accurately describing the configured Gemini service, transmitted images and hints, request accounting, and the limits of structural validation. Maintainer satisfaction must not become an invented benchmark or accuracy percentage.

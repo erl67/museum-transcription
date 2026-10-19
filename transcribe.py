@@ -334,6 +334,10 @@ def child_directory(parent: Path, name: str) -> Path | None:
     return matches[0] if matches else None
 
 
+class MissingJPEGDirectory(ValueError):
+    """The family resolved, but this species has no supported JPEG directory."""
+
+
 def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]:
     families = db.families.get(species, set())
     distinct = {name.casefold() for name in families}
@@ -353,7 +357,8 @@ def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]
         if jpeg_dir is not None and jpeg_dir not in candidates:
             candidates.append(jpeg_dir)
     if len(candidates) != 1:
-        raise ValueError(f"Expected one JPEG folder for {species}; found {len(candidates)} in {family_dir}.")
+        problem = MissingJPEGDirectory if not candidates else ValueError
+        raise problem(f"Expected one JPEG folder for {species}; found {len(candidates)} in {family_dir}.")
     return family_dir, candidates[0]
 
 
@@ -475,9 +480,13 @@ def missing_catalogue_numbers(folder: Path, db: Database, species: str,
 
 # --- 5. Image preparation and exact-input fingerprints for safe reuse ---
 def prepare_image(path: Path, max_edge: int) -> bytes:
+    return prepare_image_bytes(path.read_bytes(), max_edge)
+
+
+def prepare_image_bytes(raw: bytes, max_edge: int) -> bytes:
+    """Prepare already-read bytes using the same image policy as interactive runs."""
     from PIL import Image, ImageOps
 
-    raw = path.read_bytes()
     with Image.open(io.BytesIO(raw)) as source:
         source.load()  # Force decoding now so damaged JPEGs fail before an API call.
         resize = bool(max_edge and max(source.size) > max_edge)
@@ -513,7 +522,7 @@ def generation_config(args) -> dict:
     return config
 
 
-def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
+def prepare_card(card: Card, prompt: str, args, *, image_loader=None) -> tuple[str, list]:
     config = generation_config(args)
     manifest = {"cache_version": CACHE_VERSION, "model": args.model, "config": config,
                 "prompt": prompt, "max_edge": args.max_edge, "images": []}
@@ -524,7 +533,7 @@ def prepare_card(card: Card, prompt: str, args) -> tuple[str, list]:
     parts: list[dict] = [{"text": prompt}]
     request_size = len(prompt.encode("utf-8")) + 4096
     for path, section in zip(card.paths, card.sections):
-        data = prepare_image(path, args.max_edge)
+        data = (image_loader or prepare_image)(path, args.max_edge)
         label = f"IMAGE: {path.name}\nSECTION: {section}"
         parts.extend([{"text": label}, {"inline_data": {"mime_type": "image/jpeg", "data": data}}])
         request_size += 4 * ((len(data) + 2) // 3) + len(label.encode("utf-8")) + 256
@@ -1007,7 +1016,7 @@ class Transcriber:
                 daily_count = self.quota.update()
             except QuotaReached as exc:
                 return {"status": "paused", "error": str(exc), "text": partial, "fatal": True,
-                        "stop_reason": str(exc), "attempts": attempt - 1}
+                        "stop_reason": str(exc), "stop_kind": "daily", "attempts": attempt - 1}
             except (OSError, RuntimeError) as exc:
                 raise RuntimeError(f"Could not record daily usage; no API request was sent. {exc}") from exc
             self.requests += 1
@@ -1044,7 +1053,7 @@ class Transcriber:
                     else:
                         reason = "The API reported exhausted billing/credit quota. Check billing before resuming."
                     return {"status": "paused", "error": message, "text": partial, "fatal": True,
-                            "stop_reason": reason, "attempts": attempt}
+                            "stop_reason": reason, "stop_kind": quota_kind, "attempts": attempt}
                 # Authentication/model/config errors affect the entire run.
                 if code in {400, 401, 402, 403, 404}:
                     reason = "API authentication/model/configuration error affects the run."
@@ -1056,7 +1065,7 @@ class Transcriber:
                         reason = (f"{self.args.provider} returned HTTP 404 for {self.args.model}. Check the model ID "
                                   "and its availability to your project; the model was not changed automatically.")
                     return {"status": "failed", "error": message, "text": partial,
-                            "fatal": True, "stop_reason": reason,
+                            "fatal": True, "stop_reason": reason, "stop_kind": "configuration",
                             "attempts": attempt}
                 retry = is_transient(exc)
                 service_failure = retry
@@ -1065,7 +1074,7 @@ class Transcriber:
                     reason = (f"The server requested a {hint:g}s wait, beyond the {self.args.max_retry_wait:g}s "
                               "retry-wait limit. Resume later; the wait was not shortened.")
                     return {"status": "paused", "error": message, "text": partial, "fatal": True,
-                            "stop_reason": reason, "attempts": attempt}
+                            "stop_reason": reason, "stop_kind": "service", "attempts": attempt}
                 delay = max(hint, 60.0 if code == 429 else 0.0,
                             min(60.0, self.args.retry_base * 2 ** min(attempt - 1, 10)))
                 delay += random.uniform(0, 1)
@@ -1073,7 +1082,7 @@ class Transcriber:
             if not retry or attempt == self.args.attempts:
                 result = {"status": "failed", "error": message, "text": partial, "attempts": attempt}
                 if service_failure:
-                    result.update(fatal=True, stop_reason="Repeated rate-limit/network/server errors. "
+                    result.update(fatal=True, stop_kind="service", stop_reason="Repeated rate-limit/network/server errors. "
                                   "HTTP 503 means service unavailable; it does not prove a quota limit. "
                                   "Restart the same target to resume after the service or quota recovers.")
                 return result
