@@ -46,6 +46,26 @@ preservation, and Windows power-request failure/cleanup. Local state, settings a
 quota were backed up under ignored `private/stale-recovery-2026-10-19-8c2a1b23` and
 the campaign paused before edits. No model requests are part of repair/testing.
 
+Implementation commit `352b3e7` plus the final retry-limit guard; final **239 tests, 238 passed / one optional fixture
+skip**, including both mocked provider transports. Python compilation, example JSON
+and `git diff --check` passed. A real Windows execution-state acquire/restore smoke
+check also succeeded without changing the power plan or starting a worker. Commit the
+runtime before `accept-code`: Git checkout/line-ending normalization can rewrite raw
+source bytes and invalidate approval despite identical Python behavior.
+
+The real offline recovery used `source_identity: "metadata"` and checked only the
+322 content-backed cards while scanning all filenames/metadata in **166.5 seconds**.
+It restored **215 completed + 106 review**, **9,693 pending**, and **one retryable**,
+with **zero stale cards / discovery issues**. Saved transcription text, append-only
+history, every attempt record and quota-file bytes matched the backup exactly.
+Daily usage remained **276 / 500**, including one uncertain reserved attempt, leaving
+224 configured attempts for the same quota day. The interrupted card retains its
+next-day gate. The maintenance pause is cleared after final code approval; the
+previously enabled 20:00 task is preserved, with no worker started by the repair.
+The final guard prevents recovery from reactivating failures already at `retry_days`;
+those still require deliberate `retry`. A real sleep/resume cycle is not simulated
+on the production computer during this offline repair.
+
 **18 October 2026 acknowledged unavailable sources:** The maintainer confirmed the
 13 unresolved species folders have no available scans and cannot be fixed. The
 campaign now accepts `skip_missing_species`, an explicit mapping of exact species

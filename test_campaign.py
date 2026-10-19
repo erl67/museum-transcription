@@ -645,6 +645,24 @@ class CampaignTest(unittest.TestCase):
                     raise RuntimeError("interrupted")
         self.assertEqual([call.args[0] for call in state.call_args_list], [0x80000001, 0x80000000])
 
+    def test_verify_saved_does_not_bypass_exhausted_retry_limits(self):
+        self.run_worker()
+        row = self.store.rows()[0]
+        quota = self.quota.read_bytes()
+        for result in ({"status": "failed", "stop_kind": "service", "error": None, "text": ""},
+                       {"status": "paused", "error": "Interrupted request: outcome unknown", "text": ""}):
+            with self.subTest(result=result):
+                self.config = self.configure(source_identity="filesystem")
+                with self.store.conn:
+                    self.store.conn.execute("UPDATE cards SET state='stale',result=?,failures=? WHERE id=?",
+                                            (json.dumps(result), self.config.retry_days, row["id"]))
+                self.config = self.configure(source_identity="metadata")
+                c.scan(self.config, self.store, verify_saved=True)
+                recovered = self.store.conn.execute("SELECT * FROM cards WHERE id=?", (row["id"],)).fetchone()
+                self.assertEqual(recovered["state"], "permanent")
+                self.assertEqual(recovered["failures"], self.config.retry_days)
+                self.assertEqual(self.quota.read_bytes(), quota)
+
     def test_windows_idle_sleep_protection_failure_stops_before_work(self):
         with patch.object(c.sys, "platform", "win32"), patch.object(c, "_execution_state", return_value=0):
             with self.assertRaisesRegex(OSError, "idle sleep"):

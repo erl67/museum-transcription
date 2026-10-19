@@ -513,12 +513,12 @@ def scan(config, store, found=None, *, verify=False, verify_saved=False):
                                 prior_result = json.loads(result)
                                 # Interrupted attempts remain charged and keep their
                                 # original next-day retry gate; never call them complete.
-                                if prior_result.get("error", "").startswith("Interrupted request:"):
-                                    state = "retryable"
+                                error = prior_result.get("error")
+                                if ((isinstance(error, str) and error.startswith("Interrupted request:"))
+                                        or prior_result.get("stop_kind") == "service"):
+                                    state = "permanent" if row["failures"] >= config.retry_days else "retryable"
                                 elif prior_result.get("stop_kind") == "daily":
                                     state = "pending"
-                                elif prior_result.get("stop_kind") == "service":
-                                    state = "retryable"
                                 elif prior_result.get("status") not in {"ok", "review"}:
                                     state = "permanent"
                 if (verify_saved and state == "stale" and not result
