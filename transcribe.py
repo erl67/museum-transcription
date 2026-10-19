@@ -37,8 +37,8 @@ import token_usage
 
 
 # --- 1. Settings: change MODEL to select ALL of that model's settings ---
-SCRIPT_VERSION = "2026-10-14.2"
-CSV_PATH = str(Path(__file__).resolve().with_name("EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
+SCRIPT_VERSION = "2026-10-19.1"
+CSV_PATH = r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv"
 BASE_FAMILY_DIR = r"G:\My Drive\Egg Slip Scanning\Family"
 MODEL = "gemini-3.5-flash-lite"  # Or "gemini-3.6-flash", "gemini-3.8-flash", etc.
 
@@ -1623,7 +1623,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"Egg-slip transcriber {SCRIPT_VERSION}")
     parser.add_argument("target", nargs="?", help="tests, species, E-number, E-number* (console), E-number! (fresh console + report), E-number@ (3.8 Flash console + report), or CSV row range")
-    parser.add_argument("--csv", default=CSV_PATH, help="Master CSV path")
+    parser.add_argument("--csv", default=CSV_PATH, help="Master CSV path (default: %(default)s)")
     parser.add_argument("--base-dir", default=BASE_FAMILY_DIR, help="Root Family directory")
     parser.add_argument("--test-input-dir", default=str(TEST_INPUT_DIR), help="Flat sample JPEG folder; default: tests/inputs beside script")
     parser.add_argument("--test-output-dir", default=str(TEST_OUTPUT_DIR), help="Combined test reports; default: tests/outputs beside script")

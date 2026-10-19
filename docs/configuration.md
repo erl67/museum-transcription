@@ -4,9 +4,11 @@ The optional unattended worker has a separate machine-local JSON configuration;
 see [campaign operations](campaign.md). It reuses these profiles and quota rules.
 Never initialize a fresh quota counter merely because the source checkout moved.
 
-Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-10-07.1`; they are not independently verified provider quotas or model-availability promises.
+Implementation reference: `ModelProfile`, `MODEL_PROFILES`, `configure_model_profile`, `parse_args`, `generation_config`, `Transcriber`, `RateLimiter`, and `DailyQuota` in [transcribe.py](../transcribe.py). These values describe build `2026-10-19.1`; they are not independently verified provider quotas or model-availability promises.
 
 ## Established production setup
+
+`CSV_PATH` / `--csv` defaults to `G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv`. This matches the installed campaign's explicit `csv` configuration. Re-export the master workbook's Full List sheet to that shared CSV after catalogue edits; the Python programs do not read Excel directly. No repository CSV is required or used as a fallback. `--csv` still selects another file, independently of `--base-dir` and the launch directory. Campaigns continue to require their own explicit `csv` setting.
 
 The maintainer's choice as of 7 October 2026 is `gemini-3.5-flash-lite`, with the existing temperature 1.0 and high-thinking defaults. Its readings are satisfactory for the current workflow. Paid GPT/OpenAI comparisons are not planned or required before further maintenance. Optional profiles and the shared adapter remain implemented and covered offline.
 

@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **19 October 2026**, application build **2026-10-14.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **19 October 2026**, application build **2026-10-19.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Shared Drive catalogue default - 19 October 2026
+
+Build **2026-10-19.1** points interactive `transcribe.py` at `G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv` by default, matching the installed campaign's explicit `csv` setting. This supersedes the 7 October script-relative default. The maintainer can export the master workbook's Full List sheet to one Drive CSV; Python still reads CSV rather than Excel. `--csv` overrides the path, independently of the scan-root override or launch directory. An unavailable selected file remains an error, with no repository-copy fallback. CLI help shows the default path.
+
+No responsibilities moved. Prompts, generation settings, image order, parsing, cache fingerprints and quota handling are unchanged. The campaign worker was confirmed stopped before editing its monitored runtime file. Campaign configuration and catalogue contents are unchanged.
+
+Baseline: **169 tests ran, 168 passed and one optional EGG_SLIP_SAMPLE_DIR fixture skipped**. Final: **243 tests ran, 242 passed and the same optional fixture skipped**, including both mocked provider transports and campaign coverage. CLI help and the default/override regression were checked; the new default exactly matches the installed campaign configuration. No live requests were made.
+
+Deployment note: read-only inspection found that saved campaign code approval already differed from both runtime `transcribe.py` and `egg_slip_prompt.py` before this change (the pre-edit transcribe bytes were reconstructed to check). This task does not approve that separate prompt revision or modify campaign state. Review the existing mismatch before using the normal offline `accept-code` control; the next scheduled worker will refuse unapproved runtime files.
 
 ## Viewer Previous/Next navigation and blank search field - 19 October 2026
 
@@ -407,7 +417,7 @@ The exact profile table, parameter precedence, lookup paths, and retry rules are
 
 The code has a dated Gemini 401 migration hint inherited from troubleshooting. It should be treated as historical provider guidance and checked against current official documentation if that error returns. The exact cause of the maintainer's earlier rejected credential was not established. Do not promise that an `.env` change repairs an API-rejected key.
 
-The CSV defaults to its named export beside the script; the Family root retains the maintainer's Windows path. Moving `transcribe.py` changes its default `.env` and quota-file location: deliberately retain or point `--quota-file` to the existing state. Do not use a new counter to pretend earlier requests never happened. No live credentials or source catalogue were needed for this documentation pass.
+The CSV defaults to `G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv`; the Family root retains the maintainer's Windows path. Moving `transcribe.py` changes its default `.env` and quota-file location: deliberately retain or point `--quota-file` to the existing state. Do not use a new counter to pretend earlier requests never happened. No live credentials or source catalogue were needed for the original documentation pass.
 
 ## Input and filesystem conventions
 

@@ -517,10 +517,11 @@ class DatasetTest(unittest.TestCase):
                 for path in self.root.rglob("*") if path.is_file()
                 and (include_usage or not path.name.startswith("usage.json"))}
 
-    def test_default_csv_is_beside_script_independent_of_launch_directory(self):
+    def test_default_csv_is_drive_export_independent_of_launch_directory(self):
         with patch.object(Path, "cwd", return_value=self.root):
-            self.assertEqual(Path(t.parse_args([]).csv), Path(t.__file__).resolve().with_name(
-                "EggSlipReorganizationProject_FULL.xlsx - Full List.csv"))
+            self.assertEqual(t.parse_args([]).csv,
+                r"G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv")
+            self.assertEqual(Path(t.parse_args(["--csv", str(self.csv)]).csv), self.csv)
 
     def test_missing_csv_fields_case_blank_omission_and_remarks_cutoff(self):
         headers = ("Verify,,Family,genus,specificEpithet,infraspecificEpithet,Scientific Name,"

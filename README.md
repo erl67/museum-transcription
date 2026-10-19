@@ -44,7 +44,9 @@ python transcribe.py --help
 
 The catalogue must be a UTF-8 CSV export with the exact headers `catalogNumber`, `Scientific Name`, and `Family`. Optional collector and locality columns provide reading hints. A workbook with an `.xlsx` extension cannot be read directly.
 
-By default, the application looks for `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside the script and scans under `G:\My Drive\Egg Slip Scanning\Family`. The supported layouts are:
+By default, the application reads `G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv`, the same CSV used by the installed automated campaign, and scans under `G:\My Drive\Egg Slip Scanning\Family`.
+
+After changing the master workbook, export its **Full List** sheet to that Drive CSV and let Drive finish syncing. No repository-folder CSV copy is needed. If the selected CSV is unavailable, the program stops rather than falling back to another copy. The supported layouts are:
 
 ```text
 Family/<family>/<Genus_species>/JPEG/<scan>.jpg

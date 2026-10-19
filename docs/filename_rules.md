@@ -31,7 +31,7 @@ Family/<family>/<Genus>/<Genus_species>/JPEG/<scan>.jpg
 
 Directory lookup is case-insensitive, including `JPEG`. Both matching layouts present at once, or two case variants of one directory on a case-sensitive filesystem, are ambiguous and rejected. The code does not recursively search arbitrary paths or read originals/TIFF subfolders. Only direct `.jpg` and `.jpeg` files in the resolved JPEG directory are discovered; extension matching is case-insensitive. Other formats are ignored.
 
-The default CSV is `EggSlipReorganizationProject_FULL.xlsx - Full List.csv` beside `transcribe.py`. The default Family scan root remains the machine-specific `G:\My Drive\Egg Slip Scanning\Family`. CLI path overrides work independently of VS Code's launch directory. Normal reports/journals go in the family directory, even when the scans are nested under a genus directory.
+The default CSV is `G:\My Drive\Egg Slip Scanning\EggSlipReorganizationProject_FULL.xlsx - Full List.csv`, shared with the installed campaign. It is not resolved relative to `transcribe.py`, and there is no fallback to a repository copy. The default Family scan root remains the machine-specific `G:\My Drive\Egg Slip Scanning\Family`. CLI path overrides work independently of VS Code's launch directory; `--base-dir` changes only the scan root, so use `--csv` separately for another catalogue path. Normal reports/journals go in the family directory, even when the scans are nested under a genus directory.
 
 ## Target syntax and scope
 
