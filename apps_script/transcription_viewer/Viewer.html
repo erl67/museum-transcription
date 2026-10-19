@@ -9,6 +9,13 @@
     body { margin: 0; background: #f5f3ef; color: #263b37; font: 16px/1.55 Arial, Helvetica, sans-serif; }
     main { max-width: 920px; margin: auto; padding: 32px 20px 64px; }
     h1 { margin: 0 0 8px; font-size: 30px; font-weight: 600; line-height: 1.2; }
+    .viewer-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+    .viewer-header h1 { flex: 1; min-width: 0; }
+    .record-navigation { display: flex; flex-shrink: 0; gap: 8px; }
+    .record-navigation a, .record-navigation button { display: inline-block; padding: 9px 13px; border: 1px solid #81938a; border-radius: 5px; background: white; color: #245c49; text-decoration: none; font: inherit; white-space: nowrap; }
+    .record-navigation a:hover { background: #edf3ee; }
+    .record-navigation button:disabled { background: #f5f3ef; color: #76827d; border-color: #d2d9d3; cursor: default; }
+    .navigation-notice { margin: 12px 0 0; color: #52645d; }
     h2 { margin: 0; font-size: 22px; }
     .subtitle, .source { color: #52645d; }
     form, article, .message { background: white; border: 1px solid #d2d9d3; border-radius: 10px; padding: 22px; margin-top: 20px; }
@@ -30,21 +37,39 @@
     .scan-notice { padding: 12px; background: #f5f3ef; color: #52645d; }
     a { color: #245c49; text-underline-offset: 3px; }
     small { display: block; margin-top: 8px; }
-    @media (max-width: 650px) { form { grid-template-columns: 1fr; } main { padding: 22px 14px; } }
+    @media (max-width: 650px) { form { grid-template-columns: 1fr; } main { padding: 22px 14px; } .viewer-header { flex-wrap: wrap; } .viewer-header h1 { flex-basis: 100%; } .record-navigation { margin-left: auto; } }
   </style>
 </head>
 <body>
 <main>
-  <h1>Egg-slip transcription / scan viewer</h1>
+  <header class="viewer-header">
+    <h1>Egg-slip transcription / scan viewer</h1>
+    <? const navigation = result && !result.error && result.navigation; ?>
+    <nav class="record-navigation" aria-label="Browse records">
+      <? if (navigation && !navigation.previousDisabled) { ?>
+        <a href="<?= navigation.previousUrl ?>" rel="prev" aria-label="Previous record">&larr; Previous</a>
+      <? } else { ?><button type="button" disabled aria-label="Previous record">&larr; Previous</button><? } ?>
+      <? if (navigation && !navigation.nextDisabled) { ?>
+        <a href="<?= navigation.nextUrl ?>" rel="next" aria-label="Next record">Next &rarr;</a>
+      <? } else { ?><button type="button" disabled aria-label="Next record">Next &rarr;</button><? } ?>
+    </nav>
+  </header>
   <div class="subtitle">Enter an E-number to view the available transcription and card scans.</div>
+  <? if (result && result.navigationMessage) { ?>
+    <p class="navigation-notice" role="status"><?= result.navigationMessage ?></p>
+  <? } ?>
   <form method="get" action="<?= appUrl ?>">
-    <label>E-number<input name="e" placeholder="E5350" required maxlength="6" pattern="[Ee]?[0-9]{1,5}" title="Enter up to five digits, with or without E."></label>
+    <label>E-number<input name="e" required maxlength="6" pattern="[Ee]?[0-9]{1,5}" title="Enter up to five digits, with or without E."></label>
     <button type="submit">Find record</button>
   </form>
   <? if (result && result.error) { ?>
     <div class="message error" role="alert"><?= result.error ?></div>
   <? } else if (result && !result.records.length) { ?>
-    <div class="message" role="status"><?= result.message ?></div>
+    <div class="message">
+      <h2><?= result.query.e ?></h2>
+      <div class="subtitle"><?= result.query.species.replace(/_/g, ' ') ?> · <?= result.query.family ?></div>
+      <p role="status"><?= result.message ?></p>
+    </div>
   <? } else if (result) { ?>
     <p class="source">Report date: <?= result.reportDate ?> (report writer’s local time).
       <a href="<?= result.sourceUrl ?>" target="_blank" rel="noopener noreferrer">Open source report</a>

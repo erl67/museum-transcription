@@ -395,7 +395,8 @@ test('form submits only E-number so a new search cannot inherit stale family or 
   assert.match(template.replace(/<\?[\s\S]*?\?>/g, ""), /name="e"[^>]*required/);
   assert.doesNotMatch(template, /name="(?:family|species)"/);
   assert.ok(template.includes('<?= result.query.family ?>'));
-  assert.match(template, /<input name="e" placeholder="E5350" required maxlength="6"/);
+  assert.match(template, /<input name="e" required maxlength="6"/);
+  assert.doesNotMatch(template, /<input[^>]*placeholder=/);
   const pattern = new RegExp('^(?:' + template.match(/<input[^>]*pattern="([^"]+)"/)[1] + ')$');
   for (const value of ['E10215', '10215', 'e5350', '001']) assert.ok(pattern.test(value), value);
   for (const value of ['123456', 'E123456', 'E', '12x']) assert.ok(!pattern.test(value), value);
@@ -651,7 +652,7 @@ test('initial lookup returns transcription and image request without reading any
 });
 
 
-function requestRenderer(drive, source = code) {
+function requestRenderer(drive, source = code, extra = {}) {
   let page;
   const local = context({
     DriveApp: drive,
@@ -659,7 +660,8 @@ function requestRenderer(drive, source = code) {
     HtmlService: { createTemplateFromFile: () => {
       page = { evaluate: () => ({ setTitle(title) { page.title = title; return this; }, addMetaTag() { return this; } }) };
       return page;
-    } }
+    } },
+    ...extra
   }, source);
   return params => { local.doGet({ parameter: params }); return page; };
 }
@@ -1004,6 +1006,7 @@ function memoryCache() {
   const values = new Map();
   const cache = {
     get: key => values.get(key) || null,
+    getAll: keys => Object.fromEntries(keys.filter(key => values.has(key)).map(key => [key, values.get(key)])),
     put(key, value, seconds) {
       assert.ok(Buffer.byteLength(value, 'utf8') < 100 * 1024);
       assert.ok(key.length <= 250);
@@ -1244,5 +1247,144 @@ test('browser downloads at most two full scans concurrently, paints out of order
   assert.match(page.nodes['scan-status'].textContent, /3 of 3/);
   assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'false');
   assert.equal(page.nodes['retry-scans'].hidden, true);
+});
+
+const navigationRows = [catalogueHeader,
+  ['E35', 'Zed', 'Zeta bird'], ['E100', 'Aves', 'Alpha bird'], ['E10', 'Aves', 'Alpha bird'],
+  ['E61', 'Aves', 'Beta bird'], ['E2', 'Aves', 'Alpha bird'], ['E60', 'Aves', 'Beta bird'],
+  ['E9', 'Zed', 'Aardvark bird'], ['E61', 'AVES', 'Beta bird']];
+
+function navigationFixture(rows = navigationRows, reports = {}) {
+  let csvReads = 0, reportReads = 0;
+  const storage = memoryCache();
+  const csv = csvFile(rows.map(row => row.join(',')).join('\n'));
+  const getBlob = csv.getBlob;
+  csv.getBlob = () => { csvReads++; return getBlob(); };
+  const folders = [...new Set(rows.slice(1).map(row => row[1].toLowerCase()))].map(name => ({
+    getName: () => name, getFiles: () => iterator(Object.entries(reports[name] || {}).map(([species, text]) => {
+      const file = fakeFile(species + '_transcriptions_20261019_1200.txt', text);
+      return { ...file, getBlob() { reportReads++; return file.getBlob(); } };
+    }))
+  }));
+  const drive = { ...fakeDrive(folders), getFileById: id => id === 'catalogue-csv-id' ? csv : workbookFile(id) };
+  const extra = { Utilities: csvUtilities, CacheService: storage.CacheService };
+  const local = context({ DriveApp: drive, ...extra }, csvCode);
+  return { local, drive, storage, render: requestRenderer(drive, csvCode, extra),
+    csvReads: () => csvReads, reportReads: () => reportReads };
+}
+
+test('navigation sorts numeric identifiers within alphabetical family/species despite shuffled CSV rows', () => {
+  const sequence = ctx.navigationSequence_(navigationRows, () => {});
+  assert.equal(sequence.map(route => route.e).join('|'), 'E2|E10|E100|E60|E61|E9|E35');
+  const reversed = ctx.navigationSequence_([catalogueHeader, ...navigationRows.slice(1).reverse()], () => {});
+  assert.equal(reversed.map(route => route.e).join('|'), sequence.map(route => route.e).join('|'));
+});
+
+test('next and previous cross species and family boundaries and include records awaiting work', () => {
+  const fixture = navigationFixture();
+  for (const [e, direction, expected] of [
+    ['2', 'next', 'E10'], ['10', 'previous', 'E2'], ['100', 'next', 'E60'],
+    ['60', 'previous', 'E100'], ['61', 'next', 'E9'], ['9', 'previous', 'E61']
+  ]) {
+    const result = fixture.local.navigateRecord_({ e }, direction).result;
+    assert.equal(result.query.e, expected);
+    assert.equal(result.records.length, 0);
+    assert.match(result.message, /No transcription available/);
+    assert.equal(result.imageRequest.query.e, expected);
+  }
+  assert.equal(fixture.csvReads(), 1, 'Navigation reuses all warm routing buckets');
+});
+
+test('navigation fetches the target transcription or catalogue skeleton and pins that target image request', () => {
+  const fixture = navigationFixture(navigationRows, { aves: {
+    Alpha_bird: block(['2'], 'two') + block(['10'], 'ten') + block(['100'], 'one hundred'),
+    Beta_bird: banner('60', true) + '\nCollector: Historical name\nDate: June 1924\n\n\n'
+  } });
+  const next = fixture.local.navigateRecord_({ e: '2' }, 'next').result;
+  assert.equal(next.query.e, 'E10');
+  assert.equal(next.records[0].text, 'ten');
+  assert.equal(next.imageRequest.manifest, fixture.local.imageManifest_(next.records));
+  const skeleton = fixture.local.navigateRecord_({ e: '100' }, 'next').result;
+  assert.equal(skeleton.query.e, 'E60');
+  assert.equal(skeleton.records[0].status, 'MISSING');
+  assert.match(skeleton.records[0].text, /June 1924/);
+});
+
+test('navigation preserves leading-zero identities and deduplicates only matching catalogue rows', () => {
+  const rows = [catalogueHeader, ['E1', 'Family', 'Genus species'], ['E001', 'Family', 'Genus species'],
+    ['E0010', 'Family', 'Genus species'], ['E001', 'FAMILY', 'Genus species']];
+  const sequence = ctx.navigationSequence_(rows, () => {});
+  assert.equal(sequence.map(route => route.e).join('|'), 'E001|E1|E0010');
+  const fixture = navigationFixture(rows);
+  assert.equal(fixture.local.navigateRecord_({ e: 'E001' }, 'next').result.query.e, 'E1');
+  assert.equal(fixture.local.navigateRecord_({ e: 'E1' }, 'previous').result.query.e, 'E001');
+  assert.throws(() => ctx.navigationSequence_([...rows, ['E1', 'Other', 'Genus species']], () => {}), /conflicting/);
+});
+
+test('navigation cache reads all buckets safely and rebuilds on eviction, malformed entries, or changed CSV metadata', () => {
+  const fixture = navigationFixture();
+  fixture.local.lookupTranscription_({ e: '2' });
+  fixture.local.navigateRecord_({ e: '2' }, 'next');
+  assert.equal(fixture.csvReads(), 1);
+  fixture.storage.values.delete(fixture.storage.values.keys().next().value);
+  assert.equal(fixture.local.navigateRecord_({ e: '2' }, 'next').result.query.e, 'E10');
+  assert.equal(fixture.csvReads(), 2);
+  fixture.storage.values.set(fixture.storage.values.keys().next().value, '{"rows":[["wrong"]]}');
+  fixture.local.navigateRecord_({ e: '2' }, 'next');
+  assert.equal(fixture.csvReads(), 3);
+  const csv = fixture.drive.getFileById('catalogue-csv-id');
+  csv.getLastUpdated = () => new Date(2000);
+  fixture.local.navigateRecord_({ e: '2' }, 'next');
+  assert.equal(fixture.csvReads(), 4);
+});
+
+test('ordinary direct-location searches add navigation links without reading the catalogue', () => {
+  const fixture = navigationFixture();
+  const page = fixture.render({ e: '2', family: 'Aves', species: 'Alpha bird' });
+  assert.equal(fixture.csvReads(), 0);
+  const url = new URL(page.result.navigation.nextUrl);
+  assert.equal(url.searchParams.get('e'), 'E2');
+  assert.equal(url.searchParams.get('family'), 'Aves');
+  assert.equal(url.searchParams.get('species'), 'Alpha_bird');
+  assert.equal(url.searchParams.get('direction'), 'next');
+});
+
+test('page navigation renders the target, handles endpoints without wrapping and retains the current record on errors', () => {
+  const fixture = navigationFixture(navigationRows, { aves: { Alpha_bird: block(['2'], 'current card') } });
+  const next = fixture.render({ e: '2', direction: 'next' });
+  assert.equal(next.result.query.e, 'E10');
+  assert.equal(next.title, 'E10 Egg Slip Record');
+  assert.equal(new URL(next.result.navigation.nextUrl).searchParams.get('e'), 'E10');
+  const first = fixture.render({ e: '2', direction: 'previous' });
+  assert.equal(first.result.query.e, 'E2');
+  assert.equal(first.result.records[0].text, 'current card');
+  assert.match(first.result.navigationMessage, /first record/);
+  assert.equal(first.result.navigation.previousDisabled, true);
+  assert.equal(first.result.navigation.nextDisabled, false);
+  const last = fixture.render({ e: '35', direction: 'next' });
+  assert.equal(last.result.query.e, 'E35');
+  assert.equal(last.result.navigation.nextDisabled, true);
+  assert.match(last.result.navigationMessage, /last record/);
+  const invalid = fixture.render({ e: '2', direction: 'untrusted' });
+  assert.equal(invalid.result.records[0].text, 'current card');
+  assert.match(invalid.result.navigationMessage, /Choose Previous or Next/);
+  const denied = fixture.drive.getFileById;
+  fixture.drive.getFileById = id => id === 'catalogue-csv-id' ? { getName() { throw new Error('private error'); } } : denied(id);
+  const inaccessible = fixture.render({ e: '2', family: 'Aves', species: 'Alpha bird', direction: 'next' });
+  assert.equal(inaccessible.result.records[0].text, 'current card');
+  assert.match(inaccessible.result.navigationMessage, /CSV could not be read/);
+  assert.doesNotMatch(inaccessible.result.navigationMessage, /private error/);
+});
+
+test('navigation authorization runs before catalogue reads and invalid routes/time limits never become endpoints', () => {
+  const fixture = navigationFixture();
+  fixture.drive.getFileById = () => { throw new Error('Private denied'); };
+  const denied = fixture.render({ e: '2', direction: 'next' });
+  assert.match(denied.result.error, /master Excel file/);
+  assert.equal(fixture.csvReads(), 0);
+  assert.throws(() => ctx.navigationSequence_([catalogueHeader, ['E1', '', 'Genus species']], () => {}), /without a family/);
+  assert.throws(() => ctx.navigationSequence_(navigationRows, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
+  const valid = navigationFixture();
+  assert.throws(() => valid.local.navigateRecord_({ e: '999' }, 'next'), /not found in the catalogue/);
 });
 

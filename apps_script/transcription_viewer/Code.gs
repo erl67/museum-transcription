@@ -88,7 +88,21 @@ function doGet(e) {
   try {
     timing.measure('access', requireWorkbookAccess_);
     if (page.query.e || page.query.family || page.query.species) {
-      page.result = lookupTranscription_(page.query, timing);
+      if (params.direction) {
+        let navigation;
+        try { navigation = timing.measure('navigation', () => navigateRecord_(page.query, String(params.direction), timing)); }
+        catch (error) { navigation = { message: error.viewerMessage ||
+          'The adjacent record could not be found. Check your Drive access and try again.' }; }
+        page.result = navigation.result || lookupTranscription_(page.query, timing);
+        page.result.navigationMessage = navigation.message || '';
+        page.result.navigationBoundary = navigation.boundary || '';
+      } else page.result = lookupTranscription_(page.query, timing);
+      page.result.navigation = {
+        previousUrl: recordNavigationUrl_(page.appUrl, page.result.query, 'previous'),
+        nextUrl: recordNavigationUrl_(page.appUrl, page.result.query, 'next'),
+        previousDisabled: page.result.navigationBoundary === 'previous',
+        nextDisabled: page.result.navigationBoundary === 'next'
+      };
     }
   } catch (error) {
     page.result = { error: error.viewerMessage ||
@@ -183,16 +197,16 @@ function readCatalogue_(root, checkTime, digits, timing) {
     if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
       throw viewerError_('The catalogue CSV exceeds the viewer size limit. The E-number search could not be completed.');
     }
+    // null requests the full routing catalogue for navigation; undefined retains the raw CSV reader.
     const cache = digits === undefined ? null : userCache_();
     const version = cache ? fileVersion_(file) : '';
     const prefix = cache ? 'catalogue-v1:' + digest_(file.getId() + ':' + version) + ':' : '';
-    const bucket = digits === undefined ? 0 : catalogueBucket_(digits);
-    const cached = measured_(timing, 'catalogueCacheRead', () => cachedJson_(cache, prefix + bucket));
-    if (cached && Array.isArray(cached.rows) && cached.rows.every(row =>
-        Array.isArray(row) && row.length === 3 && row.every(value => typeof value === 'string'))) {
+    const bucket = digits == null ? 0 : catalogueBucket_(digits);
+    const cached = measured_(timing, 'catalogueCacheRead', () => readCatalogueCache_(cache, prefix, digits, bucket));
+    if (cached) {
       if (timing) timing.count('catalogueCacheHit', true);
       checkTime();
-      return [['catalogNumber', 'Family', 'Scientific Name']].concat(cached.rows);
+      return [['catalogNumber', 'Family', 'Scientific Name']].concat(cached);
     }
     if (timing) timing.count('catalogueCacheHit', false);
     const text = measured_(timing, 'catalogueDownload', () => file.getBlob().getDataAsString('UTF-8')).replace(/^\uFEFF/, '');
@@ -217,6 +231,21 @@ function readCatalogue_(root, checkTime, digits, timing) {
     if (error.viewerMessage) throw error;
     throw viewerError_('The catalogue CSV could not be read. Check its sharing and UTF-8 export format.');
   }
+}
+
+function readCatalogueCache_(cache, prefix, digits, bucket) {
+  if (!cache) return null;
+  try {
+    let entries;
+    if (digits === null) {
+      const keys = Array.from({ length: TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS }, (_, index) => prefix + index);
+      const values = cache.getAll(keys);
+      entries = keys.map(key => JSON.parse(values[key] || 'null'));
+    } else entries = [cachedJson_(cache, prefix + bucket)];
+    if (entries.some(entry => !entry || !Array.isArray(entry.rows) || !entry.rows.every(row =>
+        Array.isArray(row) && row.length === 3 && row.every(value => typeof value === 'string')))) return null;
+    return entries.reduce((all, entry) => all.concat(entry.rows), []);
+  } catch (error) { return null; }
 }
 
 function catalogueBucket_(digits) {
@@ -280,10 +309,11 @@ function routeFromCatalogue_(query, rows) {
   return route;
 }
 
-function lookupTranscription_(rawQuery, timing) {
+function lookupTranscription_(rawQuery, timing, checkBudget) {
   let query = normalizeQuery_(rawQuery);
   const started = Date.now();
   const checkTime = () => {
+    if (checkBudget) checkBudget();
     if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
       throw viewerError_('The search time limit was reached. The search is incomplete; please try again.');
     }
@@ -321,6 +351,69 @@ function lookupTranscription_(rawQuery, timing) {
   result.imageRequest = { query: result.query, reportId: result.reportId || '',
     manifest: imageManifest_(result.records) };
   return result;
+}
+
+function recordNavigationUrl_(appUrl, query, direction) {
+  return appUrl + '?e=' + encodeURIComponent(query.e) + '&family=' + encodeURIComponent(query.family) +
+    '&species=' + encodeURIComponent(query.species) + '&direction=' + encodeURIComponent(direction);
+}
+
+function compareCatalogueNumbers_(a, b) {
+  const left = a.digits.replace(/^0+/, '') || '0';
+  const right = b.digits.replace(/^0+/, '') || '0';
+  return left.length - right.length || (left < right ? -1 : left > right ? 1 : 0) ||
+    (a.digits < b.digits ? -1 : a.digits > b.digits ? 1 : 0);
+}
+
+/** Alphabetical family/species, then numeric identifiers; CSV row order does not define neighbours. */
+function navigationSequence_(rows, checkTime) {
+  const catalogueRows = catalogueBuckets_(rows).reduce((all, bucket) => all.concat(bucket), []);
+  const species = new Map(), numbers = new Map();
+  for (const row of catalogueRows) {
+    checkTime();
+    let route;
+    try { route = normalizeQuery_({ e: row[0], family: row[1], species: row[2] }); }
+    catch (error) { throw viewerError_('Catalogue navigation needs valid family and scientific-name values for every numbered row. Check the catalogue.'); }
+    if (!route.family || !route.species) {
+      throw viewerError_('Catalogue navigation found a numbered row without a family or scientific name. Check the catalogue.');
+    }
+    const key = route.family.toLowerCase() + '\n' + route.species.toLowerCase();
+    if (numbers.has(route.digits)) {
+      if (numbers.get(route.digits) !== key) throw viewerError_('The catalogue lists conflicting families or species for ' + route.e + '. Check the duplicate catalogue rows.');
+      continue;
+    }
+    numbers.set(route.digits, key);
+    if (!species.has(key)) species.set(key, []);
+    species.get(key).push(route);
+  }
+  return Array.from(species.values()).sort((a, b) =>
+    a[0].family.localeCompare(b[0].family, 'en', { sensitivity: 'base' }) ||
+    a[0].species.localeCompare(b[0].species, 'en', { sensitivity: 'base' }))
+    .reduce((all, group) => all.concat(group.sort(compareCatalogueNumbers_)), []);
+}
+
+/** Run only after a navigation click; ordinary searches do no adjacent-record work. */
+function navigateRecord_(rawQuery, direction, timing) {
+  if (!['previous', 'next'].includes(direction)) throw viewerError_('Choose Previous or Next to browse records.');
+  const started = Date.now();
+  const checkTime = () => {
+    if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
+      throw viewerError_('The adjacent-record search time limit was reached. Please try again.');
+    }
+  };
+  const query = normalizeQuery_(rawQuery);
+  const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
+  const rows = measured_(timing, 'navigationCatalogue', () => readCatalogue_(root, checkTime, null, timing));
+  const current = routeFromCatalogue_(query, rows);
+  const sequence = navigationSequence_(rows, checkTime);
+  const index = sequence.findIndex(route => route.digits === current.digits);
+  const step = direction === 'next' ? 1 : -1;
+  checkTime();
+  const candidate = sequence[index + step];
+  if (candidate) return { result: lookupTranscription_(candidate, timing, checkTime) };
+  return { boundary: direction, message: direction === 'next' ?
+    'This is the last record in the catalogue sequence.' :
+    'This is the first record in the catalogue sequence.' };
 }
 
 function familyFolder_(root, query, checkTime) {
