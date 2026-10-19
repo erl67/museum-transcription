@@ -38,6 +38,16 @@ including both mocked provider transports. The sandbox denied temporary test-fix
 access; the baseline and final suite succeeded with Windows temp-folder access.
 No live requests are used for testing or validating this ordering change.
 
+Code commit `e6feec7` was validated against the real collection without opening any
+JPG bytes: **10,015 cards / 11,496 images, zero issues, 13 acknowledged unavailable
+species, 158.1 seconds**. Discovery and stored queue both passed family/species order
+checks. Database table snapshots and quota bytes were identical before/after the
+read-only audit; **535 accepted results** remained saved. State/settings/quota were
+backed up under ignored `private/family-order-2026-10-18-c3e8c74c`. After committing,
+the normal `accept-code` control approved the deployed files; status confirmed a
+matching runtime, retained provider exhaustion and zero available daily attempts.
+The existing enabled schedule was preserved; no worker or model request was launched.
+
 **18/19 October 2026 sleep/Drive restart recovery:** Starting revision `8aaca22`,
 clean `feature/unattended-transcription`; no merge, push or reset. After an interrupted
 production session, all 10,015 cards were stale, but 321 accepted results (215 OK,
