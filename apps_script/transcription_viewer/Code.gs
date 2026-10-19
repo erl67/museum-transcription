@@ -5,7 +5,7 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   // Family root already used by Egg_Scan_Linker.gs.
   ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ',
   // Optional direct CSV ID avoids parent-folder discovery for shared readers.
-  CATALOGUE_FILE_ID: '',
+  CATALOGUE_FILE_ID: '1AOoNhjdyvNHZUxf11WwM1VMPuzdDOA8I',
   CATALOGUE_FOLDER_NAME: 'Transcription',
   CATALOGUE_FILE_NAME: 'EggSlipReorganizationProject_FULL.xlsx - Full List.csv',
   MAX_CATALOGUE_BYTES: 10 * 1024 * 1024,
@@ -15,10 +15,67 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   MAX_LOOKUP_MS: 45000,
   MAX_IMAGE_BYTES: 12 * 1024 * 1024,
   MAX_TOTAL_IMAGE_BYTES: 24 * 1024 * 1024,
-  MAX_IMAGES: 40
+  MAX_IMAGES: 40,
+  CATALOGUE_CACHE_SECONDS: 900,
+  CATALOGUE_CACHE_BUCKETS: 64,
+  SCAN_PLAN_SECONDS: 600,
+  // At most 3 UTF-8 bytes per UTF-16 code unit, safely below CacheService's 100 KB/value.
+  CACHE_MAX_CHARS: 24000
 });
 
+function viewerTiming_(operation) {
+  const started = Date.now();
+  const data = { operation: operation, stagesMs: {}, counts: {} };
+  return {
+    measure(name, work) {
+      const before = Date.now();
+      try { return work(); }
+      finally { data.stagesMs[name] = (data.stagesMs[name] || 0) + Date.now() - before; }
+    },
+    count(name, value) { data.counts[name] = value; },
+    elapsed(name, before) { data.stagesMs[name] = Date.now() - before; },
+    snapshot() { return { operation: operation, totalMs: Date.now() - started,
+      stagesMs: Object.assign({}, data.stagesMs), counts: Object.assign({}, data.counts) }; },
+    finish() {
+      data.totalMs = Date.now() - started;
+      console.info('Viewer timing ' + JSON.stringify(data));
+      return data;
+    }
+  };
+}
+
+function measured_(timing, stage, work) {
+  return timing ? timing.measure(stage, work) : work();
+}
+
+function userCache_() {
+  try { return CacheService.getUserCache(); } catch (error) { return null; }
+}
+
+function cachedJson_(cache, key) {
+  try { return cache ? JSON.parse(cache.get(key)) : null; } catch (error) { return null; }
+}
+
+function cacheJson_(cache, key, value, seconds) {
+  try {
+    const text = JSON.stringify(value);
+    if (!cache || text.length > TRANSCRIPTION_VIEWER.CACHE_MAX_CHARS) return false;
+    cache.put(key, text, seconds);
+    return true;
+  } catch (error) { return false; }
+}
+
+function digest_(text) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8)
+    .map(byte => ('0' + (byte & 255).toString(16)).slice(-2)).join('');
+}
+
+function fileVersion_(file) {
+  return file.getLastUpdated().getTime() + ':' + file.getSize();
+}
+
 function doGet(e) {
+  const timing = viewerTiming_('text');
   const params = (e && e.parameter) || {};
   const page = HtmlService.createTemplateFromFile('Viewer');
   page.query = {
@@ -29,9 +86,9 @@ function doGet(e) {
   page.appUrl = ScriptApp.getService().getUrl();
   page.result = null;
   try {
-    requireWorkbookAccess_();
+    timing.measure('access', requireWorkbookAccess_);
     if (page.query.e || page.query.family || page.query.species) {
-      page.result = lookupTranscription_(page.query);
+      page.result = lookupTranscription_(page.query, timing);
     }
   } catch (error) {
     page.result = { error: error.viewerMessage ||
@@ -39,8 +96,11 @@ function doGet(e) {
   }
   const title = page.result && !page.result.error ?
     page.result.query.e + ' Egg Slip Record' : 'Egg Slip Record Search';
-  return page.evaluate().setTitle(title)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  if (page.result && !page.result.error) page.result.timings = timing.snapshot();
+  const output = timing.measure('template', () => page.evaluate().setTitle(title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1'));
+  timing.finish();
+  return output;
 }
 
 function viewerError_(message) {
@@ -84,9 +144,10 @@ function normalizeQuery_(query) {
 }
 
 /** Read the exported lookup CSV; the workbook remains the access gate. */
-function readCatalogue_(root, checkTime) {
+function readCatalogue_(root, checkTime, digits, timing) {
   let file;
   try {
+    const findStarted = Date.now();
     if (TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID) {
       file = DriveApp.getFileById(TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID);
     } else {
@@ -114,6 +175,7 @@ function readCatalogue_(root, checkTime) {
       }
       file = candidates.values().next().value;
     }
+    if (timing) timing.elapsed('catalogueFile', findStarted);
     checkTime();
     if (!/\.csv$/i.test(file.getName()) || /^application\/vnd\.google-apps\./.test(file.getMimeType())) {
       throw viewerError_('The lookup catalogue must be a UTF-8 CSV file. Check CATALOGUE_FILE_ID.');
@@ -121,16 +183,63 @@ function readCatalogue_(root, checkTime) {
     if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
       throw viewerError_('The catalogue CSV exceeds the viewer size limit. The E-number search could not be completed.');
     }
-    const text = file.getBlob().getDataAsString('UTF-8').replace(/^\uFEFF/, '');
+    const cache = digits === undefined ? null : userCache_();
+    const version = cache ? fileVersion_(file) : '';
+    const prefix = cache ? 'catalogue-v1:' + digest_(file.getId() + ':' + version) + ':' : '';
+    const bucket = digits === undefined ? 0 : catalogueBucket_(digits);
+    const cached = measured_(timing, 'catalogueCacheRead', () => cachedJson_(cache, prefix + bucket));
+    if (cached && Array.isArray(cached.rows) && cached.rows.every(row =>
+        Array.isArray(row) && row.length === 3 && row.every(value => typeof value === 'string'))) {
+      if (timing) timing.count('catalogueCacheHit', true);
+      checkTime();
+      return [['catalogNumber', 'Family', 'Scientific Name']].concat(cached.rows);
+    }
+    if (timing) timing.count('catalogueCacheHit', false);
+    const text = measured_(timing, 'catalogueDownload', () => file.getBlob().getDataAsString('UTF-8')).replace(/^\uFEFF/, '');
     if (/[\u0000\uFFFD]/.test(text)) throw new Error('Invalid UTF-8 export');
     checkTime();
-    const rows = Utilities.parseCsv(text);
+    const rows = measured_(timing, 'catalogueParse', () => Utilities.parseCsv(text));
     checkTime();
+    if (cache) {
+      const buckets = catalogueBuckets_(rows);
+      if (fileVersion_(file) !== version) throw viewerError_('The catalogue CSV changed during the search. Please try again.');
+      measured_(timing, 'catalogueCacheWrite', () => {
+        const values = {};
+        buckets.forEach((rows, index) => {
+          const value = JSON.stringify({ rows: rows });
+          if (value.length <= TRANSCRIPTION_VIEWER.CACHE_MAX_CHARS) values[prefix + index] = value;
+        });
+        try { cache.putAll(values, TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_SECONDS); } catch (error) { /* Cache is optional. */ }
+      });
+    }
     return rows;
   } catch (error) {
     if (error.viewerMessage) throw error;
     throw viewerError_('The catalogue CSV could not be read. Check its sharing and UTF-8 export format.');
   }
+}
+
+function catalogueBucket_(digits) {
+  let value = 0;
+  for (const digit of digits) value = (value * 31 + digit.charCodeAt(0)) % TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS;
+  return value;
+}
+
+function catalogueBuckets_(rows) {
+  rows = rows.filter(row => row.some(value => String(value).trim()));
+  const header = (rows[0] || []).map(value => String(value).trim());
+  const fields = ['catalogNumber', 'Family', 'Scientific Name'];
+  const columns = fields.map(name => header.indexOf(name));
+  if (fields.some((name, i) => columns[i] < 0 || header.lastIndexOf(name) !== columns[i])) {
+    throw viewerError_('The catalogue needs one column each named catalogNumber, Family, and Scientific Name.');
+  }
+  const buckets = Array.from({ length: TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS }, () => []);
+  for (const row of rows.slice(1)) {
+    if (row.length > header.length) throw viewerError_('The catalogue CSV has a row with extra columns. Check its export format.');
+    const number = /^E?([0-9]+)$/i.exec(String(row[columns[0]] || '').trim());
+    if (number) buckets[catalogueBucket_(number[1])].push(columns.map(column => String(row[column] || '')));
+  }
+  return buckets;
 }
 
 function routeFromCatalogue_(query, rows) {
@@ -171,7 +280,7 @@ function routeFromCatalogue_(query, rows) {
   return route;
 }
 
-function lookupTranscription_(rawQuery) {
+function lookupTranscription_(rawQuery, timing) {
   let query = normalizeQuery_(rawQuery);
   const started = Date.now();
   const checkTime = () => {
@@ -181,10 +290,11 @@ function lookupTranscription_(rawQuery) {
   };
   const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
   if (!query.family || !query.species) {
-    query = routeFromCatalogue_(query, readCatalogue_(root, checkTime));
+    query = measured_(timing, 'catalogue', () => routeFromCatalogue_(query, readCatalogue_(root, checkTime, query.digits, timing)));
     checkTime();
   }
-  const family = familyFolder_(root, query, checkTime);
+  const family = measured_(timing, 'familyFolder', () => familyFolder_(root, query, checkTime));
+  const listStarted = Date.now();
   const files = family.getFiles();
   const candidates = [];
   let listed = 0;
@@ -197,13 +307,17 @@ function lookupTranscription_(rawQuery) {
     const info = reportName_(file.getName(), query.species);
     if (info) candidates.push({ file: file, info: info });
   }
-  const result = selectLatestRecord_(candidates, query, file => {
+  if (timing) { timing.count('filesListed', listed); timing.elapsed('reportListing', listStarted); }
+  let reportsRead = 0;
+  const result = measured_(timing, 'reports', () => selectLatestRecord_(candidates, query, file => {
     checkTime();
     if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_REPORT_BYTES) {
       throw viewerError_('A report exceeds the viewer size limit. The search is incomplete.');
     }
-    return file.getBlob().getDataAsString('UTF-8');
-  }, checkTime);
+    reportsRead++;
+    return measured_(timing, 'reportDownload', () => file.getBlob().getDataAsString('UTF-8'));
+  }, checkTime));
+  if (timing) timing.count('reportsRead', reportsRead);
   result.imageRequest = { query: result.query, reportId: result.reportId || '',
     manifest: imageManifest_(result.records) };
   return result;
@@ -332,34 +446,49 @@ function parseReport_(text, wantedDigits) {
 }
 
 /** Locate only the supported species/JPEG layouts; never search unrelated scans. */
-function scanChildFolder_(parent, name, checkTime) {
-  const folders = parent.getFolders();
+function scanChildFolder_(parent, name, checkTime, memo) {
+  memo = memo || new Map();
+  if (!memo.has(parent)) {
+    const folders = parent.getFolders();
+    const children = [];
+    while (folders.hasNext()) {
+      checkTime();
+      if (children.length >= TRANSCRIPTION_VIEWER.MAX_FILES_LISTED) throw viewerError_('The folder listing limit was reached. The search is incomplete.');
+      const folder = folders.next();
+      children.push({ folder: folder, name: folder.getName().toLowerCase() });
+    }
+    memo.set(parent, children);
+  }
   const found = [];
-  while (folders.hasNext()) {
+  for (const child of memo.get(parent)) {
     checkTime();
-    const folder = folders.next();
-    if (folder.getName().toLowerCase() === name.toLowerCase()) found.push(folder);
+    if (child.name === name.toLowerCase()) found.push(child.folder);
   }
   if (found.length > 1) throw viewerError_('More than one scan folder matches this record. No images were selected.');
   return found[0] || null;
 }
 
-function sourceJpegFolder_(family, species, checkTime) {
-  const direct = scanChildFolder_(family, species, checkTime);
-  const genus = scanChildFolder_(family, species.split('_')[0], checkTime);
-  const nested = genus ? scanChildFolder_(genus, species, checkTime) : null;
+function sourceJpegFolder_(family, species, checkTime, path) {
+  const memo = new Map();
+  const direct = scanChildFolder_(family, species, checkTime, memo);
+  const genus = scanChildFolder_(family, species.split('_')[0], checkTime, memo);
+  const nested = genus ? scanChildFolder_(genus, species, checkTime, memo) : null;
   const candidates = new Map();
   for (const folder of [direct, nested]) {
     if (!folder) continue;
-    const jpeg = scanChildFolder_(folder, 'JPEG', checkTime);
-    if (jpeg) candidates.set(jpeg.getId(), jpeg);
+    const jpeg = scanChildFolder_(folder, 'JPEG', checkTime, memo);
+    if (jpeg) candidates.set(jpeg.getId(), { jpeg: jpeg,
+      folders: folder === direct ? [family, folder, jpeg] : [family, genus, folder, jpeg] });
   }
   if (candidates.size !== 1) {
     throw viewerError_(candidates.size ?
       'More than one JPEG folder matches this record. No images were selected.' :
       'The source JPEG folder was not found or is not accessible.');
   }
-  return candidates.values().next().value;
+  const chosen = candidates.values().next().value;
+  if (path) chosen.folders.forEach((folder, index) => path.push({ id: folder.getId(), name: folder.getName(),
+    parentId: index ? chosen.folders[index - 1].getId() : TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID }));
+  return chosen.jpeg;
 }
 
 function sourceScanSide_(name) {
@@ -379,57 +508,153 @@ function imageManifest_(records) {
 
 /** Public RPC: always authorize again, and never trust client-supplied filenames. */
 function loadSourceScans(request) {
+  const timing = viewerTiming_('scanPlan');
+  let response;
   try {
-    requireWorkbookAccess_();
-    const started = Date.now();
-    const checkTime = () => {
-      if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
-        throw viewerError_('The scan search time limit was reached. Reload the page to try again.');
-      }
-    };
-    const query = normalizeQuery_(request && request.query || {});
-    if (!query.family || !query.species) throw viewerError_('Reload the page before loading scans.');
-    const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
-    const family = familyFolder_(root, query, checkTime);
-    let records = [];
-    if (request.reportId) {
-      const file = DriveApp.getFileById(String(request.reportId));
-      const parents = file.getParents();
-      let inFamily = false;
-      while (parents.hasNext()) {
-        checkTime();
-        if (parents.next().getId() === family.getId()) inFamily = true;
-      }
-      if (!inFamily || !reportName_(file.getName(), query.species)) {
-        throw viewerError_('The displayed report is no longer in its expected folder. Reload the page.');
-      }
-      if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_REPORT_BYTES) {
-        throw viewerError_('The displayed report exceeds the viewer size limit.');
-      }
-      records = parseReport_(file.getBlob().getDataAsString('UTF-8'), query.digits);
-      checkTime();
-      if (!records.length || imageManifest_(records) !== request.manifest) {
-        throw viewerError_('The displayed report has changed. Reload the page before viewing its scans.');
-      }
-    }
-    const scanOnly = !records.length || records.every(record => record.status === 'MISSING');
-    let message = '';
-    let jpeg;
-    if (scanOnly) {
-      jpeg = sourceJpegFolder_(family, query.species, checkTime);
-      const discovered = discoverSourceScans_(jpeg, query, checkTime);
-      records = discovered.records;
-      message = discovered.message;
-    }
-    const result = { query: query, records: records };
-    attachSourceImages_(result, family, checkTime, jpeg);
-    return { scanOnly: scanOnly, message: message,
-      galleries: records.filter(record => record.status !== 'MISSING').map(record => ({
-        numbers: record.numbers, images: record.images, message: record.imageMessage
-      })) };
+    timing.measure('access', requireWorkbookAccess_);
+    const plan = prepareScanPlan_(request, scanDeadline_(), timing);
+    const cache = userCache_();
+    const token = cache ? Utilities.getUuid() : '';
+    const saved = measured_(timing, 'planCacheWrite', () => cacheJson_(cache, 'scan-plan-v1:' + token,
+      plan, TRANSCRIPTION_VIEWER.SCAN_PLAN_SECONDS));
+    response = { scanOnly: plan.scanOnly, message: plan.message, galleries: plan.galleries,
+      token: saved ? token : '', fingerprint: plan.fingerprint };
   } catch (error) {
-    return { error: error.viewerMessage || 'Source scans could not be loaded. Check your Drive access and reload the page to try again.' };
+    response = { error: error.viewerMessage || 'Source scans could not be loaded. Check your Drive access and reload the page to try again.' };
   }
+  response.timings = timing.finish();
+  return response;
+}
+
+function scanDeadline_() {
+  const started = Date.now();
+  return () => {
+    if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
+      throw viewerError_('The scan search time limit was reached. Reload the page to try again.');
+    }
+  };
+}
+
+function imageSourceKey_(request) {
+  const query = normalizeQuery_(request && request.query || {});
+  return JSON.stringify([query.e, query.family, query.species, String(request.reportId || ''), String(request.manifest || '')]);
+}
+
+/** Server-only plan: file metadata and routing, never report text or JPEG bytes. */
+function prepareScanPlan_(request, checkTime, timing) {
+  const query = normalizeQuery_(request && request.query || {});
+  if (!query.family || !query.species) throw viewerError_('Reload the page before loading scans.');
+  const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
+  const family = measured_(timing, 'familyFolder', () => familyFolder_(root, query, checkTime));
+  const plan = { sourceKey: imageSourceKey_(request), path: [], report: null };
+  let records = [];
+  if (request.reportId) {
+    const file = DriveApp.getFileById(String(request.reportId));
+    const version = fileVersion_(file);
+    const parents = file.getParents();
+    let inFamily = false;
+    while (parents.hasNext()) {
+      checkTime();
+      if (parents.next().getId() === family.getId()) inFamily = true;
+    }
+    if (!inFamily || !reportName_(file.getName(), query.species)) {
+      throw viewerError_('The displayed report is no longer in its expected folder. Reload the page.');
+    }
+    if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_REPORT_BYTES) {
+      throw viewerError_('The displayed report exceeds the viewer size limit.');
+    }
+    records = measured_(timing, 'reportValidation', () => parseReport_(file.getBlob().getDataAsString('UTF-8'), query.digits));
+    checkTime();
+    if (!records.length || imageManifest_(records) !== request.manifest || fileVersion_(file) !== version) {
+      throw viewerError_('The displayed report has changed. Reload the page before viewing its scans.');
+    }
+    plan.report = { id: file.getId(), name: file.getName(), version: version, familyId: family.getId() };
+  }
+  const scanOnly = !records.length || records.every(record => record.status === 'MISSING');
+  let message = '';
+  let jpeg;
+  if (scanOnly) {
+    jpeg = measured_(timing, 'scanFolders', () => sourceJpegFolder_(family, query.species, checkTime, plan.path));
+    const discovered = measured_(timing, 'scanDiscovery', () => discoverSourceScans_(jpeg, query, checkTime));
+    records = discovered.records;
+    message = discovered.message;
+  }
+  const result = { query: query, records: records };
+  measured_(timing, 'imageMetadata', () => attachSourceImages_(result, family, checkTime, jpeg, plan));
+  plan.scanOnly = scanOnly;
+  plan.message = message;
+  plan.galleries = records.filter(record => record.status !== 'MISSING').map(record => ({
+      numbers: record.numbers, images: record.images, message: record.imageMessage
+    }));
+  plan.fingerprint = digest_(JSON.stringify([plan.sourceKey, plan.path, plan.report, plan.galleries]));
+  if (timing) timing.count('images', plan.galleries.reduce((sum, gallery) => sum + gallery.images.length, 0));
+  return plan;
+}
+
+function hasParent_(item, parentId) {
+  const parents = item.getParents();
+  while (parents.hasNext()) if (parents.next().getId() === parentId) return true;
+  return false;
+}
+
+/** Recheck actual Drive access/metadata; a cached plan never grants access. */
+function validateScanPlan_(plan, checkTime) {
+  if (plan.report) {
+    const file = DriveApp.getFileById(plan.report.id);
+    if (file.getName() !== plan.report.name || fileVersion_(file) !== plan.report.version ||
+        !hasParent_(file, plan.report.familyId)) {
+      throw viewerError_('The displayed report has changed or moved. Reload the page before viewing its scans.');
+    }
+  }
+  let jpeg;
+  for (const step of plan.path) {
+    checkTime();
+    jpeg = DriveApp.getFolderById(step.id);
+    if (jpeg.getName() !== step.name || !hasParent_(jpeg, step.parentId)) {
+      throw viewerError_('The source scan folder has changed or moved. Reload the page.');
+    }
+  }
+  return jpeg;
+}
+
+/** One full JPEG per response. The browser limits concurrent calls and fixes display order. */
+function loadSourceImage(request) {
+  const timing = viewerTiming_('image');
+  let response;
+  try {
+    timing.measure('access', requireWorkbookAccess_);
+    const checkTime = scanDeadline_();
+    if (!request || !Number.isInteger(request.index) || request.index < 0 ||
+        request.index >= TRANSCRIPTION_VIEWER.MAX_FILES_LISTED || typeof request.fingerprint !== 'string') {
+      throw viewerError_('Reload the page before loading scans.');
+    }
+    const key = imageSourceKey_(request.sourceRequest);
+    let plan = /^[a-f0-9-]{36}$/i.test(request.token || '') ?
+      measured_(timing, 'planCacheRead', () => cachedJson_(userCache_(), 'scan-plan-v1:' + request.token)) : null;
+    if (!plan || plan.sourceKey !== key || plan.fingerprint !== request.fingerprint) {
+      timing.count('planCacheHit', false);
+      plan = prepareScanPlan_(request.sourceRequest, checkTime, timing);
+      if (plan.fingerprint !== request.fingerprint) throw viewerError_('The source scans have changed. Reload the page.');
+    } else timing.count('planCacheHit', true);
+    const scans = plan.galleries.reduce((all, gallery) => all.concat(gallery.images), []);
+    const scan = scans[request.index];
+    if (!scan || !scan.fileId || scan.message) throw viewerError_('This scan is unavailable. Use its original link or reload the page.');
+    const jpeg = measured_(timing, 'sourceValidation', () => validateScanPlan_(plan, checkTime));
+    const files = jpeg.getFilesByName(scan.name);
+    if (!files.hasNext()) throw viewerError_('This source JPG was not found or is not accessible.');
+    const file = files.next();
+    if (files.hasNext()) throw viewerError_('More than one source JPG has this filename. No image was selected.');
+    if (file.getId() !== scan.fileId || fileVersion_(file) !== scan.version || file.getSize() !== scan.size) {
+      throw viewerError_('This source scan has changed. Reload the page before viewing it.');
+    }
+    const base64 = readFullJpeg_(file, scan.size, checkTime, timing);
+    if (fileVersion_(file) !== scan.version) throw viewerError_('This source scan changed while loading. Reload the page.');
+    response = { base64: base64 };
+  } catch (error) {
+    response = { error: error.viewerMessage || 'This source scan could not be loaded. Try again or open the original JPG.' };
+  }
+  response.timings = timing.finish();
+  return response;
 }
 
 /** Used only without a transcription: exact numbers and complete physical-card groups. */
@@ -479,11 +704,11 @@ function discoverSourceScans_(jpeg, query, checkTime) {
 }
 
 /** Read only report-listed or independently discovered filenames in the resolved folder. */
-function attachSourceImages_(result, family, checkTime, jpeg) {
+function attachSourceImages_(result, family, checkTime, jpeg, plan) {
   const records = result.records.filter(record => record.status !== 'MISSING');
   if (!records.length) return;
   try {
-    if (!jpeg) jpeg = sourceJpegFolder_(family, result.query.species, checkTime);
+    if (!jpeg) jpeg = sourceJpegFolder_(family, result.query.species, checkTime, plan && plan.path);
   } catch (error) {
     for (const record of records) record.imageMessage = error.viewerMessage ||
       'Source scans could not be loaded. Check your access to the JPEG folder.';
@@ -520,32 +745,40 @@ function attachSourceImages_(result, family, checkTime, jpeg) {
           continue;
         }
         scan.url = 'https://drive.google.com/file/d/' + encodeURIComponent(file.getId()) + '/view';
+        const size = file.getSize();
         if (++imageCount > TRANSCRIPTION_VIEWER.MAX_IMAGES ||
-            totalBytes + file.getSize() > TRANSCRIPTION_VIEWER.MAX_TOTAL_IMAGE_BYTES) {
+            totalBytes + size > TRANSCRIPTION_VIEWER.MAX_TOTAL_IMAGE_BYTES) {
           scan.message = 'The image display limit was reached. Open the original JPG below.';
           continue;
         }
-        if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_IMAGE_BYTES) {
+        if (size > TRANSCRIPTION_VIEWER.MAX_IMAGE_BYTES) {
           scan.message = 'This scan is too large to display here. Open the original JPG below.';
           continue;
         }
-        const bytes = file.getBlob().getBytes();
-        checkTime();
-        if (bytes.length > TRANSCRIPTION_VIEWER.MAX_IMAGE_BYTES ||
-            totalBytes + bytes.length > TRANSCRIPTION_VIEWER.MAX_TOTAL_IMAGE_BYTES) {
-          scan.message = 'This scan is too large to display here. Open the original JPG below.';
-          continue;
+        if (plan) {
+          scan.fileId = file.getId();
+          scan.size = size;
+          scan.version = fileVersion_(file);
+        } else {
+          scan.base64 = readFullJpeg_(file, size, checkTime);
         }
-        if (bytes.length < 3 || (bytes[0] & 255) !== 255 ||
-            (bytes[1] & 255) !== 216 || (bytes[2] & 255) !== 255) {
-          scan.message = 'This file could not be displayed as a JPEG. Open the original below.';
-          continue;
-        }
-        scan.base64 = Utilities.base64Encode(bytes);
-        totalBytes += bytes.length;
+        totalBytes += size;
       } catch (error) {
-        scan.message = 'This source scan could not be loaded. Try again or open the original JPG below.';
+        scan.message = error.viewerMessage || 'This source scan could not be loaded. Try again or open the original JPG below.';
       }
     }
   }
+}
+
+function readFullJpeg_(file, expectedSize, checkTime, timing) {
+  const bytes = measured_(timing, 'imageDownload', () => file.getBlob().getBytes());
+  checkTime();
+  if (bytes.length !== expectedSize || bytes.length > TRANSCRIPTION_VIEWER.MAX_IMAGE_BYTES) {
+    throw viewerError_('This scan has changed size or is too large to display here. Open the original JPG below.');
+  }
+  if (bytes.length < 3 || (bytes[0] & 255) !== 255 || (bytes[1] & 255) !== 216 || (bytes[2] & 255) !== 255) {
+    throw viewerError_('This file could not be displayed as a JPEG. Open the original below.');
+  }
+  if (timing) timing.count('imageBytes', bytes.length);
+  return measured_(timing, 'imageEncode', () => Utilities.base64Encode(bytes));
 }

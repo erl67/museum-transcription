@@ -4,9 +4,17 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const crypto = require('node:crypto');
 const code = fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8');
+const basicUtilities = {
+  DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+  computeDigest: (algorithm, text) => Array.from(crypto.createHash(algorithm).update(text).digest()),
+  getUuid: () => crypto.randomUUID(),
+  base64Encode: bytes => Buffer.from(bytes).toString('base64')
+};
 function context(extra = {}, source = code) {
-  const ctx = vm.createContext(extra);
+  const ctx = vm.createContext({ console: { info() {} }, ...extra,
+    Utilities: { ...basicUtilities, ...extra.Utilities } });
   vm.runInContext(source, ctx);
   return ctx;
 }
@@ -36,6 +44,7 @@ const missing = text => banner('001', true) + '\n' + text + '\n\n\n';
 
 test('normalizes complete identifiers without losing zeros; rejects mixed identifiers', () => {
   for (const value of ['E001', 'cm001', '001']) assert.equal(ctx.normalizeQuery_({ ...query, e: value }).e, 'E001');
+  for (const value of ['E10215', '10215']) assert.equal(ctx.normalizeQuery_({ ...query, e: value }).e, 'E10215');
   for (const value of ['E1/E2', 'E12x', 'E001*', '', '1.0']) assert.throws(() => ctx.normalizeQuery_({ ...query, e: value }));
   assert.equal(ctx.normalizeQuery_({ ...query, species: 'SERINUS sp. subspecies' }).species, 'Serinus_sp');
   assert.throws(() => ctx.normalizeQuery_({ ...query, family: '../Family' }));
@@ -165,7 +174,7 @@ function iterator(values) {
   return { hasNext: () => i < values.length, next: () => values[i++] };
 }
 function fakeFile(name, text, size = Buffer.byteLength(text)) {
-  return { getName: () => name, getId: () => 'file-id', getSize: () => size,
+  return { getName: () => name, getId: () => 'file-id', getSize: () => size, getLastUpdated: () => new Date(1000),
     getBlob: () => ({ getDataAsString: encoding => { assert.equal(encoding, 'UTF-8'); return text; } }) };
 }
 function workbookFile(id) {
@@ -206,12 +215,12 @@ test('file listing and elapsed-time limits report incomplete searches', () => {
   assert.throws(() => context({ Date: date, DriveApp: fakeDrive([family([])]) }).lookupTranscription_(query), /time limit/);
 });
 
-test('replays tracked saved responses including shared cards without header leakage', () => {
-  // Remove the mixed-test-only closing line; preserve the saved card blocks and usage footer.
-  const report = fs.readFileSync(path.join(__dirname, '../../tests/outputs/test_20260923_1755_g3.5-f-l_t1.0.txt'), 'utf8')
-    .replace(/^(?:TEST FINISHED|TEST STOPPED):[^\r\n]*\r?\n/gm, '');
+test('replays tracked saved responses including multiple backs without header leakage', () => {
+  const report = ['Accipiter_cooperii_transcriptions_20260916_0930.txt',
+    'Psarocolius_bifasciatus_transcriptions_20260922_1214.txt']
+    .map(name => fs.readFileSync(path.join(__dirname, '../../tests/outputs', name), 'utf8')).join('\n\n\n');
   const numbers = [...report.matchAll(/^={22}CM(\d+)=/gm)].map(match => match[1]);
-  assert.ok(numbers.length >= 11);
+  assert.equal(numbers.length, 4);
   for (const number of numbers) {
     const records = ctx.parseReport_(report, number);
     assert.equal(records.length, 1);
@@ -289,7 +298,8 @@ const csvUtilities = { parseCsv(text) {
 function csvFile(text = 'catalogNumber,Family,Scientific Name\nE001,Family,Genus species\n') {
   return { ...fakeFile('lookup.csv', text), getMimeType: () => 'text/csv' };
 }
-const csvCode = code.replace("CATALOGUE_FILE_ID: ''", "CATALOGUE_FILE_ID: 'catalogue-csv-id'");
+const csvCode = code.replace(/CATALOGUE_FILE_ID: '[^']*'/, "CATALOGUE_FILE_ID: 'catalogue-csv-id'");
+const discoveryCode = code.replace(/CATALOGUE_FILE_ID: '[^']*'/, "CATALOGUE_FILE_ID: ''");
 function catalogueDrive(csv, reports = []) {
   return { ...fakeDrive([family(reports)]), getFileById: id => id === 'catalogue-csv-id' ? csv : workbookFile(id) };
 }
@@ -365,14 +375,14 @@ function csvParent(direct = [], sibling = []) {
 test('CSV discovery supports the Family parent and sibling Transcription folder without arbitrary searches', () => {
   const file = csvFile();
   for (const parent of [csvParent([file]), csvParent([], [[file]]), csvParent([file], [[file]])]) {
-    const local = context({ Utilities: csvUtilities });
+    const local = context({ Utilities: csvUtilities }, discoveryCode);
     const rows = local.readCatalogue_({ getParents: () => iterator([parent]) }, () => {});
     assert.equal(rows[1][0], 'E001');
   }
 });
 
 test('CSV discovery rejects absent and ambiguous exports instead of choosing one', () => {
-  const local = context({ Utilities: csvUtilities });
+  const local = context({ Utilities: csvUtilities }, discoveryCode);
   const second = { ...csvFile(), getId: () => 'second-csv' };
   for (const [parent, pattern] of [[csvParent(), /not found or is not accessible/],
     [csvParent([csvFile()], [[second]]), /More than one catalogue CSV/]]) {
@@ -385,7 +395,10 @@ test('form submits only E-number so a new search cannot inherit stale family or 
   assert.match(template.replace(/<\?[\s\S]*?\?>/g, ""), /name="e"[^>]*required/);
   assert.doesNotMatch(template, /name="(?:family|species)"/);
   assert.ok(template.includes('<?= result.query.family ?>'));
-  assert.match(template, /<input name="e" placeholder="E4268" required/);
+  assert.match(template, /<input name="e" placeholder="E5350" required maxlength="6"/);
+  const pattern = new RegExp('^(?:' + template.match(/<input[^>]*pattern="([^"]+)"/)[1] + ')$');
+  for (const value of ['E10215', '10215', 'e5350', '001']) assert.ok(pattern.test(value), value);
+  for (const value of ['123456', 'E123456', 'E', '12x']) assert.ok(!pattern.test(value), value);
   assert.doesNotMatch(template, /<input[^>]*\bvalue=/);
 });
 
@@ -462,7 +475,7 @@ function scanFolder(name, children = [], namedFiles = {}) {
 }
 function jpgFile(id, bytes = [-1, -40, -1, -32]) {
   let reads = 0;
-  return { getId: () => id, getSize: () => bytes.length,
+  return { getId: () => id, getSize: () => bytes.length, getLastUpdated: () => new Date(1000),
     getBlob: () => ({ getBytes: () => { reads++; return bytes; } }),
     reads: () => reads };
 }
@@ -728,12 +741,22 @@ test('deployment accepts signed-in accounts and runs with each readers own read-
   assert.deepEqual(manifest.oauthScopes, ['https://www.googleapis.com/auth/drive.readonly']);
 });
 
-function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]: [jpgFile('b')] }) {
+function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]: [jpgFile('b')] }, extra = {}) {
   const folder = directScans(namedFiles);
   let reports = text === null ? [] : [fakeFile('Genus_species_transcriptions_20261014_1200.txt', text)];
   let allowed = true;
   folder.getFiles = () => iterator(reports);
   const drive = fakeDrive([folder]);
+  const rootGet = drive.getFolderById;
+  const folderMap = new Map();
+  function register(item, parentId) {
+    item.getParents = () => iterator([{ getId: () => parentId }]);
+    folderMap.set(item.getId(), item);
+    const children = item.getFolders();
+    while (children.hasNext()) register(children.next(), item.getId());
+  }
+  register(folder, '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ');
+  drive.getFolderById = id => folderMap.get(id) || rootGet(id);
   drive.getFileById = id => {
     if (id === '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc') {
       if (!allowed) throw new Error('Private permission denied');
@@ -743,21 +766,27 @@ function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]
     if (!report) throw new Error('Private report missing');
     return { ...report, getParents: () => iterator([folder]) };
   };
-  const local = context({ DriveApp: drive, Utilities: { base64Encode: bytes => Buffer.from(bytes).toString('base64') } });
+  const local = context({ DriveApp: drive, ...extra });
   return { local, folder, drive, namedFiles,
     setReports: value => { reports = value; }, revoke: () => { allowed = false; } };
 }
 const imageReport = (files = [scanA, scanB], status = 'OK') =>
   block(['001'], 'selected text', status).replace('FILES: source.jpg', 'FILES: ' + files.join('; '));
 
-test('text-first lookup reads no image bytes; RPC reads only selected-report images', () => {
+test('text and scan-list lookup read no image bytes; each image RPC reads only its selected scan', () => {
   const fixture = rpcFixture(imageReport([scanB, scanA]));
   const result = fixture.local.lookupTranscription_(query);
   for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
   const loaded = fixture.local.loadSourceScans(result.imageRequest);
   assert.equal(loaded.scanOnly, false);
   assert.equal(loaded.galleries[0].images.map(scan => scan.name).join('|'), scanB + '|' + scanA);
-  assert.ok(loaded.galleries[0].images.every(scan => scan.base64));
+  assert.ok(loaded.galleries[0].images.every(scan => !scan.base64 && scan.fileId));
+  for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
+  const image = fixture.local.loadSourceImage({ sourceRequest: result.imageRequest,
+    token: loaded.token, fingerprint: loaded.fingerprint, index: 0 });
+  assert.ok(image.base64, JSON.stringify(image));
+  assert.equal(fixture.namedFiles[scanB][0].reads(), 1);
+  assert.equal(fixture.namedFiles[scanA][0].reads(), 0);
   assert.equal(result.records[0].text, 'selected text');
 });
 
@@ -903,7 +932,7 @@ function clientPage() {
   class Element {
     constructor(tag) { this.tagName = tag; this.children = []; this.events = {}; this.attributes = {}; this.textContent = ''; }
     appendChild(node) { this.children.push(node); node.parent = this; return node; }
-    replaceChildren() { this.children = []; }
+    replaceChildren(...nodes) { this.children = []; nodes.forEach(node => this.appendChild(node)); }
     replaceWith(node) { this.parent.children[this.parent.children.indexOf(this)] = node; }
     addEventListener(name, handler) { this.events[name] = handler; }
     setAttribute(name, value) { this.attributes[name] = value; }
@@ -914,18 +943,22 @@ function clientPage() {
     .map(id => [id, new Element('div')]));
   const request = { query, reportId: 'file-id', manifest: '[]' };
   nodes['source-scans'].dataset = { request: JSON.stringify(request) };
-  const events = {}, tasks = [], calls = [];
+  const events = {}, tasks = [], calls = [], imageCalls = [], logs = [];
   let success, failure;
-  const runner = {
-    withSuccessHandler(fn) { success = fn; return this; },
-    withFailureHandler(fn) { failure = fn; return this; },
-    loadSourceScans(request) { calls.push(request); }
-  };
+  function runner(onSuccess, onFailure) {
+    return {
+      withSuccessHandler(fn) { return runner(fn, onFailure); },
+      withFailureHandler(fn) { return runner(onSuccess, fn); },
+      loadSourceScans(request) { calls.push(request); success = onSuccess; failure = onFailure; },
+      loadSourceImage(request) { imageCalls.push({ request, success: onSuccess, failure: onFailure }); }
+    };
+  }
   const script = fs.readFileSync(path.join(__dirname, 'Viewer.html'), 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
   vm.runInNewContext(script, { document: { getElementById: id => nodes[id], createElement: tag => new Element(tag) },
     window: { addEventListener: (name, handler) => { events[name] = handler; } },
-    setTimeout: fn => tasks.push(fn), google: { script: { run: runner } } });
-  return { nodes, calls, request, start() { events.load(); tasks.shift()(); },
+    performance: { now: () => 10 }, console: { info: (...args) => logs.push(args) },
+    setTimeout: fn => tasks.push(fn), google: { script: { run: runner() } } });
+  return { nodes, calls, imageCalls, logs, request, start() { events.load(); tasks.shift()(); },
     success: result => success(result), failure: () => failure(new Error('Private server detail')) };
 }
 
@@ -936,15 +969,17 @@ test('browser script defers RPC until page load and displays returned scans in o
   assert.equal(JSON.stringify(page.calls[0]), JSON.stringify(page.request));
   const unsafeName = '<img src=x onerror=alert(1)>.jpg';
   page.success({ scanOnly: true, message: '', galleries: [{ numbers: ['E001'], message: 'Front missing',
-    images: [{ label: 'Back', name: unsafeName, url: 'https://drive.google.com/file/d/a/view', base64: '/9j/4A==' }] }] });
+    images: [{ label: 'Back', name: unsafeName, url: 'https://drive.google.com/file/d/a/view', fileId: 'a' }] }] });
+  assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'true');
+  page.imageCalls[0].success({ base64: '/9j/4A==' });
   assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'false');
   assert.match(page.nodes['scan-status'].textContent, /No image transcription/);
   const group = page.nodes['scan-galleries'].children[0], figure = group.children[2];
-  assert.equal(figure.children[0].alt, 'Back: ' + unsafeName);
+  assert.equal(figure.children[0].children[0].alt, 'Back: ' + unsafeName);
   assert.equal(figure.children[1].children[1].textContent, unsafeName);
   assert.equal(figure.children[1].children[0].textContent, 'Back');
-  figure.children[0].events.error();
-  assert.match(figure.children[0].textContent, /could not be displayed/);
+  figure.children[0].children[0].events.error();
+  assert.match(figure.children[0].children[0].textContent, /could not be displayed/);
   assert.equal(figure.children[1].children[1].href, 'https://drive.google.com/file/d/a/view');
 });
 
@@ -963,5 +998,251 @@ test('browser RPC failures and server errors offer retry without replacing recor
     page.success({ scanOnly: true, message: 'No matching source JPGs.', galleries: [] });
     assert.match(page.nodes['scan-status'].textContent, /No matching source JPGs/);
   }
+});
+
+function memoryCache() {
+  const values = new Map();
+  const cache = {
+    get: key => values.get(key) || null,
+    put(key, value, seconds) {
+      assert.ok(Buffer.byteLength(value, 'utf8') < 100 * 1024);
+      assert.ok(key.length <= 250);
+      assert.ok(seconds > 0 && seconds <= 21600);
+      values.set(key, value);
+    },
+    putAll(items, seconds) { Object.entries(items).forEach(([key, value]) => cache.put(key, value, seconds)); }
+  };
+  return { values, cache, CacheService: { getUserCache: () => cache } };
+}
+
+test('configured catalogue ID is the supplied CSV, not either Google spreadsheet', () => {
+  assert.match(code, /CATALOGUE_FILE_ID: '1AOoNhjdyvNHZUxf11WwM1VMPuzdDOA8I'/);
+});
+
+test('user cache serves different E-numbers without downloading the CSV again and invalidates on edits', () => {
+  const storage = memoryCache();
+  let reads = 0, metadataReads = 0, version = 1000, denied = false;
+  let text = 'catalogNumber,Family,Scientific Name,Notes\nE001,Family,Genus species,private note\nE002,Family,Other species,x';
+  const file = { ...csvFile(), getLastUpdated: () => new Date(version),
+    getName() { metadataReads++; if (denied) throw new Error('denied'); return 'catalogue.csv'; },
+    getSize: () => Buffer.byteLength(text),
+    getBlob() { reads++; return { getDataAsString: () => text }; } };
+  const local = csvContext(file, [], csvCode, { CacheService: storage.CacheService });
+  assert.equal(local.lookupTranscription_({ e: '001' }).query.species, 'Genus_species');
+  assert.equal(local.lookupTranscription_({ e: '002' }).query.species, 'Other_species');
+  assert.equal(reads, 1);
+  assert.equal(metadataReads, 2);
+  assert.doesNotMatch([...storage.values.values()].join(''), /private note/);
+  text = text.replace('Other species', 'Third species'); // Same length; modified time must invalidate.
+  version++;
+  assert.equal(local.lookupTranscription_({ e: '002' }).query.species, 'Third_species');
+  assert.equal(reads, 2);
+  denied = true;
+  assert.throws(() => local.lookupTranscription_({ e: '001' }), /CSV could not be read/);
+});
+
+test('catalogue caches are isolated by reader and file identity; missing/invalid entries safely rebuild', () => {
+  const alice = memoryCache(), bob = memoryCache();
+  let reads = 0, id = 'first-export';
+  const original = csvFile();
+  const file = { ...original, getId: () => id, getBlob() { reads++; return original.getBlob(); } };
+  const a = csvContext(file, [], csvCode, { CacheService: alice.CacheService });
+  const b = csvContext(file, [], csvCode, { CacheService: bob.CacheService });
+  a.lookupTranscription_({ e: '001' });
+  b.lookupTranscription_({ e: '001' });
+  assert.equal(reads, 2);
+  for (const key of alice.values.keys()) alice.values.set(key, 'not json');
+  a.lookupTranscription_({ e: '001' });
+  assert.equal(reads, 3);
+  id = 'replacement-export';
+  a.lookupTranscription_({ e: '001' });
+  assert.equal(reads, 4);
+  alice.values.clear();
+  a.lookupTranscription_({ e: '001' });
+  assert.equal(reads, 5);
+});
+
+test('cached catalogue preserves zeros, duplicate conflicts, incomplete rows and partial-hint checks', () => {
+  const storage = memoryCache();
+  const text = 'catalogNumber,Family,Scientific Name\nE001,Family,Genus species\nE1,Family,Other species\n' +
+    'E002,Family,Genus species\nE002,Other,Genus species\nE003,,Genus species\nE004,Family,Genus';
+  const local = csvContext(csvFile(text), [], csvCode, { CacheService: storage.CacheService });
+  assert.equal(local.lookupTranscription_({ e: '001' }).query.species, 'Genus_species');
+  assert.equal(local.lookupTranscription_({ e: '1' }).query.species, 'Other_species');
+  assert.throws(() => local.lookupTranscription_({ e: '002' }), /conflicting/);
+  assert.throws(() => local.lookupTranscription_({ e: '003' }), /missing the family/);
+  assert.throws(() => local.lookupTranscription_({ e: '004' }), /invalid family/);
+  assert.throws(() => local.lookupTranscription_({ e: '001', family: 'Other' }), /does not match/);
+  assert.throws(() => local.lookupTranscription_({ e: '0001' }), /not found/);
+  const badStorage = memoryCache();
+  const bad = csvContext(csvFile(text + '\nE999,Family,Genus species,extra'), [], csvCode,
+    { CacheService: badStorage.CacheService });
+  assert.throws(() => bad.lookupTranscription_({ e: '001' }), /extra columns/);
+  assert.equal(badStorage.values.size, 0);
+});
+
+test('cache service failures, large buckets and catalogue changes during download never give partial routes', () => {
+  const broken = { getUserCache: () => ({ get() { throw new Error('cache outage'); }, putAll() { throw new Error('cache outage'); } }) };
+  assert.equal(csvContext(csvFile(), [], csvCode, { CacheService: broken }).lookupTranscription_({ e: '001' }).query.e, 'E001');
+  const storage = memoryCache();
+  const large = csvContext(csvFile(), [], csvCode.replace('CACHE_MAX_CHARS: 24000', 'CACHE_MAX_CHARS: 10'),
+    { CacheService: storage.CacheService });
+  assert.equal(large.lookupTranscription_({ e: '001' }).query.e, 'E001');
+  assert.equal(large.lookupTranscription_({ e: '001' }).query.e, 'E001');
+  let version = 0;
+  const changing = { ...csvFile(), getLastUpdated: () => new Date(version++) };
+  const changedStorage = memoryCache();
+  assert.throws(() => csvContext(changing, [], csvCode, { CacheService: changedStorage.CacheService })
+    .lookupTranscription_({ e: '001' }), /changed during/);
+  assert.equal(changedStorage.values.size, 0);
+});
+
+function plannedImage(fixture, index = 0) {
+  const sourceRequest = fixture.local.lookupTranscription_(query).imageRequest;
+  const plan = fixture.local.loadSourceScans(sourceRequest);
+  assert.equal(plan.error, undefined);
+  return { plan, request: { sourceRequest, token: plan.token, fingerprint: plan.fingerprint, index } };
+}
+
+test('scan-plan cache avoids repeated directory listings and report downloads for full-image RPCs', () => {
+  const storage = memoryCache();
+  const fixture = rpcFixture(imageReport(), undefined, { CacheService: storage.CacheService });
+  let lists = 0;
+  const getFolders = fixture.folder.getFolders;
+  fixture.folder.getFolders = () => { lists++; return getFolders(); };
+  const { request } = plannedImage(fixture);
+  assert.equal(lists, 1, 'Direct and genus routes share one family listing');
+  assert.ok(request.token);
+  assert.doesNotMatch([...storage.values.values()].join(''), /selected text|base64":"[^"\s]+/);
+  fixture.folder.getFolders = () => { throw new Error('Do not list again'); };
+  const getFile = fixture.drive.getFileById;
+  fixture.drive.getFileById = id => {
+    const file = getFile(id);
+    return id === 'file-id' ? { ...file, getBlob() { throw new Error('Do not reread report'); } } : file;
+  };
+  assert.ok(fixture.local.loadSourceImage(request).base64);
+  assert.ok(fixture.local.loadSourceImage({ ...request, index: 1 }).base64);
+});
+
+test('evicted scan plans rebuild safely and still reject changed manifests or substituted image IDs', () => {
+  const storage = memoryCache();
+  const fixture = rpcFixture(imageReport(), undefined, { CacheService: storage.CacheService });
+  const { request } = plannedImage(fixture);
+  storage.values.clear();
+  assert.ok(fixture.local.loadSourceImage(request).base64);
+  fixture.namedFiles[scanA] = [jpgFile('replacement')];
+  assert.match(fixture.local.loadSourceImage(request).error, /changed/);
+  assert.ok(fixture.local.loadSourceImage({ ...request,
+    sourceRequest: { ...request.sourceRequest, manifest: '[]' } }).error);
+});
+
+test('every individual image rechecks workbook, report and folder access and rejects moved or edited sources', () => {
+  for (const kind of ['workbook', 'report', 'folder', 'moved folder', 'changed report', 'changed image', 'duplicate image']) {
+    const storage = memoryCache();
+    const fixture = rpcFixture(imageReport(), undefined, { CacheService: storage.CacheService });
+    const { request } = plannedImage(fixture);
+    const getFile = fixture.drive.getFileById, getFolder = fixture.drive.getFolderById;
+    if (kind === 'workbook') fixture.revoke();
+    if (kind === 'report') fixture.setReports([]);
+    if (kind === 'changed report') fixture.drive.getFileById = id => id === 'file-id' ?
+      { ...getFile(id), getLastUpdated: () => new Date(2000) } : getFile(id);
+    if (kind === 'folder') fixture.drive.getFolderById = () => { throw new Error('private folder error'); };
+    if (kind === 'moved folder') fixture.drive.getFolderById = id => ({ ...getFolder(id), getParents: () => iterator([]) });
+    if (kind === 'changed image') fixture.namedFiles[scanA][0].getLastUpdated = () => new Date(2000);
+    if (kind === 'duplicate image') fixture.namedFiles[scanA].push(jpgFile('duplicate'));
+    const response = fixture.local.loadSourceImage(request);
+    assert.ok(response.error, kind);
+    assert.doesNotMatch(response.error, /private/);
+    assert.equal(fixture.namedFiles[scanA][0].reads(), 0, kind);
+  }
+});
+
+test('per-image selection and byte budgets cannot be enlarged by client metadata', () => {
+  const fixture = rpcFixture(imageReport());
+  const { request } = plannedImage(fixture);
+  for (const index of [-1, 1.5, 40, '0']) assert.ok(fixture.local.loadSourceImage({ ...request, index }).error);
+  assert.ok(fixture.local.loadSourceImage({ ...request, fingerprint: 'forged' }).error);
+  fixture.namedFiles[scanA][0].getBlob = () => ({ getBytes: () => [-1, -40, -1, 1, 2] });
+  assert.match(fixture.local.loadSourceImage(request).error, /changed size/);
+  assert.equal(fixture.namedFiles[scanB][0].reads(), 0);
+});
+
+test('progressive plans reserve the page byte limit before downloads and retain links for excluded images', () => {
+  const fixture = rpcFixture(imageReport());
+  const limitedCode = code.replace('MAX_TOTAL_IMAGE_BYTES: 24 * 1024 * 1024', 'MAX_TOTAL_IMAGE_BYTES: 4');
+  fixture.local = context({ DriveApp: fixture.drive }, limitedCode);
+  const { plan, request } = plannedImage(fixture);
+  assert.equal(plan.galleries[0].images[0].size, 4);
+  assert.match(plan.galleries[0].images[1].message, /display limit/);
+  assert.ok(plan.galleries[0].images[1].url);
+  assert.ok(fixture.local.loadSourceImage(request).base64);
+  assert.ok(fixture.local.loadSourceImage({ ...request, index: 1 }).error);
+  assert.equal(fixture.namedFiles[scanB][0].reads(), 0);
+});
+
+test('scan-only progressive plans load shared lone backs without relabelling or switching when a report arrives', () => {
+  const name = 'Genus_species_E777_E001(B).jpg';
+  const storage = memoryCache();
+  const fixture = rpcFixture(null, { [name]: [jpgFile('back')] }, { CacheService: storage.CacheService });
+  const { plan, request } = plannedImage(fixture);
+  assert.equal(plan.scanOnly, true);
+  assert.equal(plan.galleries[0].images[0].label, 'Back');
+  assert.equal(plan.galleries[0].numbers.join(), 'E777,E001');
+  fixture.setReports([fakeFile('Genus_species_transcriptions_20261015_1200.txt', imageReport())]);
+  assert.ok(fixture.local.loadSourceImage(request).base64);
+  assert.equal(fixture.namedFiles[name][0].reads(), 1);
+});
+
+test('timing stages include cache hits, report reads and image bytes without logging source data', () => {
+  const storage = memoryCache(), logs = [];
+  const local = csvContext(csvFile(), [], csvCode, { CacheService: storage.CacheService,
+    console: { info: line => logs.push(line) } });
+  for (let i = 0; i < 2; i++) {
+    const timer = local.viewerTiming_('text');
+    local.lookupTranscription_({ e: '001' }, timer);
+    const data = timer.finish();
+    assert.equal(data.counts.catalogueCacheHit, i === 1);
+    assert.equal(data.counts.reportsRead, 0);
+    assert.ok(data.stagesMs.catalogue >= 0);
+    assert.ok(data.stagesMs.reportListing >= 0);
+  }
+  assert.doesNotMatch(logs.join(''), /Genus|Family|E001|file-id/);
+  const fixture = rpcFixture(imageReport());
+  const { request } = plannedImage(fixture);
+  const image = fixture.local.loadSourceImage(request);
+  assert.equal(image.timings.counts.imageBytes, 4);
+  assert.ok(image.timings.stagesMs.imageDownload >= 0);
+  assert.ok(image.timings.stagesMs.imageEncode >= 0);
+});
+
+test('browser downloads at most two full scans concurrently, paints out of order in fixed slots and retries only failures', () => {
+  const page = clientPage();
+  page.start();
+  page.success({ scanOnly: false, message: '', token: 'token', fingerprint: 'fingerprint', galleries: [
+    { numbers: ['E001'], images: ['Front', 'Back', 'Back 2'].map((label, i) =>
+      ({ label, name: 'scan' + i + '.jpg', fileId: String(i), url: 'https://drive.google.com/file/d/' + i + '/view' })) }
+  ] });
+  assert.equal(page.imageCalls.length, 2);
+  assert.equal(page.imageCalls[0].request.index, 0);
+  assert.equal(page.imageCalls[1].request.index, 1);
+  const figures = page.nodes['scan-galleries'].children[0].children.slice(1);
+  page.imageCalls[1].success({ base64: '/9j/4A==' });
+  assert.equal(page.imageCalls.length, 3);
+  assert.match(figures[0].children[0].children[0].textContent, /Loading/);
+  assert.equal(figures[1].children[0].children[0].alt, 'Back: scan1.jpg');
+  figures[1].children[0].children[0].events.load();
+  assert.ok(page.logs.some(log => log[0] === 'Viewer first image displayed'));
+  page.imageCalls[0].failure(new Error('private transport detail'));
+  page.imageCalls[2].success({ base64: '/9j/4A==' });
+  assert.equal(page.nodes['retry-scans'].hidden, false);
+  assert.match(page.nodes['scan-status'].textContent, /2 of 3/);
+  page.nodes['retry-scans'].events.click();
+  assert.equal(page.imageCalls.length, 4);
+  assert.equal(page.imageCalls[3].request.index, 0);
+  assert.equal(figures[1].children[0].children[0].alt, 'Back: scan1.jpg');
+  page.imageCalls[3].success({ base64: '/9j/4A==' });
+  assert.match(page.nodes['scan-status'].textContent, /3 of 3/);
+  assert.equal(page.nodes['source-scans'].attributes['aria-busy'], 'false');
+  assert.equal(page.nodes['retry-scans'].hidden, true);
 });
 

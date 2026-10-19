@@ -38,7 +38,7 @@
   <h1>Egg-slip transcription / scan viewer</h1>
   <div class="subtitle">Enter an E-number to view the available transcription and card scans.</div>
   <form method="get" action="<?= appUrl ?>">
-    <label>E-number<input name="e" placeholder="E4268" required maxlength="80"></label>
+    <label>E-number<input name="e" placeholder="E5350" required maxlength="6" pattern="[Ee]?[0-9]{1,5}" title="Enter up to five digits, with or without E."></label>
     <button type="submit">Find record</button>
   </form>
   <? if (result && result.error) { ?>
@@ -73,6 +73,7 @@
   <? } ?>
   <? if (result && !result.error) { ?>
     <section class="message scans" id="source-scans" aria-label="Source scans" aria-busy="true"
+      data-timings="<?= JSON.stringify(result.timings || {}) ?>"
       data-request="<?= JSON.stringify(result.imageRequest) ?>">
       <h2>Source scans</h2>
       <p id="scan-status" role="status">Loading source scans…</p>
@@ -91,6 +92,11 @@
   const retry = document.getElementById('retry-scans');
   const request = JSON.parse(section.dataset.request);
   section.removeAttribute('data-request');
+  const started = performance.now();
+  console.info('Viewer text timing', JSON.parse(section.dataset.timings || '{}'));
+  section.removeAttribute('data-timings');
+  let jobs = [], active = 0, plan, description = '', firstImage = false;
+  const parallelImages = 2;
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text) node.textContent = text;
@@ -107,26 +113,25 @@
       failed(result && result.error || 'Source scans could not be loaded. Try again.');
       return;
     }
-    section.setAttribute('aria-busy', 'false');
-    status.textContent = result.scanOnly ?
+    plan = result;
+    console.info('Viewer scan discovery', { elapsedMs: Math.round(performance.now() - started), server: result.timings });
+    description = result.scanOnly ?
       'Current scans located by E-number. No image transcription is available for these cards.' : '';
-    if (result.message) status.textContent += (status.textContent ? ' ' : '') + result.message;
+    if (result.message) description += (description ? ' ' : '') + result.message;
+    let index = 0;
     result.galleries.forEach(function (gallery) {
       const group = element('div');
       group.appendChild(element('h3', gallery.numbers.join(' · ')));
       if (gallery.message) group.appendChild(element('p', gallery.message, 'scan-notice'));
       gallery.images.forEach(function (scan) {
         const figure = element('figure', '', 'scan');
-        if (scan.base64) {
-          const photo = element('img', '', 'scan-photo');
-          photo.alt = scan.label + ': ' + scan.name;
-          photo.loading = 'lazy';
-          photo.addEventListener('error', function () {
-            photo.replaceWith(element('p', 'The image could not be displayed. Open the original JPG below.', 'scan-notice'));
-          });
-          photo.src = 'data:image/jpeg;base64,' + scan.base64;
-          figure.appendChild(photo);
-        } else figure.appendChild(element('p', scan.message, 'scan-notice'));
+        const slot = element('div');
+        figure.appendChild(slot);
+        if (scan.fileId && !scan.message) {
+          slot.appendChild(element('p', 'Waiting to load full scan…', 'scan-notice'));
+          jobs.push({ index: index, scan: scan, slot: slot, state: 'waiting' });
+        } else slot.appendChild(element('p', scan.message || 'This scan is unavailable.', 'scan-notice'));
+        index++;
         const caption = element('figcaption');
         caption.appendChild(element('strong', scan.label));
         if (scan.url) {
@@ -141,6 +146,64 @@
       });
       galleries.appendChild(group);
     });
+    pump();
+  }
+  function progress() {
+    const loaded = jobs.filter(job => job.state === 'loaded').length;
+    const pending = jobs.some(job => job.state === 'waiting' || job.state === 'loading');
+    const errors = jobs.filter(job => job.state === 'failed').length;
+    section.setAttribute('aria-busy', String(pending));
+    status.textContent = description + (description && jobs.length ? ' ' : '') +
+      (jobs.length ? loaded + ' of ' + jobs.length + ' full scans loaded.' : '') +
+      (errors ? ' Some scans could not be loaded.' : '');
+    retry.hidden = pending || !errors;
+    if (!pending && jobs.length) console.info('Viewer image requests finished', {
+      elapsedMs: Math.round(performance.now() - started), loaded: loaded, failed: errors
+    });
+  }
+  function imageFailed(job, message) {
+    job.state = 'failed';
+    job.slot.replaceChildren(element('p', message, 'scan-notice'));
+  }
+  function pump() {
+    while (active < parallelImages) {
+      const job = jobs.find(item => item.state === 'waiting');
+      if (!job) break;
+      active++;
+      job.state = 'loading';
+      job.slot.replaceChildren(element('p', 'Loading full scan…', 'scan-notice'));
+      const before = performance.now();
+      google.script.run.withSuccessHandler(function (result) {
+        active--;
+        console.info('Viewer image timing', { index: job.index, elapsedMs: Math.round(performance.now() - before),
+          server: result && result.timings });
+        if (!result || result.error || !result.base64) {
+          imageFailed(job, result && result.error || 'This source scan could not be loaded. Try again or open the original JPG below.');
+        } else {
+          job.state = 'loaded';
+          const photo = element('img', '', 'scan-photo');
+          photo.alt = job.scan.label + ': ' + job.scan.name;
+          photo.addEventListener('load', function () {
+            if (!firstImage) {
+              firstImage = true;
+              console.info('Viewer first image displayed', { elapsedMs: Math.round(performance.now() - started) });
+            }
+          });
+          photo.addEventListener('error', function () {
+            imageFailed(job, 'The image could not be displayed. Try again or open the original JPG below.');
+            progress();
+          });
+          photo.src = 'data:image/jpeg;base64,' + result.base64;
+          job.slot.replaceChildren(photo);
+        }
+        pump();
+      }).withFailureHandler(function () {
+        active--;
+        imageFailed(job, 'This source scan could not be loaded. Try again or open the original JPG below.');
+        pump();
+      }).loadSourceImage({ token: plan.token, fingerprint: plan.fingerprint, sourceRequest: request, index: job.index });
+    }
+    progress();
   }
   function loadScans() {
     retry.hidden = true;
@@ -151,7 +214,11 @@
       failed('Source scans could not be loaded. Try again or reload the page.');
     }).loadSourceScans(request);
   }
-  retry.addEventListener('click', loadScans);
+  retry.addEventListener('click', function () {
+    if (!jobs.length) { loadScans(); return; }
+    jobs.filter(job => job.state === 'failed').forEach(job => { job.state = 'waiting'; });
+    pump();
+  });
   // Let the text paint before starting Drive image reads.
   window.addEventListener('load', function () { setTimeout(loadScans, 0); });
 })();
