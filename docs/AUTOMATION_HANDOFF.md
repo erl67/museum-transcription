@@ -15,6 +15,29 @@ again after implementation and still pointed to the starting SHA.
 
 ## Delivered and changed files
 
+**18 October 2026 family/species discovery order:** Starting revision `50aa9a7`,
+clean `feature/unattended-transcription`, already pushed. The maintainer requested
+that discovery follow family then species, matching the intended production queue
+rather than sorting species across the whole collection. Discovery now sorts by
+case-insensitive family/species and displays both names in each progress label.
+`Store.rows` uses SQLite `COLLATE NOCASE` for family/species to maintain that order
+even when family-name capitalization differs. Card ID ordering within a species,
+discovery/grouping/routing, completion and source/request fingerprints are unchanged.
+Ambiguous family data still goes through the existing resolver and blocks discovery.
+Held failures can be revisited in earlier families after deliberate retry; no change
+to retry policy or the treatment of stale cards is included.
+
+The worker was verified stopped at provider daily quota before editing (493 local
+attempts, provider exhaustion retained). The schedule was already enabled and was
+not launched by this maintenance work. Baseline: **239 tests, 238 passed / one
+optional fixture skip**. New offline cases cover grouped discovery with both layouts
+and uncatalogued material, case-insensitive four-day queue continuation without
+repeats, unchanged saved fingerprints and strict family-conflict handling.
+Final offline suite: **243 tests, 242 passed / one optional scan-fixture skip**,
+including both mocked provider transports. The sandbox denied temporary test-fixture
+access; the baseline and final suite succeeded with Windows temp-folder access.
+No live requests are used for testing or validating this ordering change.
+
 **18/19 October 2026 sleep/Drive restart recovery:** Starting revision `8aaca22`,
 clean `feature/unattended-transcription`; no merge, push or reset. After an interrupted
 production session, all 10,015 cards were stale, but 321 accepted results (215 OK,

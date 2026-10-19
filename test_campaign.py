@@ -80,6 +80,76 @@ class CampaignTest(unittest.TestCase):
     def counts(self):
         return c.status(self.config, self.store)
 
+    def add_family_order_fixture(self):
+        # Catalogue order deliberately puts the alphabetically last family first.
+        additions = [("ZetaFamily", "Aardvark_one", "E10", False),
+                     ("alphaFamily", "Zeta_zeta", "E11", True),
+                     ("alphaFamily", "Alpha_alpha", "E12", False),
+                     ("alphaFamily", "Beta_beta", None, True)]
+        with self.csv.open("a", encoding="utf-8") as catalogue:
+            for family, species, enum, genus_layout in additions:
+                folder = self.config.base_dir / family
+                if genus_layout:
+                    folder /= species.split("_")[0]
+                folder = folder / species / "JPEG"
+                folder.mkdir(parents=True)
+                with Image.new("RGB", (20, 20)) as image:
+                    image.save(folder / f"{species}_{enum or 'Uncatalogued1'}.jpg")
+                if enum:
+                    catalogue.write(f"{enum},{species.replace('_', ' ')},{family},Person\n")
+
+    def test_discovery_groups_species_alphabetically_within_each_family(self):
+        self.add_family_order_fixture()
+        with self.no_image_reads():
+            _, items, _, issues, _ = c.inventory(self.config)
+        self.assertEqual(issues, [])
+        expected = [("alphaFamily", "Alpha_alpha"), ("alphaFamily", "Beta_beta"),
+                    ("alphaFamily", "Zeta_zeta"), ("Birds", "Test_bird"),
+                    ("ZetaFamily", "Aardvark_one")]
+        actual = list(dict.fromkeys((i["family"], i["species"]) for i in items))
+        self.assertEqual(actual, expected)
+        log = self.output.getvalue()
+        self.assertIn("[1/5] alphaFamily / Alpha_alpha", log)
+        self.assertIn("[5/5] ZetaFamily / Aardvark_one", log)
+
+    def test_daily_worker_continues_family_species_order_without_repeating_cards(self):
+        self.add_family_order_fixture()
+        for day in range(4):
+            code, client = self.run_worker()
+            self.assertEqual(code, 0 if day == 3 else 10)
+            self.assertEqual(len(client.calls), 1 if day == 3 else 2)
+            self.advance()
+        processed = [row[0] for row in self.store.conn.execute("SELECT card_id FROM history ORDER BY seq")]
+        self.assertEqual(processed, [
+            "alphafamily/alpha_alpha/alpha_alpha_e12",
+            "alphafamily/beta_beta/beta_beta_uncatalogued1",
+            "alphafamily/zeta_zeta/zeta_zeta_e11",
+            "birds/test_bird/test_bird_e01",
+            "birds/test_bird/test_bird_e2_e3",
+            "birds/test_bird/test_bird_uncatalogued1",
+            "zetafamily/aardvark_one/aardvark_one_e10"])
+        self.assertEqual(self.counts()["completed_cards"], 7)
+        self.assertEqual(self.counts()["campaign_api_attempts"], 7)
+        self.assertEqual(self.run_worker()[1].calls, [])
+
+    def test_ordered_discovery_preserves_existing_completed_fingerprints(self):
+        self.run_worker()
+        fields = ("state", "result", "fingerprint", "request_key", "signature")
+        saved = {r["id"]: tuple(r[f] for f in fields) for r in self.store.rows() if r["state"] in c.SUCCESS}
+        self.add_family_order_fixture()
+        with self.no_image_reads():
+            c.scan(self.config, self.store)
+        after = {r["id"]: tuple(r[f] for f in fields) for r in self.store.rows() if r["id"] in saved}
+        self.assertEqual(saved, after)
+
+    def test_ordered_discovery_still_reports_conflicting_family_data(self):
+        with self.csv.open("a", encoding="utf-8") as catalogue:
+            catalogue.write("E10,Test bird,AnotherFamily,Person\n")
+        with self.no_image_reads():
+            _, items, _, issues, _ = c.inventory(self.config)
+        self.assertEqual(items, [])
+        self.assertTrue(any("conflicting Family data" in issue for issue in issues))
+
     def test_multiday_dedup_shared_sides_uncatalogued_and_missing(self):
         code, client = self.run_worker()
         self.assertEqual(code, 10)
@@ -477,7 +547,7 @@ class CampaignTest(unittest.TestCase):
             self.assertEqual(c.main(["--config", str(self.config_path), "dry-run"]), 0)
         self.assertTrue(all(row["fingerprint"] is None and row["request_key"] is None for row in self.store.rows()))
         self.assertEqual(self.store.get("scan_mode"), "metadata")
-        self.assertIn("[1/1] Test_bird", self.output.getvalue())
+        self.assertIn("[1/1] Birds / Test_bird", self.output.getvalue())
         self.assertIn("3 cards / 4 images checked", self.output.getvalue())
         self.assertIn("Queue saved:", self.output.getvalue())
 

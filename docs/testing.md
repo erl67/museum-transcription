@@ -5,6 +5,11 @@ or run both modules together. The campaign suite uses temporary generated images
 simulated days, the existing fake model client, and process-lock recovery tests.
 See [campaign operations](campaign.md) and [automation handoff](AUTOMATION_HANDOFF.md).
 
+Family/species ordering tests cover catalogue rows supplied in a different order,
+mixed-case family names, both supported layouts, uncatalogued-only species, four
+simulated daily batches without repeats, preserved completed fingerprints, and
+continued rejection of conflicting family associations.
+
 The restart-recovery cases simulate changing virtual-drive device/inode identifiers,
 while retaining strict filesystem identity by default and detecting real metadata
 changes. `verify-saved` must read only previously fingerprinted images, restore valid

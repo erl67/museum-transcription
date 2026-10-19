@@ -115,6 +115,8 @@ Keep `transcribe_request_usage.json` beside the script when moving or updating t
 ## Verification and continued development
 
 For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).
+Discovery and transcription proceed alphabetically by family, then species within
+each family, and continue from the remaining eligible cards on subsequent days.
 The separate `campaign.py` worker retains completed cards beyond 48 hours, uses the existing
 daily attempt accounting, and provides offline status, pause/resume and recovery commands.
 Routine campaign scans check names and file metadata without reading image contents;

@@ -4,6 +4,14 @@
 
 No production campaign or scheduled task was enabled during development. Review the offline dry run, code, machine paths, and quota migration before authorizing live work.
 
+Discovery and transcription both proceed alphabetically by **family, then species
+within that family**, ignoring letter case. Discovery progress identifies both names,
+for example `[1/1110] Accipitridae / Accipiter_atricapillus`. Each daily run skips
+completed cards and continues with the first eligible remaining card in that order.
+Held stale/permanent cards and retryable cards awaiting their retry day are skipped;
+if deliberately retried later, they can bring processing back to an earlier family.
+Changing discovery order does not refresh results or change their fingerprints.
+
 ## Storage and recovery
 
 Keep the checkout, virtual environment, campaign state, quota file, and fallback storage on the home desktop's **local unsynchronized disk**. Source scans, the CSV, and readable reports may remain in Drive. Known sync-folder names and non-fixed Windows disks are rejected for transactional state; custom sync software must also exclude these locations.

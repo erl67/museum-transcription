@@ -223,7 +223,7 @@ class Store:
             self.conn.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, encode(value)))
 
     def rows(self):
-        return self.conn.execute("SELECT * FROM cards ORDER BY family,species,id").fetchall()
+        return self.conn.execute("SELECT * FROM cards ORDER BY family COLLATE NOCASE,species COLLATE NOCASE,id").fetchall()
 
     def save_result(self, row, result, state, day, retry_days):
         failures = row["failures"] + int(state == "retryable")
@@ -426,8 +426,15 @@ def inventory(config, *, verify=False, verify_ids=None):
            "; verifying previously prepared cards only." if verify_ids is not None else
            "; image contents are not read."), flush=True)
     images = 0
-    for index, species in enumerate(sorted(targets, key=t.natural_key), 1):
-        print(f"[{index}/{len(targets)}] {species}", flush=True)
+    def species_order(species):
+        # Sorting does not resolve ambiguity: resolve_folders still checks every
+        # species below and reports missing/conflicting family data as before.
+        family = min((name.casefold() for name in db.families.get(species, ())), default="")
+        return family, species.casefold()
+
+    for index, species in enumerate(sorted(targets, key=species_order), 1):
+        family_label = ", ".join(sorted(db.families.get(species, ()))) or "(unresolved family)"
+        print(f"[{index}/{len(targets)}] {family_label} / {species}", flush=True)
         try:
             try:
                 family, folder = t.resolve_folders(config.base_dir, db, species)
