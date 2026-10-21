@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-10-14.2"
+PROMPT_VERSION = "2026-10-21.1"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -30,7 +30,8 @@ leaders. Do not insert periods or separators between digits because of stray mar
 retain clearly intentional punctuation and bracket any genuinely uncertain digit.
 Never modernize taxonomy, correct a typo, expand an abbreviation or initials,
 complete a sentence, or fill a blank from context. Only the field-label/layout and
-unambiguous ditto expansion in rule 2 and evidence-based reading in rule 3 are allowed.
+unambiguous ditto expansion in rule 2 and evidence-based reading and parenthetical
+translation in rule 3 are allowed.
 Recognize handwritten sex symbols, including female (♀) and male (♂), and use their
 Unicode characters when recognizable. If uncertain, bracket the plausible symbol;
 do not substitute a similar-looking letter when the strokes support a sex symbol.
@@ -134,15 +135,72 @@ or claim comparison with historical records or exemplars that were not supplied.
 Preserve differences between sides rather than rewriting one to agree with another.
 An address beneath a signature does not by itself establish the collecting locality.
 
+For non-English text in any supplied side, including printed labels, handwritten or
+typed entries, and inset/marginal notes, preserve the original text and diacritics
+first, then immediately add an English translation in parentheses. Keep the original
+label and its translation together, and each translated entry with its own field.
+This applies to all collectors and languages, including Icelandic and German, even
+without CSV hints. Visible locality and fallible catalogue country/locality hints
+may suggest a language (for example, Iceland suggests checking for Icelandic), but
+the actual words must support it. Do not assume every passage uses the same language.
+Do not translate personal names, place names or scientific names themselves, or
+rewrite existing English. Preserve original abbreviations and uncertain readings;
+bracket uncertain translations too, and do not supply an English meaning for text
+that is wholly unreadable. If no defensible translation is possible, retain the
+source and briefly explain the unresolved language/translation in TRANSCRIPTION NOTES.
+
+A supplied back may contain an English translation or parallel account. Use it as
+supporting evidence, but still transcribe and translate the front's own text. Never
+import details found only on the back into the front's translation, fill front blanks,
+or rewrite differing accounts to agree. Transcribe the back independently under its
+own heading, including repeated text. If useful for an unresolved discrepancy, identify
+the back account in TRANSCRIPTION NOTES without asserting who translated it or when.
+Disclose translation once per language in TRANSCRIPTION NOTES, for example
+'Icelandic text translated into English in parentheses.' Include a disclosure only
+when you added a translation, not merely copied existing English on the back.
+
 If the visible collector is Steinbach and no applicable collector guidance is supplied,
 preserve German (including inset notes) and its uncertainty, add English in parentheses,
-and disclose any translation once in TRANSCRIPTION NOTES.
+and disclose any translation once in TRANSCRIPTION NOTES, using the same per-language
+disclosure above rather than adding a duplicate.
 
 4. Include ANNOTATIONS: after the front fields whenever a FRONT is supplied.
 Record unlabelled additions, stamps, marginal numbers and meaningful alterations
-concisely, with a short location only as needed to identify the source text. Transcribe
-each item once; do not inventory every stroke, describe horizontal/vertical directions,
-or narrate routine underlining, letter flourishes, spacing or ordinary marks.
+concisely, with a short location only as needed to identify the source text. Except for
+the collection flags below, transcribe each item once; do not inventory every stroke,
+describe horizontal/vertical directions, or narrate routine underlining, letter
+flourishes, spacing or ordinary marks.
+
+Look for set marks over the whole card, including faint pencil at the top, corners,
+margins and supplied backs, as well as a labelled Set Mark field. A set mark is
+usually a short string of numbers/letters or a fraction, such as 5/4, 5/5, 6/4,
+14/4 or B1-2. It is often only a few characters (roughly 4-6 or fewer), but this is
+not a length limit. Copy all visible characters, leading zeros, case, slashes and
+hyphens; do not decode the mark or force it to match the egg count. These are examples,
+not values to copy unless visible. If clearly recorded in a labelled field, retain
+it there without a duplicate annotation. Otherwise record a plausible unlabelled
+set mark once in that side's ANNOTATIONS, for example 'Likely set mark 5/4', with a
+short location if needed. 'Likely' qualifies the interpretation as a set mark; bracket
+any uncertain characters separately. Do not relabel an A.O.U., catalogue, accession,
+Set No., date, egg count or unrelated reference merely because it is short or looks
+fractional. If its role is not defensible, retain it as an unlabelled annotation.
+Many cards have no set mark: do not invent one or an absence note; a visibly empty
+printed set-mark field still takes '-' under rule 2.
+
+If the card says a nest, skin or bird specimen was collected, taken, saved or preserved,
+include a concise flag in that side's ANNOTATIONS, such as 'Nest collected' or
+'Skin collected; reference <visible reference>'. Keep the original statement in its
+field or narrative as well; this brief flag is intentional even when it repeats that
+fact. Retain any explicitly associated specimen/catalogue/reference numbers exactly,
+including prefixes, and keep nest, skin and bird references distinct from the egg
+catalogue number. Do not attach an unrelated nearby number. Preserve negation and
+uncertainty in the flag when collection was denied or is unclear; never turn those
+statements into a positive collection claim. Nest location, construction, measurements,
+or eggs collected from a nest do not establish that the nest itself was collected.
+A bird merely seen or used for identification does not establish a collected specimen.
+Do not add a collection flag when there is no collection evidence, or repeat flags
+in TRANSCRIPTION NOTES.
+
 Read each number as written without assigning it an administrative status. Different
 numbers can coexist on a slip; a number's age, position, colour or disagreement with
 the filename/CSV does not establish cancellation or replacement. This applies to
@@ -239,6 +297,8 @@ digits. A calendar-valid date may still have been misread. Preserve units and sy
 as written, without expanding feet/inch marks into words. Recheck every panel and
 supplied side for omitted lines: the full heading, corner fields, measurement
 subfields, alterations, dense bottom writing, marginal imprints and word continuations.
+Check for unlabelled set marks, statements about nest/skin/bird collection with their
+references, and non-English text needing a parenthetical translation on each side.
 Check that every value remains associated with its own field. The output order is the
 visible front collection heading, front fields/narrative and ANNOTATIONS:, supplied
 BACK OF SLIP sections, then one final TRANSCRIPTION NOTES:.

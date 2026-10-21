@@ -1,6 +1,18 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **19 October 2026**, application build **2026-10-19.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **21 October 2026**, application build **2026-10-19.1**, prompt **2026-10-21.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Set marks, associated specimens and foreign languages - 21 October 2026
+
+Prompt **2026-10-21.1** adds whole-card checks for short/fractional set marks, including faint marginal pencil. Labelled marks stay in their fields; plausible unlabelled marks receive a concise `Likely set mark ...` annotation on their own side. Length is a clue, never a truncation rule. Preserve uncertain characters and distinguish other identifiers, dates and counts. Do not invent missing marks. The supplied Agelaius examples motivated these rules without adding specimen-number lookups or stored transcriptions.
+
+Nest, skin and bird collection statements now receive concise annotations with explicitly associated reference numbers, while retaining their original field/narrative wording. This is an intentional exception to the usual no-duplication rule. Negation and uncertainty remain explicit; ordinary nest descriptions or bird observations do not establish collection.
+
+The shared translation policy now covers non-English printed labels and entries on all supplied sides, including Icelandic, with original text/diacritics followed by English in parentheses. Locality/country hints suggest a language only when the actual words support it. An English back can help interpret the front but must not supply details absent from it; each side remains independently transcribed. Disclose translation once per language, preserving the existing Steinbach reminder without duplicate German disclosures. E4377's supplied front/back motivated the parallel-account guidance; no fixed Icelandic translation was embedded.
+
+No responsibilities moved. Gemini selection, generation settings, image order, execution, validation and report structure remain unchanged. The new assembled prompt intentionally changes normal cache identity for subsequently selected cards; existing reports and append-only journals remain intact. The separate campaign worker requires its usual reviewed `accept-code` step for changed runtime files, then treats changed prompt identities as stale rather than silently refreshing saved work. This task changed no campaign approval/state and launched no requests. See [campaign maintenance](campaign.md#code-updates-and-two-computer-coordination).
+
+The campaign process was confirmed stopped before editing. Baseline: **169 tests ran, 168 passed, one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. Final: **243 tests ran, 242 passed, the same optional fixture skipped**, including both mocked provider transports and campaign coverage. Offline checks verify software contracts, not improved reading or translation accuracy. No source scans, catalogue data or saved reports were changed.
 
 ## Shared Drive catalogue default - 19 October 2026
 
