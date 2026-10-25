@@ -73,6 +73,7 @@
   <? } else if (result) { ?>
     <p class="source">Report date: <?= result.reportDate ?> (report writer’s local time).
       <a href="<?= result.sourceUrl ?>" target="_blank" rel="noopener noreferrer">Open source report</a>
+      <small>Original Drive links require separate permission. The record text and scans are available here.</small>
     </p>
     <? for (const record of result.records) { ?>
       <article>
@@ -159,7 +160,7 @@
         index++;
         const caption = element('figcaption');
         caption.appendChild(element('strong', scan.label));
-        if (scan.url) {
+        if (typeof scan.url === 'string' && /^https:\/\/drive\.google\.com\/file\/d\/[A-Za-z0-9_%.-]+\/view$/.test(scan.url)) {
           const link = element('a', scan.name);
           link.href = scan.url;
           link.target = '_blank';

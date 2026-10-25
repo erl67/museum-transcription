@@ -5,7 +5,7 @@
     "https://www.googleapis.com/auth/drive.readonly"
   ],
   "webapp": {
-    "access": "ANYONE",
-    "executeAs": "USER_ACCESSING"
+    "access": "ANYONE_ANONYMOUS",
+    "executeAs": "USER_DEPLOYING"
   }
 }

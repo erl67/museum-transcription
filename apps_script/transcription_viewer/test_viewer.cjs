@@ -13,10 +13,24 @@ const basicUtilities = {
   base64Encode: bytes => Buffer.from(bytes).toString('base64')
 };
 function context(extra = {}, source = code) {
-  const ctx = vm.createContext({ console: { info() {} }, ...extra,
+  const ctx = vm.createContext({ console: { info() {} }, ...publicControls().services, ...extra,
     Utilities: { ...basicUtilities, ...extra.Utilities } });
   vm.runInContext(source, ctx);
   return ctx;
+}
+function publicControls() {
+  const values = new Map();
+  let locked = false;
+  return { values, services: {
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: key => values.has(key) ? values.get(key) : null,
+      setProperty(key, value) { assert.ok(locked, 'Budget writes must hold the script lock'); values.set(key, value); }
+    }) },
+    LockService: { getScriptLock: () => ({
+      tryLock() { if (locked) return false; locked = true; return true; },
+      releaseLock() { assert.ok(locked); locked = false; }
+    }) }
+  } };
 }
 const ctx = context();
 const bar = '='.repeat(50);
@@ -677,7 +691,7 @@ test('browser title identifies the search page and normalized records, including
   assert.equal(denied(query).title, 'Egg Slip Record Search');
 });
 
-test('viewer checks the master workbook before returning a record', () => {
+test('public viewer serves records without checking the visitors workbook permissions', () => {
   const calls = [];
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block())];
   const drive = fakeDrive([family(reports)]);
@@ -689,64 +703,61 @@ test('viewer checks the master workbook before returning a record', () => {
   const rootRead = drive.getFolderById;
   drive.getFolderById = id => { calls.push('reports'); return rootRead(id); };
   const page = requestRenderer(drive)(query);
-  assert.equal(calls.join('|'), 'workbook|reports');
+  assert.equal(calls.join('|'), 'reports');
   assert.equal(page.result.records.length, 1);
 });
 
-test('readers without workbook access receive no report or scan data', () => {
+test('disabled public viewer returns no report or scan data regardless of claimed identity', () => {
+  const controls = publicControls();
+  controls.values.set('VIEWER_PUBLIC_DISABLED', 'true');
   let roots = 0;
   const drive = {
     getFileById: () => ({ getName: () => { throw new Error('Private authorization details'); } }),
     getFolderById: () => { roots++; throw new Error('Should not read reports'); }
   };
-  const page = requestRenderer(drive)({ ...query, workbook: 'another-file', email: 'claimed-member@example.com' });
-  assert.match(page.result.error, /access to the master Excel file/);
+  const page = requestRenderer(drive, code, controls.services)({ ...query, workbook: 'another-file', email: 'claimed-member@example.com' });
+  assert.match(page.result.error, /temporarily unavailable/);
   assert.doesNotMatch(page.result.error, /Private authorization details/);
   assert.equal(page.result.records, undefined);
   assert.equal(roots, 0);
 });
 
-test('workbook access is rechecked on every request, including the empty search form', () => {
-  let allowed = true, checks = 0;
-  const drive = { getFileById: () => ({ getName: () => {
-    checks++;
-    if (!allowed) throw new Error('Access revoked');
-    return 'Master Excel file';
-  } }) };
-  const request = requestRenderer(drive);
+test('public stop switch is rechecked on every request, including the empty search form', () => {
+  const controls = publicControls();
+  const request = requestRenderer({}, code, controls.services);
   assert.equal(request({}).result, null);
-  allowed = false;
-  assert.match(request({}).result.error, /access to the master Excel file/);
-  allowed = true;
+  controls.values.set('VIEWER_PUBLIC_DISABLED', 'true');
+  assert.match(request({}).result.error, /temporarily unavailable/);
+  controls.values.delete('VIEWER_PUBLIC_DISABLED');
   assert.equal(request({}).result, null);
-  assert.equal(checks, 3);
+  assert.equal(JSON.parse(controls.values.get('VIEWER_PUBLIC_BUDGET_V1')).dayRequests, 2);
 });
 
-test('an absent or malformed master workbook configuration cannot disable the access check', () => {
-  const source = code.replace("WORKBOOK_FILE_ID: '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc'",
-    "WORKBOOK_FILE_ID: ''");
+test('an absent public root configuration cannot allow a Drive lookup', () => {
+  const source = code.replace("ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ'",
+    "ROOT_FOLDER_ID: ''");
   const page = requestRenderer({ getFileById: () => { throw new Error('Unexpected Drive lookup'); } }, source)(query);
-  assert.match(page.result.error, /master spreadsheet has not been configured/);
+  assert.match(page.result.error, /public collection folder has not been configured/);
   assert.equal(page.result.records, undefined);
 });
 
-test('workbook membership does not bypass a readers report-folder permissions', () => {
+test('missing deployer access to the collection returns a safe error', () => {
   const drive = { getFileById: workbookFile, getFolderById: () => { throw new Error('Folder access denied'); } };
   const page = requestRenderer(drive)(query);
   assert.match(page.result.error, /Family folder/);
   assert.equal(page.result.records, undefined);
 });
 
-test('deployment accepts signed-in accounts and runs with each readers own read-only permissions', () => {
+test('public deployment accepts anonymous visitors with only read-only Drive permissions', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'appsscript.json'), 'utf8').replace(/^\ufeff/, ''));
-  assert.deepEqual(manifest.webapp, { access: 'ANYONE', executeAs: 'USER_ACCESSING' });
+  assert.deepEqual(manifest.webapp, { access: 'ANYONE_ANONYMOUS', executeAs: 'USER_DEPLOYING' });
   assert.deepEqual(manifest.oauthScopes, ['https://www.googleapis.com/auth/drive.readonly']);
 });
 
 function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]: [jpgFile('b')] }, extra = {}) {
   const folder = directScans(namedFiles);
   let reports = text === null ? [] : [fakeFile('Genus_species_transcriptions_20261014_1200.txt', text)];
-  let allowed = true;
+  const controls = publicControls();
   folder.getFiles = () => iterator(reports);
   const drive = fakeDrive([folder]);
   const rootGet = drive.getFolderById;
@@ -761,16 +772,16 @@ function rpcFixture(text = null, namedFiles = { [scanA]: [jpgFile('a')], [scanB]
   drive.getFolderById = id => folderMap.get(id) || rootGet(id);
   drive.getFileById = id => {
     if (id === '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc') {
-      if (!allowed) throw new Error('Private permission denied');
       return workbookFile(id);
     }
     const report = reports.find(file => file.getId() === id);
     if (!report) throw new Error('Private report missing');
     return { ...report, getParents: () => iterator([folder]) };
   };
-  const local = context({ DriveApp: drive, ...extra });
+  const local = context({ DriveApp: drive, ...controls.services, ...extra });
   return { local, folder, drive, namedFiles,
-    setReports: value => { reports = value; }, revoke: () => { allowed = false; } };
+    controls, setReports: value => { reports = value; },
+    revoke: () => { controls.values.set('VIEWER_PUBLIC_DISABLED', 'true'); } };
 }
 const imageReport = (files = [scanA, scanB], status = 'OK') =>
   block(['001'], 'selected text', status).replace('FILES: source.jpg', 'FILES: ' + files.join('; '));
@@ -822,13 +833,13 @@ test('changed, deleted, malformed and out-of-folder pinned reports do not select
   }
 });
 
-test('RPC rechecks workbook access before any folder or scan read', () => {
+test('RPC rechecks public stop switch before any folder or scan read', () => {
   const fixture = rpcFixture(imageReport());
   const request = fixture.local.lookupTranscription_(query).imageRequest;
   fixture.revoke();
   fixture.drive.getFolderById = () => { throw new Error('Must not reach folder access'); };
   const loaded = fixture.local.loadSourceScans(request);
-  assert.match(loaded.error, /access to the master Excel file/);
+  assert.match(loaded.error, /temporarily unavailable/);
   assert.doesNotMatch(loaded.error, /Private|Must not/);
   for (const files of Object.values(fixture.namedFiles)) assert.equal(files[0].reads(), 0);
 });
@@ -1139,13 +1150,13 @@ test('evicted scan plans rebuild safely and still reject changed manifests or su
     sourceRequest: { ...request.sourceRequest, manifest: '[]' } }).error);
 });
 
-test('every individual image rechecks workbook, report and folder access and rejects moved or edited sources', () => {
-  for (const kind of ['workbook', 'report', 'folder', 'moved folder', 'changed report', 'changed image', 'duplicate image']) {
+test('every individual image rechecks public switch, report and folders and rejects moved or edited sources', () => {
+  for (const kind of ['public switch', 'report', 'folder', 'moved folder', 'changed report', 'changed image', 'duplicate image']) {
     const storage = memoryCache();
     const fixture = rpcFixture(imageReport(), undefined, { CacheService: storage.CacheService });
     const { request } = plannedImage(fixture);
     const getFile = fixture.drive.getFileById, getFolder = fixture.drive.getFolderById;
-    if (kind === 'workbook') fixture.revoke();
+    if (kind === 'public switch') fixture.revoke();
     if (kind === 'report') fixture.setReports([]);
     if (kind === 'changed report') fixture.drive.getFileById = id => id === 'file-id' ?
       { ...getFile(id), getLastUpdated: () => new Date(2000) } : getFile(id);
@@ -1376,15 +1387,158 @@ test('page navigation renders the target, handles endpoints without wrapping and
   assert.doesNotMatch(inaccessible.result.navigationMessage, /private error/);
 });
 
-test('navigation authorization runs before catalogue reads and invalid routes/time limits never become endpoints', () => {
+test('navigation stop switch runs before catalogue reads and invalid routes/time limits never become endpoints', () => {
   const fixture = navigationFixture();
-  fixture.drive.getFileById = () => { throw new Error('Private denied'); };
-  const denied = fixture.render({ e: '2', direction: 'next' });
-  assert.match(denied.result.error, /master Excel file/);
+  const controls = publicControls();
+  controls.values.set('VIEWER_PUBLIC_DISABLED', 'true');
+  const denied = requestRenderer(fixture.drive, csvCode, controls.services)({ e: '2', direction: 'next' });
+  assert.match(denied.result.error, /temporarily unavailable/);
   assert.equal(fixture.csvReads(), 0);
   assert.throws(() => ctx.navigationSequence_([catalogueHeader, ['E1', '', 'Genus species']], () => {}), /without a family/);
   assert.throws(() => ctx.navigationSequence_(navigationRows, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
   const valid = navigationFixture();
   assert.throws(() => valid.local.navigateRecord_({ e: '999' }, 'next'), /not found in the catalogue/);
+});
+
+test('only the three intended public entry points are exposed and Drive remains read-only', () => {
+  const exposed = [...code.matchAll(/^function (\w+)\(/gm)].map(match => match[1]).filter(name => !name.endsWith('_'));
+  assert.deepEqual(exposed, ['doGet', 'loadSourceScans', 'loadSourceImage']);
+  assert.doesNotMatch(code, /\.(?:setTrashed|setContent|createFile|createFolder|moveTo|setSharing|addEditor|addViewer)\s*\(/);
+});
+
+test('all endpoints share a persistent request budget and reject before any Drive read', () => {
+  const controls = publicControls();
+  const source = code.replace('MAX_REQUESTS_PER_MINUTE: 120', 'MAX_REQUESTS_PER_MINUTE: 2');
+  let reads = 0;
+  const drive = { getFolderById() { reads++; throw new Error('Private Drive error'); } };
+  const render = requestRenderer(drive, source, controls.services);
+  assert.equal(render({}).result, null);
+  const secondExecution = context({ DriveApp: drive, ...controls.services }, source);
+  assert.ok(secondExecution.loadSourceScans(null).error, 'Malformed calls also consume a request');
+  assert.match(secondExecution.loadSourceImage(null).error, /request limit/);
+  assert.match(render(query).result.error, /request limit/);
+  assert.equal(reads, 0);
+  assert.equal(JSON.parse(controls.values.get('VIEWER_PUBLIC_BUDGET_V1')).dayRequests, 2);
+});
+
+test('UTC minute and day windows reset independently without losing the daily limit', () => {
+  const controls = publicControls();
+  let now = 86400000 * 100 + 60000;
+  const local = context({ ...controls.services, Date: { now: () => now } }, code
+    .replace('MAX_REQUESTS_PER_MINUTE: 120', 'MAX_REQUESTS_PER_MINUTE: 1')
+    .replace('MAX_REQUESTS_PER_DAY: 3000', 'MAX_REQUESTS_PER_DAY: 2'));
+  local.requireViewerAccess_();
+  assert.throws(() => local.requireViewerAccess_(), /request limit/);
+  local.reservePublicBudget_(100, false);
+  now += 60000;
+  local.requireViewerAccess_();
+  now += 60000;
+  assert.throws(() => local.requireViewerAccess_(), /request limit/);
+  assert.equal(JSON.parse(controls.values.get('VIEWER_PUBLIC_BUDGET_V1')).imageBytes, 100);
+  now += 86400000;
+  local.requireViewerAccess_();
+  const reset = JSON.parse(controls.values.get('VIEWER_PUBLIC_BUDGET_V1'));
+  assert.equal(reset.dayRequests, 1);
+  assert.equal(reset.imageBytes, 0);
+});
+
+test('control storage failures, corrupt counters and lock contention fail closed without exposing details', () => {
+  const cases = [
+    { LockService: { getScriptLock() { throw new Error('private lock'); } } },
+    { LockService: { getScriptLock: () => ({ tryLock: () => false }) } },
+    { PropertiesService: { getScriptProperties() { throw new Error('private properties'); } } },
+    { PropertiesService: { getScriptProperties: () => ({ getProperty: () => null,
+      setProperty() { throw new Error('private write'); } }) } }
+  ];
+  for (const raw of ['{invalid', 'null', '{}', '{"minute":-1}', JSON.stringify({
+    minute: 999999999, day: 9999999, minuteRequests: 0, dayRequests: 0, imageBytes: 0
+  })]) {
+    const controls = publicControls();
+    controls.values.set('VIEWER_PUBLIC_BUDGET_V1', raw);
+    cases.push(controls.services);
+  }
+  for (const services of cases) {
+    let reads = 0;
+    const drive = { getFolderById() { reads++; } };
+    const page = requestRenderer(drive, code, services)(query);
+    assert.match(page.result.error, /busy|temporarily unavailable/);
+    assert.doesNotMatch(page.result.error, /private|SyntaxError/);
+    assert.equal(reads, 0);
+    const local = context({ DriveApp: drive, ...services });
+    assert.match(local.loadSourceScans(null).error, /busy|temporarily unavailable/);
+    assert.match(local.loadSourceImage(null).error, /busy|temporarily unavailable/);
+  }
+});
+
+test('daily byte reservations happen before downloads, survive failed reads and cannot be forged', () => {
+  const fixture = rpcFixture(imageReport());
+  fixture.local = context({ DriveApp: fixture.drive, ...fixture.controls.services },
+    code.replace('MAX_IMAGE_BYTES_PER_DAY: 2 * 1024 * 1024 * 1024', 'MAX_IMAGE_BYTES_PER_DAY: 4'));
+  const { request } = plannedImage(fixture);
+  fixture.namedFiles[scanA][0].getBlob = () => { throw new Error('private download failure'); };
+  assert.match(fixture.local.loadSourceImage({ ...request, size: 0 }).error, /could not be loaded/);
+  assert.equal(JSON.parse(fixture.controls.values.get('VIEWER_PUBLIC_BUDGET_V1')).imageBytes, 4);
+  assert.match(fixture.local.loadSourceImage({ ...request, index: 1, size: 0 }).error, /download limit/);
+  assert.equal(fixture.namedFiles[scanB][0].reads(), 0);
+  // Image budget exhaustion leaves text searches available.
+  const page = requestRenderer(fixture.drive, code, fixture.controls.services)(query);
+  assert.equal(page.result.records[0].text, 'selected text');
+});
+
+test('oversized and malformed RPC inputs are rejected before Drive lookup', () => {
+  let reads = 0;
+  const local = context({ DriveApp: { getFolderById() { reads++; } } });
+  const base = { query, reportId: '', manifest: '[]' };
+  for (const bad of [
+    { ...base, query: { ...query, e: '1'.repeat(81) } },
+    { ...base, query: { ...query, family: 'x'.repeat(201) } },
+    { ...base, query: { ...query, species: ['Genus', 'species'] } },
+    { ...base, reportId: '../private' }, { ...base, reportId: 'x'.repeat(201) },
+    { ...base, manifest: [] }, { ...base, manifest: 'x'.repeat(24001) }
+  ]) assert.ok(local.loadSourceScans(bad).error);
+  for (const bad of [
+    { index: 0, fingerprint: 'x'.repeat(100000) },
+    { index: 0, fingerprint: 'a'.repeat(64), token: 'x'.repeat(37) }
+  ]) assert.ok(local.loadSourceImage(bad).error);
+  assert.equal(reads, 0);
+});
+
+test('changing the configured publication root invalidates existing cached scan plans', () => {
+  const storage = memoryCache();
+  const fixture = rpcFixture(imageReport(), undefined, { CacheService: storage.CacheService });
+  const { request } = plannedImage(fixture);
+  const local = context({ DriveApp: fixture.drive, CacheService: storage.CacheService }, code.replace(
+    "ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ'", "ROOT_FOLDER_ID: 'different-public-root'"));
+  assert.ok(local.loadSourceImage(request).error);
+  assert.equal(fixture.namedFiles[scanA][0].reads(), 0);
+});
+
+test('an arbitrary report ID outside the collection never has its contents read', () => {
+  const fixture = rpcFixture(imageReport());
+  const source = fixture.local.lookupTranscription_(query).imageRequest;
+  let reads = 0;
+  fixture.drive.getFileById = () => ({ ...fakeFile('Genus_species_transcriptions_20261014_1200.txt', ''),
+    getParents: () => iterator([{ getId: () => 'private-folder' }]),
+    getBlob() { reads++; throw new Error('secret contents'); } });
+  const response = fixture.local.loadSourceScans({ ...source, reportId: 'private-file' });
+  assert.match(response.error, /expected folder/);
+  assert.equal(reads, 0);
+});
+
+test('malicious captions remain text and unsafe scan links are not made clickable', () => {
+  for (const url of ['javascript:alert(1)', 'data:text/html,attack', 'https://drive.google.com.evil/file/d/a/view',
+    '//evil.example/file', 'https://evil.example/']) {
+    const page = clientPage();
+    page.start();
+    const payload = '</script><img src=x onerror=alert(1)>';
+    page.success({ galleries: [{ numbers: [payload], message: payload,
+      images: [{ name: payload, label: payload, message: payload, url }] }] });
+    const group = page.nodes['scan-galleries'].children[0];
+    assert.equal(group.children[0].textContent, payload);
+    const caption = group.children[2].children[1];
+    assert.equal(caption.children[1].tagName, 'span');
+    assert.equal(caption.children[1].textContent, payload);
+    assert.equal(caption.children[1].href, undefined);
+  }
 });
 

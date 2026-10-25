@@ -1,10 +1,9 @@
 /** Read-only transcription viewer. Install as a separate Apps Script project; see README.md. */
 const TRANSCRIPTION_VIEWER = Object.freeze({
-  // Master workbook supplied by the maintainer; its Drive permissions gate viewer access.
-  WORKBOOK_FILE_ID: '1P-sWhtIlRHcbh4D5rV0p0sv-MF_Th1lc',
-  // Family root already used by Egg_Scan_Linker.gs.
+  // PUBLICATION BOUNDARY: matching reports and scans here are public through this app.
+  // Drive sharing is NOT a visitor access check when executing as the deployer.
   ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ',
-  // Optional direct CSV ID avoids parent-folder discovery for shared readers.
+  // Optional direct CSV ID avoids parent-folder discovery under the deploying account.
   CATALOGUE_FILE_ID: '1AOoNhjdyvNHZUxf11WwM1VMPuzdDOA8I',
   CATALOGUE_FOLDER_NAME: 'Transcription',
   CATALOGUE_FILE_NAME: 'EggSlipReorganizationProject_FULL.xlsx - Full List.csv',
@@ -19,6 +18,10 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   CATALOGUE_CACHE_SECONDS: 900,
   CATALOGUE_CACHE_BUCKETS: 64,
   SCAN_PLAN_SECONDS: 600,
+  // Shared by ALL visitors, including anonymous callers; UTC fixed windows.
+  MAX_REQUESTS_PER_MINUTE: 120,
+  MAX_REQUESTS_PER_DAY: 3000,
+  MAX_IMAGE_BYTES_PER_DAY: 2 * 1024 * 1024 * 1024,
   // At most 3 UTF-8 bytes per UTF-16 code unit, safely below CacheService's 100 KB/value.
   CACHE_MAX_CHARS: 24000
 });
@@ -86,13 +89,13 @@ function doGet(e) {
   page.appUrl = ScriptApp.getService().getUrl();
   page.result = null;
   try {
-    timing.measure('access', requireWorkbookAccess_);
+    timing.measure('access', requireViewerAccess_);
     if (page.query.e || page.query.family || page.query.species) {
       if (params.direction) {
         let navigation;
         try { navigation = timing.measure('navigation', () => navigateRecord_(page.query, String(params.direction), timing)); }
         catch (error) { navigation = { message: error.viewerMessage ||
-          'The adjacent record could not be found. Check your Drive access and try again.' }; }
+          'The adjacent record could not be found. Please try again later.' }; }
         page.result = navigation.result || lookupTranscription_(page.query, timing);
         page.result.navigationMessage = navigation.message || '';
         page.result.navigationBoundary = navigation.boundary || '';
@@ -106,7 +109,7 @@ function doGet(e) {
     }
   } catch (error) {
     page.result = { error: error.viewerMessage ||
-      'The reports could not be read. Check your Google account has access to the Family folder and its reports, then try again.' };
+      'The reports could not be read. The collection maintainer should check the Family folder and its reports.' };
   }
   const title = page.result && !page.result.error ?
     page.result.query.e + ' Egg Slip Record' : 'Egg Slip Record Search';
@@ -123,21 +126,58 @@ function viewerError_(message) {
   return error;
 }
 
-// Deploy as USER_ACCESSING so this check uses the reader's actual workbook permissions.
-function requireWorkbookAccess_() {
-  const id = TRANSCRIPTION_VIEWER.WORKBOOK_FILE_ID;
-  if (!id || !/^[A-Za-z0-9_-]{10,}$/.test(id)) {
-    throw viewerError_('The master spreadsheet has not been configured for the viewer. Contact the collection maintainer.');
+// No visitor identity is assumed. Every public entry point checks the stop switch
+// and reserves a request BEFORE any Drive/cache lookup. Never expose this helper as RPC.
+function requireViewerAccess_() {
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID)) {
+    throw viewerError_('The public collection folder has not been configured. Contact the collection maintainer.');
   }
+  reservePublicBudget_(0, true);
+}
+
+// Script properties persist across executions/cache eviction. The script lock makes
+// reservations atomic. Fail closed on storage/lock errors; failed work is not refunded.
+function reservePublicBudget_(imageBytes, request) {
+  let lock, acquired = false;
   try {
-    // Force a Drive read; this respects direct, inherited and Google Group access.
-    DriveApp.getFileById(id).getName();
+    lock = LockService.getScriptLock();
+    acquired = lock.tryLock(1000);
+    if (!acquired) throw viewerError_('The public viewer is busy. Please try again shortly.');
+    const properties = PropertiesService.getScriptProperties();
+    if (properties.getProperty('VIEWER_PUBLIC_DISABLED') === 'true') {
+      throw viewerError_('The public viewer is temporarily unavailable. Please try again later.');
+    }
+    const now = Date.now(), minute = Math.floor(now / 60000), day = Math.floor(now / 86400000);
+    const raw = properties.getProperty('VIEWER_PUBLIC_BUDGET_V1');
+    const state = raw === null ? { minute: minute, day: day, minuteRequests: 0, dayRequests: 0, imageBytes: 0 } : JSON.parse(raw);
+    if (!state || !['minute', 'day', 'minuteRequests', 'dayRequests', 'imageBytes'].every(key =>
+        Number.isSafeInteger(state[key]) && state[key] >= 0) || state.minute > minute || state.day > day ||
+        !Number.isSafeInteger(imageBytes) || imageBytes < 0) throw new Error('Invalid budget');
+    if (state.day !== day) { state.day = day; state.dayRequests = 0; state.imageBytes = 0; }
+    if (state.minute !== minute) { state.minute = minute; state.minuteRequests = 0; }
+    if (request && (state.minuteRequests >= TRANSCRIPTION_VIEWER.MAX_REQUESTS_PER_MINUTE ||
+        state.dayRequests >= TRANSCRIPTION_VIEWER.MAX_REQUESTS_PER_DAY)) {
+      throw viewerError_('The public viewer request limit has been reached. Please try again later.');
+    }
+    if (state.imageBytes + imageBytes > TRANSCRIPTION_VIEWER.MAX_IMAGE_BYTES_PER_DAY) {
+      throw viewerError_('The public scan download limit has been reached for today. Please try again tomorrow.');
+    }
+    if (request) { state.minuteRequests++; state.dayRequests++; }
+    state.imageBytes += imageBytes;
+    properties.setProperty('VIEWER_PUBLIC_BUDGET_V1', JSON.stringify(state));
   } catch (error) {
-    throw viewerError_('Sign in with a Google account that has access to the master Excel file. If you already have access, authorize the viewer and try again.');
+    if (error.viewerMessage) throw error;
+    throw viewerError_('The public viewer is temporarily unavailable. Please try again later.');
+  } finally {
+    if (acquired) lock.releaseLock();
   }
 }
 
 function normalizeQuery_(query) {
+  if (!query || ['e', 'family', 'species'].some(key => query[key] != null &&
+      (typeof query[key] !== 'string' || query[key].length > (key === 'e' ? 80 : 200)))) {
+    throw viewerError_('The record request is invalid or too long.');
+  }
   const match = /^(?:E|CM)?([0-9]+)$/i.exec(String(query.e || '').trim());
   if (!match) throw viewerError_('Enter one complete E-number, such as E4268.');
   const family = String(query.family || '').trim();
@@ -157,7 +197,7 @@ function normalizeQuery_(query) {
   return { e: 'E' + match[1], digits: match[1], family: family, species: species };
 }
 
-/** Read the exported lookup CSV; the workbook remains the access gate. */
+/** Read only catalogue routing fields; never return the raw CSV to the browser. */
 function readCatalogue_(root, checkTime, digits, timing) {
   let file;
   try {
@@ -419,14 +459,16 @@ function navigateRecord_(rawQuery, direction, timing) {
 function familyFolder_(root, query, checkTime) {
   const folders = root.getFolders();
   const matches = [];
+  let listed = 0;
   while (folders.hasNext()) {
     checkTime();
+    if (++listed > TRANSCRIPTION_VIEWER.MAX_FILES_LISTED) throw viewerError_('The folder listing limit was reached. The search is incomplete.');
     const folder = folders.next();
     if (folder.getName().trim().toLowerCase() === query.family.toLowerCase()) matches.push(folder);
   }
   if (matches.length !== 1) {
     throw viewerError_(matches.length ? 'More than one matching family folder was found. The folder needs to be checked.' :
-      'The family folder was not found or is not accessible. Check the Family value and your Drive access.');
+      'The family folder was not found or is not accessible. The collection maintainer should check the Family value and folder access.');
   }
   return matches[0];
 }
@@ -599,12 +641,12 @@ function imageManifest_(records) {
   return JSON.stringify(records.map(record => [record.numbers, record.status, record.files]));
 }
 
-/** Public RPC: always authorize again, and never trust client-supplied filenames. */
+/** Public RPC: always check the budget/stop switch; never trust supplied filenames. */
 function loadSourceScans(request) {
   const timing = viewerTiming_('scanPlan');
   let response;
   try {
-    timing.measure('access', requireWorkbookAccess_);
+    timing.measure('access', requireViewerAccess_);
     const plan = prepareScanPlan_(request, scanDeadline_(), timing);
     const cache = userCache_();
     const token = cache ? Utilities.getUuid() : '';
@@ -613,7 +655,7 @@ function loadSourceScans(request) {
     response = { scanOnly: plan.scanOnly, message: plan.message, galleries: plan.galleries,
       token: saved ? token : '', fingerprint: plan.fingerprint };
   } catch (error) {
-    response = { error: error.viewerMessage || 'Source scans could not be loaded. Check your Drive access and reload the page to try again.' };
+    response = { error: error.viewerMessage || 'Source scans could not be loaded. Please reload the page to try again.' };
   }
   response.timings = timing.finish();
   return response;
@@ -629,17 +671,24 @@ function scanDeadline_() {
 }
 
 function imageSourceKey_(request) {
+  if (!request || (request.reportId != null && (typeof request.reportId !== 'string' ||
+      !/^[A-Za-z0-9_-]{0,200}$/.test(request.reportId))) ||
+      typeof request.manifest !== 'string' || request.manifest.length > TRANSCRIPTION_VIEWER.CACHE_MAX_CHARS) {
+    throw viewerError_('Reload the page before loading scans.');
+  }
   const query = normalizeQuery_(request && request.query || {});
-  return JSON.stringify([query.e, query.family, query.species, String(request.reportId || ''), String(request.manifest || '')]);
+  return JSON.stringify([TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID, query.e, query.family, query.species,
+    request.reportId || '', request.manifest]);
 }
 
 /** Server-only plan: file metadata and routing, never report text or JPEG bytes. */
 function prepareScanPlan_(request, checkTime, timing) {
+  const sourceKey = imageSourceKey_(request);
   const query = normalizeQuery_(request && request.query || {});
   if (!query.family || !query.species) throw viewerError_('Reload the page before loading scans.');
   const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
   const family = measured_(timing, 'familyFolder', () => familyFolder_(root, query, checkTime));
-  const plan = { sourceKey: imageSourceKey_(request), path: [], report: null };
+  const plan = { sourceKey: sourceKey, path: [], report: null };
   let records = [];
   if (request.reportId) {
     const file = DriveApp.getFileById(String(request.reportId));
@@ -715,10 +764,12 @@ function loadSourceImage(request) {
   const timing = viewerTiming_('image');
   let response;
   try {
-    timing.measure('access', requireWorkbookAccess_);
+    timing.measure('access', requireViewerAccess_);
     const checkTime = scanDeadline_();
     if (!request || !Number.isInteger(request.index) || request.index < 0 ||
-        request.index >= TRANSCRIPTION_VIEWER.MAX_FILES_LISTED || typeof request.fingerprint !== 'string') {
+        request.index >= TRANSCRIPTION_VIEWER.MAX_FILES_LISTED || typeof request.fingerprint !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(request.fingerprint) ||
+        (request.token != null && (typeof request.token !== 'string' || request.token.length > 36))) {
       throw viewerError_('Reload the page before loading scans.');
     }
     const key = imageSourceKey_(request.sourceRequest);
@@ -740,6 +791,7 @@ function loadSourceImage(request) {
     if (file.getId() !== scan.fileId || fileVersion_(file) !== scan.version || file.getSize() !== scan.size) {
       throw viewerError_('This source scan has changed. Reload the page before viewing it.');
     }
+    reservePublicBudget_(scan.size, false);
     const base64 = readFullJpeg_(file, scan.size, checkTime, timing);
     if (fileVersion_(file) !== scan.version) throw viewerError_('This source scan changed while loading. Reload the page.');
     response = { base64: base64 };
@@ -804,7 +856,7 @@ function attachSourceImages_(result, family, checkTime, jpeg, plan) {
     if (!jpeg) jpeg = sourceJpegFolder_(family, result.query.species, checkTime, plan && plan.path);
   } catch (error) {
     for (const record of records) record.imageMessage = error.viewerMessage ||
-      'Source scans could not be loaded. Check your access to the JPEG folder.';
+      'Source scans could not be loaded. The collection maintainer should check the JPEG folder.';
     return;
   }
   let totalBytes = 0;
