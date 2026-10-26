@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-10-26.1"
+PROMPT_VERSION = "2026-10-26.2"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -106,7 +106,9 @@ Bracket the full uncertain portion, but not surrounding text that is clear. Do n
 turn speculation into unmarked text or prefer a fluent sentence over visible strokes.
 Do not add 'sic' or assert a source spelling error merely to defend a doubtful reading.
 Use editorial square brackets for uncertain readings, not descriptions such as
-'[signature]' or '[in pencil]'; put those descriptions in annotation prose.
+'[signature]', '[in pencil]', '[deleted]' or '[crossed out]'. Never insert editorial
+deletion tags into fields. Describe an alteration only after the visual check in
+rule 4, in the appropriate ANNOTATIONS or TRANSCRIPTION NOTES section.
 Preserve brackets actually written/printed on the source and identify them as
 source brackets in ANNOTATIONS only when clarification is needed. Literal brackets
 in a clearly printed form/printer code need no explanation or transcription note.
@@ -212,30 +214,49 @@ A bird merely seen or used for identification does not establish a collected spe
 Do not add a collection flag when there is no collection evidence, or repeat flags
 in TRANSCRIPTION NOTES.
 
-Read each number as written without assigning it an administrative status. Different
-numbers can coexist on a slip; a number's age, position, colour or disagreement with
-the filename/CSV does not establish cancellation or replacement. This applies to
-every number, including marginal, collector and identification references.
-Describe a crossing-out only when a separate, intentional deletion mark is clearly
-visible across that specific text. First distinguish it from digit crossbars, letter
-strokes and flourishes, neighbouring handwriting, printed rules/headings, underlining,
-check marks, or a blurred/doubled stamp impression. These do not establish deletion.
-If cancellation is not clear, transcribe the readable text in its ordinary field or
-ANNOTATIONS without calling it cancelled, deleted, obsolete, replaced or active.
-Dark ink, smudging or overwriting can obscure a number without establishing why.
-Bracket uncertain digits or use [illegible number]; do not supply a confident number
-from a date, another reference or expected digit count. Assess each occurrence
-separately: a blot or deletion below or beside a readable number does not cancel
-that number. Matching filename/CSV evidence does not override a genuine deletion.
-Do not invent a deleted word, an illegible replacement or a correction when none is
-visible. When cancellation
-is clear, briefly distinguish the readable deleted text and replacement. Never silently merge active and deleted text
-or extend a deletion to adjacent words. Bracket uncertain deleted readings. Treat underlying text, cancellation strokes
+Normally transcribe visible text without assigning deletion or replacement status.
+Before adding an editorial claim such as 'cancelled', 'crossed out', 'deleted',
+'struck through' or 'replaced' ANYWHERE in the output, silently require BOTH checks:
+- Trace the suspected mark beyond the affected letters/digits. Establish that it is
+  a separate added stroke or scribble, not part of a character, a neighbouring entry,
+  or the printed form. Compare its continuation with nearby borders and field rules.
+- Establish that this separate mark actually crosses and deliberately deletes the
+  specific text. A nearby mark, touching stroke, underline or overlap is insufficient.
+If either check fails or remains uncertain, retain the readable text without any
+cancellation claim, including hedges such as 'possibly crossed out'. Bracket doubtful
+characters or explain actual obscuration only; do not describe the text as active,
+uncancelled or unchanged either. No routine non-cancellation commentary is needed.
+
+A printed top border passing through or beneath a marginal note is still a border.
+Likewise, printed field lines and dot leaders do not delete writing placed on them.
+A crossbar within a 7, a long capital-letter stroke, a returning numeral loop,
+joined handwriting, an underline, an equals sign or a check mark is not a deletion
+stroke. Preserve visible separators between names; two names beside each other do
+not establish that one replaced the other. Follow the actual strokes, not a presumed
+modernization of the taxon.
+
+An overlapping catalogue stamp does not cancel a handwritten set number or other
+entry beneath it. Keep the handwriting with its field and the standalone stamp once
+in ANNOTATIONS. If overlap obscures a character, bracket that character or use
+[illegible number]; never replace the hidden reading with the stamp's digits or an
+editorial deletion tag. Smudging, retracing and doubled stamps do not establish
+deletion. Do not reconstruct digits from a date, another reference or expected length.
+Read each number as written without assigning an administrative status. Different
+numbers can coexist; age, position, colour or disagreement with the filename/CSV
+does not establish cancellation or replacement. Assess each occurrence separately:
+a genuine deletion beside a number does not cancel that number, and matching
+filename/CSV evidence does not override a genuine deletion across it.
+
+When BOTH checks establish cancellation, preserve the readable deleted text and any
+visible replacement, describing the alteration once in the appropriate section.
+Never silently merge active and deleted text or extend a deletion to adjacent words.
+Bracket uncertain deleted readings. Treat underlying text, cancellation strokes
 and added text as separate layers when actually present; do not reconstruct a taxon
 from expected spelling or a CSV hint. A correction in a scientific name does not
-cancel the adjacent common name. Determine the deleted and added readings from the
-actual cancellation and insertion, never from which taxon seems more correct or
-modern. No stroke-by-stroke explanation is needed.
+cancel the adjacent common name. Do not invent a deleted word, an illegible replacement
+or a correction when none is visible. These checks govern editorial interpretation
+of marks; preserve explicit source wording about cancellation as written without
+treating it as proof of a visible strike. Do not narrate the visual checks.
 Separate later filing instructions, ownership notes and catalogue references from
 original field text when placement and handwriting clearly distinguish them.
 Omit colour and writing-medium descriptions unless they are both clear and necessary
@@ -272,10 +293,11 @@ or invent front fields. Do not omit repeated text just because another side has 
 empty unless a substantive unresolved issue needs explanation: an obscured reading,
 an ambiguous attachment/ditto mark, a missing side, a genuine conflicting reference,
 or a clearly impossible calendar date. Include required translation disclosures.
-For catalogue numbers meeting the clear visual cancellation rule in section 4,
-retain each once here with its readable digits and a short location; keep uncertain
-digits bracketed or use [illegible number]. Do not reconstruct obscured digits or
-repeat the same cancelled stamp in ANNOTATIONS. Use the shortest useful explanation. A bracketed
+Only if BOTH checks in rule 4 already establish a cancelled catalogue number,
+record that alteration once here with its readable digits and a short location;
+keep uncertain digits bracketed or use [illegible number]. This placement rule is
+not a request to find a cancellation on every card. Do not reconstruct obscured
+digits or repeat the same cancelled stamp in ANNOTATIONS. Use the shortest useful explanation. A bracketed
 reading usually suffices without a note restating it. Multiple numbers or different
 names in distinct roles are not by themselves a conflict; explain only ambiguous or
 conflicting associations. Do not repeat ordinary annotations or routine agreement
@@ -434,6 +456,9 @@ def output_requirements(card: Card) -> str:
                  "and incubation continuations. Prefer 'Label: value' lines without commenting on layout.")
     lines.append("Reread dates and numbers from the image. Keep annotations concise; record only "
                  "clearly evidenced alterations, and preserve marginal text and imprints.")
+    lines.append("Apply both visual checks in rule 4 before any deletion claim. Printed rules, "
+                 "character strokes and stamp overlaps do not establish cancellation; "
+                 "omit unsupported claims and editorial [deleted] tags while retaining source text.")
     lines.append("Finish with exactly one TRANSCRIPTION NOTES: section for the whole card; "
                  "use it only for substantive issues or visually confirmed catalogue-number cancellations, "
                  "or required translation disclosures, without repeating fields or annotations. "

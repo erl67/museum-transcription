@@ -135,9 +135,13 @@ Include publisher/printer imprints and literal form-code brackets here, includin
 
 A standalone catalogue stamp belongs here once per side, not repeated in the body or appended to Set No. or Collector. A number continuing visible field text, such as `equal to No.` in Identification or a skin reference, stays with that entry even when raised or lowered. Do not detach it merely because it differs from the card's catalogue number.
 
-Read every number without inferring an administrative status. Age, position, colour, multiple numbers, or disagreement with a filename/CSV do not establish cancellation or replacement. Require a separate intentional deletion mark across the specific text, distinguishing digit crossbars, neighbouring handwriting, flourishes, printed rules/headings, underlining, check marks and blurred/doubled stamps. When cancellation is unclear, transcribe the number in its ordinary field or annotations without calling it cancelled, obsolete, replaced or active. Dark ink, smudging or overwriting can obscure digits without establishing why; bracket uncertain digits or use `[illegible number]`. A blot or deletion beside/below a readable number does not cancel that number. Matching catalogue evidence cannot override a genuine visible deletion.
+Read every number without inferring an administrative status. Age, position, colour, multiple numbers, or disagreement with a filename/CSV do not establish cancellation or replacement. Before making an editorial deletion claim anywhere in the output, require both visual checks: trace the suspected stroke beyond the affected text and establish that it is separate from the characters and printed form; then establish that the separate mark actually crosses and deliberately deletes that specific text. A printed border passing through a marginal note remains a border. Numeral crossbars, long capital-letter strokes, returning loops, underlines, equals signs, check marks and neighbouring handwriting do not by themselves establish deletion.
 
-Only a catalogue number meeting that clear visual cancellation rule belongs once in TRANSCRIPTION NOTES, with readable digits and a short location (colour only when clear and useful). Do not repeat it in ANNOTATIONS or reconstruct obscured digits from hints, dates or another reference. Do not invent an `E` prefix on a visible numeric stamp. A collection heading belongs at the top of the body; an alteration to it can also be described in annotations.
+If either check fails or remains uncertain, preserve the reading without a cancellation claim, including speculative wording such as “possibly crossed out.” Do not add routine “uncancelled” or “active” commentary. Bracket uncertain characters or explain actual obscuration instead. Editorial `[deleted]` and `[crossed out]` tags do not belong in fields; source-written brackets and explicit source statements about cancellation remain transcription content. This is an instruction for visual interpretation, not a filter that removes words from saved responses.
+
+A catalogue stamp overlapping a handwritten set number does not cancel or replace it. Keep the handwritten reading in its field and the standalone stamp once in annotations, preserving uncertainty where characters are obscured. Smudging, retracing and doubled stamps do not establish deletion; do not reconstruct obscured digits from dates, other references, expected lengths or the overlaid stamp. A genuine deletion beside a number does not cancel that number. Matching catalogue evidence cannot override a genuine visible deletion across it. When both checks establish a real alteration, preserve the deleted and replacement readings under the existing placement rules.
+
+Only a catalogue number meeting both visual checks belongs once in TRANSCRIPTION NOTES, with readable digits and a short location (colour only when clear and useful). This conditional placement does not request a cancellation finding on every card. Do not repeat it in ANNOTATIONS or reconstruct obscured digits from hints, dates or another reference. Do not invent an `E` prefix on a visible numeric stamp. A collection heading belongs at the top of the body; an alteration to it can also be described in annotations.
 
 Each supplied front requires an `ANNOTATIONS:` section, even when empty. Each back may have its own annotations. Multiple location entries are ordinary content. Repeated annotation headings on one side retain all text and produce review, rather than failing because the heading is not globally unique.
 
@@ -161,6 +165,18 @@ The maintainer supplied six Stelgidopteryx ruficollis images and reports dated `
 | E9289 | The readable right-side `12693` is not cancelled. Assess the obscured writing below it separately, retaining uncertainty and the visible Identification continuation. |
 
 Build/prompt **2026-10-14.2** applies these general reading checks to all collectors, including runs without CSV hints. No specimen-number lookup, canned transcription or output-text replacement was added. Genuine cancellations remain part of the record. The changed base prompt intentionally changes future selected cards' cache fingerprints; existing reports and journal history are retained. Offline checks verify software behavior, not improved handwriting accuracy; no live requests were made for this revision.
+
+## Reviewed false-cancellation examples - 26 October 2026
+
+The maintainer supplied E9771, E9470(A) and E2155 with outputs under prompt 2026-10-26.1, identifying false cancellation claims. These are targeted visual review constraints, not complete verified transcriptions:
+
+| Card | Review constraint |
+| --- | --- |
+| E9771 | The top-right marginal note touches the printed top border. The border does not cancel the note. |
+| E9470(A) | The accession digits `6576` contain handwriting strokes, not a separate cancellation line. Retain the accession entry without an invented deletion annotation or duplicated cancellation note. |
+| E2155 | The long capital-letter stroke and separator in the Name entry do not establish deletion of `Tordo`. Overlap between the handwritten Set No. entry and stamp `2155` does not cancel the handwriting; preserve the two roles and bracket uncertain characters. |
+
+Prompt **2026-10-26.2** replaces the earlier cancellation paragraph with the two-check decision rule and reinforces it in shared initial/retry requirements. It adds no specimen-number lookup, automatic output rewriting, semantic validator or extra request. Real visible cancellations and source-written cancellation statements remain supported. Fresh normal selections receive new prompt fingerprints; old outputs and journal history remain intact. Offline regressions cannot establish that the model now follows this visual rule reliably.
 
 ## Fronts and backs
 

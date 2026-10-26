@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **26 October 2026**, application build **2026-10-19.1**, prompt **2026-10-26.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **26 October 2026**, application build **2026-10-19.1**, prompt **2026-10-26.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## False cancellation claims on borders, digits and stamp overlaps - 26 October 2026
+
+The maintainer supplied E9771, E9470(A) and E2155 with prompt-2026-10-26.1 outputs that incorrectly described ordinary marks as cancellations. The prior prompt already prohibited this, but its general wording was not reliably followed. Prompt **2026-10-26.2** replaces the cancellation paragraph with two required visual checks before any editorial deletion/replacement claim: trace the suspected mark beyond the text to distinguish it from characters and printed form lines, then establish a separate intentional mark deleting the specific text. When either check is unsupported, retain the reading and any character uncertainty without a cancellation claim or routine non-cancellation commentary.
+
+The rules explicitly cover marginal notes intersecting printed borders, numeral crossbars/loops, capital-letter strokes and separators, and a stamp overlapping a handwritten set number. Handwriting stays with its field; the standalone stamp belongs once in annotations. Editorial `[deleted]`/`[crossed out]` field tags are prohibited. Actual source-written brackets/statements and genuinely visible cancellations remain preserved. The catalogue-number placement rule is conditional on both checks, and shared initial/retry requirements reinforce the same rule. No specimen-number lookup, postprocessing filter, semantic validator or extra request was added. See [review constraints](transcription_rules.md#reviewed-false-cancellation-examples---26-october-2026).
+
+The checkout was clean and the campaign process was confirmed stopped before editing. No responsibilities moved. Provider/settings, image handling, validation/status meanings, retry/accounting behavior, source data, saved reports and campaign approvals/state are unchanged. The assembled prompt intentionally changes normal fingerprints for subsequent selections; existing journal history remains intact. Scheduled adoption still uses the campaign's code-acceptance and stale-result controls.
+
+Baseline: **169 tests ran, 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. The initial sandbox run failed on temporary-fixture access/cleanup; rerunning with normal temporary-folder access passed. Final: **243 tests ran, 242 passed and the same optional fixture skipped**, including both mocked provider transports and campaign coverage. `git diff --check` passed. No live requests were made, so reduced false-cancellation rates have not been measured.
 
 ## Repeated Brandt readings and source coverage - 26 October 2026
 
