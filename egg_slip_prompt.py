@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-10-21.1"
+PROMPT_VERSION = "2026-10-26.1"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -88,8 +88,12 @@ for example 'Nest: Diameter: Inside: <value>; Outside: <value>' and
 'Depth: Inside: <value>; Outside: <value>'. These examples are instructions, never
 output text. Retain visible units, even beside a blank ('- inches') or a textual
 entry. Do not invent units, borrow measurements from narrative, or drop overwritten
-values. Stacked values are not necessarily fractions: preserve their order and
-use inside/outside labels only when supported by the supplied evidence.
+values. Stacked measurement values are not automatically a mathematical fraction;
+a printed dividing rule alone does not establish division. Keep separate measurements
+on successive lines under their field, retaining any true fraction within each value.
+When their relationship is unclear, preserve the stacked arrangement and explain
+that uncertainty rather than flattening it into a single slash fraction. Use
+inside/outside labels only when supported by the supplied evidence.
 
 Expand ditto marks only into words clearly repeated in the SAME column or field
 context. Never copy an outside value into an inside field from the preceding line.
@@ -178,12 +182,19 @@ usually a short string of numbers/letters or a fraction, such as 5/4, 5/5, 6/4,
 not a length limit. Copy all visible characters, leading zeros, case, slashes and
 hyphens; do not decode the mark or force it to match the egg count. These are examples,
 not values to copy unless visible. If clearly recorded in a labelled field, retain
-it there without a duplicate annotation. Otherwise record a plausible unlabelled
-set mark once in that side's ANNOTATIONS, for example 'Likely set mark 5/4', with a
-short location if needed. 'Likely' qualifies the interpretation as a set mark; bracket
-any uncertain characters separately. Do not relabel an A.O.U., catalogue, accession,
-Set No., date, egg count or unrelated reference merely because it is short or looks
-fractional. If its role is not defensible, retain it as an unlabelled annotation.
+it there without a duplicate annotation. For an unlabelled code, first check its
+attachment to surrounding text: a slash-number introducing another observation may
+be a date or entry identifier; stacked values beside nest prose may be measurements.
+Shortness, a slash, or marginal position alone is insufficient evidence of a set mark.
+Keep an attached number with its narrative entry or measurement, not duplicated in
+ANNOTATIONS. Only when the evidence supports the set-mark interpretation, record an
+otherwise unlabelled mark once in that side's ANNOTATIONS, for example
+'Likely set mark 5/4', with a short location if needed. 'Likely' qualifies the
+interpretation as a set mark; bracket any uncertain characters separately. Do not relabel an A.O.U., catalogue,
+accession, Set No., date, egg count or unrelated reference merely because it is short
+or looks fractional. If its role remains ambiguous, preserve it at its source position
+without assigning a role, and briefly explain a consequential ambiguity in
+TRANSCRIPTION NOTES. Do not move or reinterpret it to satisfy the set-mark checklist.
 Many cards have no set mark: do not invent one or an absence note; a visibly empty
 printed set-mark field still takes '-' under rule 2.
 
@@ -313,13 +324,20 @@ COLLECTOR_PROMPTS = {
 pencil and dense cursive, sometimes in different hands. Use the checks relevant to
 the supplied card. For handwritten passages, silently make a second visual reading
 before finalizing the transcription:
-- Trace each line through to its end and follow continuations across unused or
+- First distinguish the printed fields from each separate narrative entry; a gap
+followed by a new leading number can introduce another observation. Preserve that
+entry boundary and its leading notation without assuming it is another set mark.
+Trace each line through to its end and follow continuations across unused or
 crossed-out printed labels. A flora passage beside Flight, a behavior passage beside
 Other Data, or nest prose beside Lining may still belong to the preceding entry.
 Keep continuous prose with that entry; preserve separate entries when actually present.
 Check dense bottom lines, margins, insertions, signatures and small measurement fields
-for omissions. Faint writing is not a blank, and a nearby catalogue stamp does not fill
-an empty identification or other field.
+for omissions. Read a raised insertion with the words it modifies when clear, not as
+a detached line or an invented replacement. Compare the source against the draft one
+field and paragraph at a time: account for every printed label, even an empty weather
+or incubation field, every insertion, and the final words of every paragraph. A short
+last line is not optional or redundant. Faint writing is not a blank, and a nearby
+catalogue stamp does not fill an empty identification or other field.
 - Recheck doubtful words by their beginning, ending, internal strokes and word boundaries.
 Compare repeated letters or words in the same hand on the supplied card/sides; do not
 claim access to other cards or exemplars. Check short words, negations, adjectives,

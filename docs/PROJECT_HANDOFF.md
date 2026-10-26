@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **25 October 2026**, application build **2026-10-19.1**, prompt **2026-10-21.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **26 October 2026**, application build **2026-10-19.1**, prompt **2026-10-26.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Repeated Brandt readings and source coverage - 26 October 2026
+
+The maintainer supplied two differing readings each for E7992 and E7994 under prompt 2026-10-21.1. Read-only reconstruction from the current catalogue and scans reproduced both reported prompt hashes and input fingerprints exactly and confirmed that the detailed Brandt guidance was present. This establishes matching recorded initial inputs; it does not establish identical service execution or accurate readings. The examples show omissions, uncertain word readings and inconsistent treatment of entry-leading numbers and stacked measurements. They are not a complete reviewed reference set.
+
+Prompt **2026-10-26.1** tightens existing rules rather than embedding specimen-specific answers: check a number's attachment before interpreting a set mark; preserve leading notation with its narrative observation when appropriate; keep separate or ambiguous stacked measurements in their original order on successive lines; and check each Brandt field/paragraph against the draft, including empty printed labels, raised insertions and paragraph endings. A short slash-number alone does not justify a set-mark annotation. Genuine set marks and fractions remain supported. The language and collected-specimen rules remain intact.
+
+No responsibilities moved. Provider, temperature 1.0, high thinking, image preparation, validation, statuses, retries and accounting are unchanged. This intentional prompt revision changes future normal cache fingerprints; old reports and journals remain intact. Campaign code acceptance and deliberate stale-result handling remain separate offline controls; no campaign state, approvals, source files or saved outputs were changed. The campaign process was confirmed stopped before editing.
+
+Baseline: **169 tests ran, 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. Final: **243 tests ran, 242 passed and the same fixture skipped**, including mocked provider transports and campaign coverage. No live requests were made. [Testing guidance](testing.md#reading-repeatability-and-prompt-evaluation) now distinguishes software regression checks from repeated, source-reviewed reading comparisons; improved accuracy or repeatability is not established by this patch.
 
 ## Canonical viewer access link - 25 October 2026
 

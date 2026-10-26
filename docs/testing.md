@@ -41,6 +41,16 @@ Read-only discovery of the actual `tests/inputs/` folder found **11 physical car
 
 ## Offline regression suite
 
+### Reading repeatability and prompt evaluation
+
+Matching `PROMPT SHA256` and `INPUT SHA256` establish matching recorded initial request inputs, not identical answers or verified readings. The input fingerprint includes ordered prepared image hashes, prompt text, model and generation settings. Format retries can append correction instructions; inspect saved attempt metadata when diagnosing them. More thinking tokens, fewer brackets or an `OK` status do not establish that a reading is better. Structural checks cannot detect every missing field or omitted line.
+
+For a prompt-quality change, establish reviewed readings for the disputed passages and a checklist of source fields/paragraphs, preserving unresolved characters. Compare multiple independent readings under each candidate configuration, recording omissions, substitutions, wrong field attachments and unsupported interpretations separately. Repeated agreement is useful evidence of consistency but can repeat the same mistake; compare against the images and reviewed readings. Include unrelated previously reviewed cards when checking for regressions. Do not select the best-looking run as proof of improvement.
+
+Use saved responses for offline comparisons. New requests for repeated trials, alternate image detail or detail crops require an explicitly authorized run and normal attempt accounting. Keep the chosen Gemini model and change one variable at a time. The default remains temperature 1.0 with high thinking. These are evaluation instructions, not an automatic multi-pass workflow or permission to spend quota.
+
+### Running the software regression suite
+
 From the repository root:
 
 ```text
