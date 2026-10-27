@@ -1,6 +1,24 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **26 October 2026**, application build **2026-10-19.1**, prompt **2026-10-26.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **2026-10-27.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Typewritten set-mark digit comparisons - 27 October 2026
+
+The follow-up E3467 example reads `2/4`, although the reported output was `3/4`. Its typewritten numerator matches the `2`s elsewhere on the supplied card. Only the disputed field is reviewed. Prompt **2026-10-27.2** extends the preceding set-mark changes to typed, printed and stamped digits, including apparently clear text, and explicitly compares 2/3 lower strokes and bases against the same typeface. Other fields supply glyph examples, never replacement values. No per-card answer or output rewriting was added.
+
+The earlier uncommitted prompt/docs changes are retained. The campaign process was confirmed stopped. No responsibilities, provider/settings, image handling or validation changed; the revised prompt intentionally changes future normal fingerprints while preserving journal history. No live requests or source-data edits were made.
+
+Verification: **169 transcription tests ran, 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**, including both mocked provider transports. `git diff --check` passed. These checks do not establish improved digit-reading accuracy.
+
+## Set-mark digits, dot-like numerators and surviving corrections - 27 October 2026
+
+The maintainer supplied Icteria virens E7826, E7827 and E7828 after incorrect set-mark readings. The reviewed surviving values are `2/3` for E7826 and `2/4` for E7828. E7827 has a dot-like numerator; the proposed interpretation as `1/4` remains tentative. [Review constraints](transcription_rules.md#reviewed-set-mark-examples---27-october-2026) preserve that distinction rather than treating all three as certain numeral readings.
+
+Prompt **2026-10-27.1** adds a dedicated set-mark reread in the shared base prompt: inspect numerator, separator and denominator independently; compare same-hand digits only on supplied images; distinguish compact digit strokes from fraction bars and correction strokes; and preserve visible dots and uncertain characters. A genuinely cancelled earlier attempt is preserved once in annotations while the clear surviving mark stays in its field. The existing two-check cancellation rule still applies; position or darker ink cannot establish a survivor. Shared initial/retry reminders reinforce these checks. There are no specimen-number lookups, extra requests, postprocessing replacements or changes to structural validation.
+
+No responsibilities moved. Provider, temperature 1.0, high thinking, image preparation, status meanings, accounting and campaign controls are unchanged. The checkout was clean and the campaign process was confirmed stopped before editing. The revised assembled prompt intentionally changes normal cache fingerprints for subsequent selections; existing reports and journal history remain intact. Source scans, catalogue data and campaign state/approvals were not edited.
+
+The pre-edit offline baseline ran **169 tests: 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. The full transcription/campaign regression suites ran **243 tests: 242 passed and the same optional fixture skipped**, including both mocked provider transports. `git diff --check` passed. No live requests were made; improved set-mark accuracy still requires review of subsequent authorized readings.
 
 ## False cancellation claims on borders, digits and stamp overlaps - 26 October 2026
 

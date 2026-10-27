@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "2026-10-26.2"
+PROMPT_VERSION = "2026-10-27.2"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -199,6 +199,34 @@ without assigning a role, and briefly explain a consequential ambiguity in
 TRANSCRIPTION NOTES. Do not move or reinterpret it to satisfy the set-mark checklist.
 Many cards have no set mark: do not invent one or an absence note; a visibly empty
 printed set-mark field still takes '-' under rule 2.
+
+Give every set mark a separate silent visual reread, including fields labelled
+Mark, Set or Set Mark. For a fraction, read the numerator, separating slash/bar and
+denominator independently, then check the assembled string against the image.
+Recheck typewritten, printed and stamped marks even when they look clear.
+Do not copy a clear denominator into a doubtful numerator or borrow digits from
+another field, example or card. Compare digit shapes with clear examples in the same
+hand or typeface on the supplied card/sides only, including dates and narrative text.
+Use those as shape comparisons, never as replacement values. In particular, compare
+the lower strokes and base of 2 and 3 with clear examples in that same style; check
+whether ink spread, worn type or serifs obscure their differences. Small, thick or
+angular 2s and 3s can also resemble 4s: follow each character's own curves, diagonals
+and crossbars, keeping the fraction bar and any separate correction strokes out of
+its shape. Bracket only unresolved
+characters; knowing that a notation is a set mark does not establish its digits.
+If the numerator is visibly a dot, preserve the dot (for example, './4' for a dot
+over 4), rather than silently converting it to 1 or 4. A dot-like or abbreviated
+stroke is not proof of a numeral convention. Explain a consequential uncertainty
+briefly in TRANSCRIPTION NOTES; a possible reading as 1 must remain tentative.
+These examples are not values or conventions to impose on other marks.
+
+In a labelled set-mark field, if earlier attempts are genuinely cancelled under BOTH
+visual checks below and a surviving replacement is clear, use that surviving mark.
+Preserve the readable cancelled attempts once in ANNOTATIONS, with uncertain digits
+bracketed. Never concatenate cancelled attempts with the surviving mark as one value,
+or use their strokes to complete its digits. If cancellation or the surviving reading
+cannot be established, preserve the visible readings and uncertainty without choosing
+by position, darkness or an assumed sequence. Do not invent earlier values.
 
 If the card says a nest, skin or bird specimen was collected, taken, saved or preserved,
 include a concise flag in that side's ANNOTATIONS, such as 'Nest collected' or
@@ -456,6 +484,9 @@ def output_requirements(card: Card) -> str:
                  "and incubation continuations. Prefer 'Label: value' lines without commenting on layout.")
     lines.append("Reread dates and numbers from the image. Keep annotations concise; record only "
                  "clearly evidenced alterations, and preserve marginal text and imprints.")
+    lines.append("Recheck each set-mark numerator and denominator independently. Preserve a dot-like "
+                 "numerator without inventing a digit; keep confirmed cancelled attempts separate "
+                 "from the surviving mark as specified in rule 4.")
     lines.append("Apply both visual checks in rule 4 before any deletion claim. Printed rules, "
                  "character strokes and stamp overlaps do not establish cancellation; "
                  "omit unsupported claims and editorial [deleted] tags while retaining source text.")
