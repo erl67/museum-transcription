@@ -12,6 +12,8 @@ Use **https://cmbirds.org/eggs** as the canonical link for opening, sharing and 
 
 The browser tab is titled **Egg Slip Record Search** on the initial search page and when a search returns an error. A successful lookup uses the normalized E-number, for example **E4268 Egg Slip Record**. That title also applies when only scans or catalogue information are available. Leading zeros remain part of the title, so E001 is shown as **E001 Egg Slip Record**.
 
+A footer below the transcription and source scans links to this project's GitHub source, gives the maintainer's contact address, and states that the website is independently created and maintained, is not owned, operated, sponsored, or endorsed by the museums, and does not represent official museum communications or institutional positions. The content area is at least one viewport tall, followed by extra spacing, keeping the footer below the initial view even while scans are loading or on a short search/error page.
+
 Viewer.html is Apps Script template source. Opening the local HTML file directly previews the layout but does not run the search, evaluate template expressions, or load Drive scans. Use [cmbirds.org/eggs](https://cmbirds.org/eggs) for the working viewer. Paste the HTML source into the Apps Script HTML file named **Viewer**, and the JavaScript source into **Code.gs**.
 
 ## Browse records
