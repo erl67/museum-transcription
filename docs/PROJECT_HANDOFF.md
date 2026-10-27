@@ -1,6 +1,6 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development from ChatGPT Work to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **2026-10-27.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **2026-10-27.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
 
 ## Typewritten set-mark digit comparisons - 27 October 2026
 
@@ -222,7 +222,7 @@ The historical execution map below predates the separate campaign orchestration 
 
 The maintainer intends to process the collection with **`gemini-3.5-flash-lite`** and is satisfied with its current readings. Retain the existing temperature 1.0 and high-thinking defaults. Paid GPT/OpenAI comparisons are not planned and are not a prerequisite for maintenance or modularization. Keep the optional adapter and offline transport coverage intact. The earlier roadmap calling for OpenAI comparisons is superseded by this decision.
 
-The README now leads with museum records, source fidelity, collection review, and practical operation. It avoids overt AI/large-language-model framing while accurately describing the configured Gemini service, transmitted images and hints, request accounting, and the limits of structural validation. Maintainer satisfaction must not become an invented benchmark or accuracy percentage.
+The README now leads with museum records, source fidelity, collection review, and practical operation. It uses neutral transcription terminology while accurately describing the configured Gemini service, transmitted images and hints, request accounting, and the limits of structural validation. Maintainer satisfaction must not become an invented benchmark or accuracy percentage.
 
 This pass changes documentation only. It corrects setup paths, sample inventory, tracked-report descriptions, stale implementation claims, relative links, and the development sequence. Existing code, prompts, default settings, source data, saved reports, journals, and quota state are unchanged. The existing README's Apache License 2.0 declaration is retained; no standalone `LICENSE` file is present, and software licensing does not establish rights over collection materials.
 
@@ -385,7 +385,7 @@ The remainder preserves the earlier Work handoff and its historical verification
 
 The current program transcribes scanned historical museum egg-collection slips. The working collection has roughly 10,000 physical slips / 12,000 images, many form types, old scientific names, cursive and pencil, crossings-out, stamps, marginal additions, and occasional narrative backs. A physical slip can refer to several catalogue records; an image is not necessarily a whole record. A previously reported production CSV load contained 10,174 catalogue numbers across 10,190 data rows. Those are historical observations, not counts of data bundled here.
 
-The maintainer works with these records and developed the initial program with Gemini, partly because ChatGPT was unavailable at work. Work revisions concentrated on input correctness, fidelity, resumability, explicit failure handling, and eventually repeatable model comparisons. The model reads the scan; the surrounding software protects ordering, selection, evidence, progress, and accountability. No public accuracy benchmark was established by the offline tests. User impressions of excellent accuracy should not become a measured performance claim.
+The maintainer works with these records and developed the initial program with Gemini. Subsequent revisions concentrated on input correctness, fidelity, resumability, explicit failure handling, and eventually repeatable model comparisons. The model reads the scan; the surrounding software protects ordering, selection, evidence, progress, and accountability. No public accuracy benchmark was established by the offline tests. User impressions of excellent accuracy should not become a measured performance claim.
 
 The longer-term intent is a reusable system for other museum records, field notes, expedition documentation, handwritten forms, catalogue cards, and repeated archival series. Egg slips are the first and only implemented domain. The immediate objective is clean separation of existing responsibilities; immediate multi-domain support is not required.
 

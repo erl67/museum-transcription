@@ -8,7 +8,8 @@ This is currently a historical museum egg-slip transcription application. The lo
 
 - Use `gemini-3.5-flash-lite` for production unless the user requests a change. The maintainer is satisfied with its current readings and does not want paid GPT/OpenAI comparison runs. Preserve the existing optional adapter and offline coverage; do not make live comparisons a prerequisite for maintenance or extraction.
 - The current default temperature is 1.0 and Flash-Lite thinking level is high. Do not change prompts, generation settings, providers, or cache identity during a documentation-only task.
-- Write the README for museum collection staff: lead with the records, preservation of source evidence, review, and practical workflow. Avoid overt AI/large-language-model framing or promotional accuracy claims. Document the Gemini service, transmitted images/hints, credentials, and request costs accurately where operationally relevant; retain exact technical names in reference docs.
+- Use neutral project terminology in documentation, Markdown, comments, and reader-facing text: transcription, handwriting recognition, model, or transcription service. Refer to the assistant only as Codex when attribution is needed; avoid other assistant branding and broad technology labels.
+- Write the README for museum collection staff: lead with the records, preservation of source evidence, review, and practical workflow. Avoid promotional generation labels or accuracy claims. Document the Gemini service, transmitted images/hints, credentials, and request costs accurately where operationally relevant; retain exact technical names in reference docs.
 - Distinguish a structural `OK` from human verification, and CSV-only `(MISSING)` blocks from transcriptions. Maintainer satisfaction is not a measured accuracy percentage or a cross-model ranking.
 
 ## Architectural direction
@@ -20,6 +21,7 @@ Keep reusable provider/execution infrastructure separate from egg-specific disco
 ## Before editing
 
 - Use the local code checkout `C:\Users\x5769\Documents\GitHub\museum-transcription` for repository work. The G: drive is for scans and the catalogue CSV; do not use its legacy repository.
+- Work only in this repository. If a task appears to require inspecting or changing `museum-correspondence`, stop and tell the maintainer first; that repository has its own separate project folder.
 - Read the relevant code and tests; inspect `git status` and `git diff`. Preserve local/unpushed work.
 - Read `docs/PROJECT_HANDOFF.md` for architectural and historical context and the applicable files in `docs/`. Current operating decisions supersede older comparison plans in historical notes.
 - Run `python -m unittest -v test_transcribe.py` before substantial changes when practical. Report skipped tests as well as failures.

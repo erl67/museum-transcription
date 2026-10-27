@@ -192,7 +192,7 @@ The latest submitted log showed HTTP **401**, not 404. It also lacked the preced
 
 This build gives local `.env` files precedence over old terminal environment values. It prints the key's source, never the value. Missing keys and unusable `.env` files stop with a specific setup error; manual entry is available only when explicitly enabled with `--prompt-key`. The client explicitly uses the Gemini Developer API endpoint and key header, ignoring unrelated Vertex/Enterprise backend or Gemini base-URL environment settings.
 
-An HTTP 401 means Google rejected the submitted credential; local file discovery does not establish that the key is valid. Google documents a September 2026 transition away from Standard keys. If 401 persists after the new script loads the intended file, check the **Key Type** in AI Studio and use an **Auth** key from the intended project. This is a documented possibility, not a confirmed diagnosis of the reported credential. [Google's API key and migration documentation](https://ai.google.dev/gemini-api/docs/api-key#migrate-to-an-auth-key)
+An HTTP 401 means Google rejected the submitted credential; local file discovery does not establish that the key is valid. Google documents a September 2026 transition away from Standard keys. If 401 persists after the new script loads the intended file, check the **Key Type** in Google's Gemini key-management console and use an **Auth** key from the intended project. This is a documented possibility, not a confirmed diagnosis of the reported credential. [Google's API key and migration documentation](https://ai.google.dev/gemini-api/docs/api-key#migrate-to-an-auth-key)
 
 Report timestamps now stop at minutes: `Accipiter_cooperii_transcriptions_20260916_0825.txt`. Another run in the same minute creates `_0825_2.txt`, then `_0825_3.txt`, preserving earlier files. Seconds and microseconds are no longer used in report filenames.
 
@@ -232,7 +232,7 @@ To check the running copy and key lookup without reading the CSV, transcribing a
 
 Success here confirms local lookup only; Google has not validated the credential.
 
-The supplied original contained an API key. Replace that key in Google AI Studio; the revised file does not contain it. This review did not use it or make any real Gemini requests.
+The supplied original contained an API key. Replace that key in Google's Gemini key-management console; the revised file does not contain it. This review did not use it or make any real Gemini requests.
 
 For an initial check, use the examples below. Console-only mode makes fresh requests even when a saved result exists, and writes no transcription, checkpoint, or lock files.
 
