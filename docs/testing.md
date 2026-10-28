@@ -41,6 +41,12 @@ Read-only discovery of the actual `tests/inputs/` folder found **11 physical car
 
 ## Offline regression suite
 
+### Prompt 10-28.0 consolidation - 27 October 2026
+
+The maintainer requested prompt cleanup before further reading trials. The baseline in the existing project virtual environment ran **169 tests: 168 passed, one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. After the rewrite, `test_transcribe.py` and `test_campaign.py` together ran **246 tests: 245 passed, the same fixture skipped**, including both mocked provider transports. The system interpreter lacked OpenAI transport dependencies; the project environment already matched `docs/requirements.txt`. Windows sandbox temporary-fixture access required running the suites with normal temporary-folder access.
+
+Updated policy assertions cover shared translation and preserved source requirements. New cases protect the recent set-mark/cancellation instructions, validate supplied-side skeletons against the existing parser, and check final reminders after hints and on format retries. Existing collector scoping, image order, request accounting, cache, output and campaign coverage also pass. These checks verify software behavior and the presence of reading instructions, not whether the model follows them. No live requests or new accuracy claims accompany this rewrite; source-reviewed trials remain a later step.
+
 ### Reading repeatability and prompt evaluation
 
 Matching `PROMPT SHA256` and `INPUT SHA256` establish matching recorded initial request inputs, not identical answers or verified readings. The input fingerprint includes ordered prepared image hashes, prompt text, model and generation settings. Format retries can append correction instructions; inspect saved attempt metadata when diagnosing them. More thinking tokens, fewer brackets or an `OK` status do not establish that a reading is better. Structural checks cannot detect every missing field or omitted line.

@@ -4,6 +4,26 @@ This document explains the current **domain-specific** SOP and output contract. 
 
 These rules support collection review while preserving the distinction between what the card says, what the catalogue records, and what remains uncertain. Prompt instructions are desired reading behavior. Python's structural validator cannot verify every word, handwriting interpretation, or missing line. Do not confuse a well-formatted answer with a verified transcription.
 
+## Prompt consolidation - 10-28.0
+
+Prompt **10-28.0**, prepared on 27 October 2026 with the maintainer's requested label, consolidates the existing reading policy by topic. It replaces repeated explanations and specimen-specific vocabulary examples with shared principles, short collector reminders, a supplied-side output skeleton and one final checklist. The base rules plus checklist contain 2,092 whitespace-delimited words, compared with the previous base's 3,933; Brandt guidance drops from 501 to 162 words and Steinbach guidance from 152 to 63. These are text counts, not model token counts or measured accuracy improvements.
+
+The requirements remain in these locations:
+
+| Earlier material | Current prompt home and retained requirements |
+| --- | --- |
+| Fidelity and handwriting examples in rules 1–3 and Brandt | SOURCE FIDELITY and UNCERTAINTY: literal wording, roles, supplied evidence, word boundaries, uncertainty, source brackets, sex symbols and option marks. Reviewed specimen examples remain in this document, rather than suggested answer vocabulary in every request. |
+| Field layout, narrative continuations and multi-entry rules | LAYOUT AND FIELDS: actual labels, blanks versus illegibility, multiline values, borders versus cropping, separate entries, attached references and shared signatures. Multi-entry guidance applies even with one catalogue number. |
+| Braces, dittos, fractions, partial dates and calendar checks | MEASUREMENTS AND DITTO MARKS and DATES: field/column associations, units, separate stacked measurements, exact partial dates and conservative calendar notes. No date parser or automatic correction was introduced. |
+| Set-mark rules and repeated numeric reminders | SET MARKS: evidenced classification, same-hand/typeface comparisons, typed/printed/stamped digits, separate fraction components, dot numerators, uncertainty and separation of confirmed cancelled attempts from a survivor. |
+| Cancellation rules across several sections | ALTERATIONS: both visual checks, no speculative deletion claims, stamps/borders/character strokes distinguished from cancellations, separate readable layers, and catalogue-number alterations recorded once in final notes. |
+| Translation and Steinbach repetitions | LANGUAGE AND TRANSLATION: original text plus English, uncertainty and one disclosure per translated language, including without hints. The visible-Steinbach reminder and scoped CSV reminder remain; parallel-back guidance is added when both front and back are supplied. |
+| Annotations, collection flags, imprints, damage and notes | ANNOTATIONS and TRANSCRIPTION NOTES: source content versus unresolved issues, intentionally repeated collection flags with negation/references, concise explanations and no routine summaries. |
+| Output order and repeated completion instructions | `output_requirements(card)` supplies a skeleton for the actual sides, shared with format correction. `FINAL_CHECKS` follows catalogue hints and also accompanies retries. Front-only, back-only, multiple-back and visibly blank-back rules remain. |
+| Brandt's repeated general instructions | The shorter Brandt addendum retains typed/mixed-hand context, continuation examples, dense-field coverage, unusual prose, numeric distinctions, changed preprinted years and the conditional signature candidate. Shared rules carry the general safeguards. |
+
+This is an intentional prompt revision, not a claim of identical model readings. Provider/settings, image preparation, collector matching, validation, status meanings, retry/accounting logic and report rendering are unchanged. Source-reviewed trials can follow the rewrite; offline checks verify software behavior only.
+
 ## Source fidelity
 
 - The images are evidence. Preserve visible wording, spelling, punctuation, capitalization, abbreviations, historical scientific names, numbers, fractions, units, and symbols, including sex symbols.
@@ -21,8 +41,8 @@ Use the labels actually printed on that card, in visual order: top to bottom, le
 Raised set-mark components stay with Set mark. Multiline incubation entries stay together, for example:
 
 ```text
-Incubation: Trace of red
-one infertile
+Incubation: <first visible line>
+<continuation of that same value>
 ```
 
 This demonstrates layout, not text to insert into other cards. Reread numeric fields character by character, including Roman months and year endings: a calendar-valid date can still be transcribed incorrectly. Keep visible feet/inch marks rather than spelling out their units.
@@ -80,7 +100,9 @@ Use only visible values for that group. A narrative measurement does not fill a 
 
 ## Word boundaries, visible edges and physical damage
 
-Use egg/specimen context alongside visible strokes to distinguish quantities and words, such as `1 egg cracked` versus `legs cracked`. For short condition notes, consider `broken`, `chipped`, `cracked`, `missing` and `hole`, including a quantity followed by a word such as `1 broken`. Check the beginning, internal letters and ending, using the same hand on supplied sides when available. These are candidate readings, never default text: preserve different source wording and bracket unresolved readings. A later English note can appear on a card with German field text. Context helps interpret the writing; it never supplies missing text or overrides a clearly different source word. Reread narrative adjectives letter by letter: E8157 reads “Nest very long and poorly built,” where an earlier model substituted “cosy.” This example documents the reviewed slip, not a word to insert into other records. Printed field lines and borders are not image crop edges: transcribe visible letters normally even when they touch or cross those lines. Claim truncation only when the image actually cuts off or obscures the reading.
+Use egg/specimen context alongside visible strokes to distinguish quantities from adjacent words and numeral 1 from letters l/I. Check beginnings, internal letters, endings and word boundaries against the same hand on supplied sides. Context helps interpret writing; it never supplies missing text or overrides a different source word. Different passages may use different languages. Printed field lines and borders are not image crop edges: transcribe visible letters normally even when they touch or cross those lines. Claim truncation only when the image actually cuts off or obscures the reading.
+
+Historical review examples include `1 egg cracked` versus `legs cracked`, and E8157's “Nest very long and poorly built,” where an earlier reading substituted “cosy.” Earlier prompts also suggested condition-word candidates such as `broken`, `chipped`, `cracked`, `missing` and `hole`. Prompt 10-28.0 removes that suggested vocabulary from requests while retaining the general reading checks. These examples remain review history, not default words or complete verified transcriptions.
 
 Do not count or describe routine filing/punch holes. Mention physical card damage only for major rips, tears or missing pieces; retain uncertainty for genuinely obscured writing. Source notes about specimen damage, including cracked eggs, remain transcription content. In names, distinguish actual cancellation from a printed rule, and do not extend a scientific-name correction to the adjacent common name or infer the correction direction from modern taxonomy.
 
@@ -104,7 +126,7 @@ The numeric check covers A.O.U. values, entire set-mark numerators, changed prep
 
 The supplied Gavia reports illustrate specific failures: E4443's behavior continues across Other Data; E4446's `some moss` continues the flora entry across Flight; E4447's catalogue stamp is not its Means of Identification, and its temperature degree sign is not a zero. The dense Cinclus E7466 and Columbina E6785 images also show why full narrative continuations and marginal text need checking. These observations inform the general checklist; no specimen-number lookup or canned transcription was added, and uncertain passages are not certified here as ground truth.
 
-The detailed guidance is inserted once per matching rule with the relevant catalogue numbers. Other collectors, uncatalogued cards and `--no-csv-hints` keep their existing prompts. A Brandt collection heading alone does not trigger this CSV rule or identify the writer.
+The collector guidance is inserted once per matching rule with the relevant catalogue numbers. Other collectors, uncatalogued cards and `--no-csv-hints` receive the shared rules without the Brandt addendum. A Brandt collection heading alone does not trigger this CSV rule or identify the writer.
 
 ## Foreign languages and parallel back translations
 
@@ -122,11 +144,11 @@ The general language policy above now applies regardless of collector. The addit
 
 For text that is actually German, transcribe the original German first and immediately follow it with the English translation in parentheses. Preserve wording and uncertainty rather than replacing or silently normalizing the source. This includes an inset or pasted note on the main card: keep it with its field when the association is clear, otherwise record it in `ANNOTATIONS:` with a concise inset-note location. Do not translate names, localities, taxonomic text, or other non-German content merely because Steinbach is associated with the record.
 
-When any German passage is translated, include exactly one final disclosure. The detailed CSV-selected rule specifies `German text translated into English in parentheses.` The visual fallback shares the general per-language disclosure, without a second German note. Do not add a disclosure when no German was translated. Shared initial/retry requirements allow required translation disclosures without repeating Steinbach-specific instructions. The translation disclosure is normal transcription-note content and does not itself require `REVIEW`; other warnings, such as bracketed passages, still apply. Python does not semantically verify translation accuracy or that every German passage was found.
+When any German passage is translated, include exactly one final disclosure: `German text translated into English in parentheses.` Prompt 10-28.0 places the disclosure template in the shared language rule; both Steinbach reminders use it without repeating the full translation policy or adding a second German note. Do not add a disclosure when no German was translated. Shared initial/retry requirements allow required translation disclosures without repeating Steinbach-specific instructions. The translation disclosure is normal transcription-note content and does not itself require `REVIEW`; other warnings, such as bracketed passages, still apply. Python does not semantically verify translation accuracy or that every German passage was found.
 
 ## Editing the prompt and collector guidance
 
-Keep `egg_slip_prompt.py` beside `transcribe.py` when copying or deploying the application. Edit `BASE_PROMPT` for shared transcription rules; the same module assembles side requirements, file warnings, catalogue hints, and format-retry instructions. It performs no API calls or filesystem work.
+Keep `egg_slip_prompt.py` beside `transcribe.py` when copying or deploying the application. Edit the relevant topic in `BASE_PROMPT` for shared transcription rules; keep `FINAL_CHECKS` as a short reminder rather than another copy of the policy. The same module assembles side requirements, file warnings, catalogue hints, and format-retry instructions. It performs no API calls or filesystem work.
 
 `COLLECTOR_PROMPTS` is a plain dictionary of trusted local instructions keyed by the exact CSV **Collector** value. Its Brandt entry matches `Brandt, Herbert W.`. Exact matching ignores capitalization and repeated/leading/trailing whitespace; alternate spellings require explicit entries.
 
@@ -142,7 +164,7 @@ The September 23 revision deliberately changes transcription policy based on the
 - Preserve dates verbatim and note clearly impossible calendar dates without correcting them or guessing ambiguous date order.
 - Recheck headings, numbers, all measurement subfields, margins, and dense text. Notes explain substantive issues, not routine agreement with catalogue hints.
 
-These are model instructions, not new semantic validation in Python. An `OK` result still does not certify an accurate reading or valid date. The multiline incubation example demonstrates structure only; it explicitly prohibits copying example values unless visible. No card-number lookup or automatic reading correction was added.
+These are model instructions, not new semantic validation in Python. An `OK` result still does not certify an accurate reading or valid date. Prompt 10-28.0 uses placeholders for multiline layout instead of the earlier concrete incubation example. No card-number lookup or automatic reading correction was added.
 
 **Intentional cache migration:** the complete assembled prompt already participates in the cache fingerprint. The revised base prompt therefore causes fresh requests for selected cards on their next normal run; old reports and cache entries remain intact. Later edits to a matching exact-name or containment rule also change that card's fingerprint. Adding an unrelated collector rule does not. The original module extraction preserved image preparation and request execution. Build 2026-09-23.4 added format review hints and request metadata, and changed numeric temperature defaults to 1.0. Build 2026-09-29.1 intentionally removes those field-format warnings and exempts recognized printed form-code brackets; it also revises the prompt to reduce unsupported commentary. Build 2026-09-29.4 adds the conditional Steinbach translation rule and reviewed CSV surname trigger. Metadata and temperature defaults are retained. These changes are documented separately from the extraction; existing reports and cache entries are retained.
 

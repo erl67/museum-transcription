@@ -13,6 +13,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
@@ -1188,12 +1189,14 @@ class DatasetTest(unittest.TestCase):
                 prompt = prompts.build_prompt(card, db, use_hints)
                 self.assertEqual(prompt.count(detail), int(included))
                 self.assertIn("visible collector is Steinbach", prompt)
-                self.assertIn("preserve German (including inset notes) and its uncertainty", prompt)
-                self.assertIn("disclose any translation once in TRANSCRIPTION NOTES", prompt)
-        for rule in ("inset or pasted notes", "original German first",
-                     "English translation in parentheses",
-                     "German text translated into English in parentheses.",
-                     "disclosure when no German was translated"):
+                policy = " ".join(prompt.split())
+                self.assertIn("preserve the original wording, diacritics, abbreviations and uncertainty first", policy)
+                self.assertIn("then immediately add English in parentheses", policy)
+                self.assertIn("Disclose each language you actually translated once", policy)
+                self.assertIn("Copying existing English alone needs no disclosure", policy)
+        for rule in ("inset or pasted notes", "LANGUAGE AND TRANSLATION",
+                     "words support German", "visibly conflicting collector",
+                     "Keep each passage with its field"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, detail)
         self.assertNotIn("Steinbach", prompts.output_requirements(card))
@@ -1225,7 +1228,8 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(prompt.count("known stylized collector signature"), 1)
         self.assertEqual(prompt.count("Other reading guidance."), 1)
         self.assertNotIn("For catalogue record(s) E9999", prompt)
-        hints = json.loads(prompt[prompt.index("\n[", prompt.index("CATALOGUE REFERENCE HINTS")) + 1:])
+        hints, _ = json.JSONDecoder().raw_decode(
+            prompt[prompt.index("\n[", prompt.index("CATALOGUE REFERENCE HINTS")) + 1:])
         self.assertEqual([h["Collector"] for h in hints if h["catalogNumber"] == "E4268"],
                          ["Brandt, Herbert W.", "Brandt, Herbert W.", "Other Collector"])
 
@@ -1267,20 +1271,79 @@ class DatasetTest(unittest.TestCase):
 
     def test_prompt_rules_preserve_source_errors_symbols_and_entry_boundaries(self):
         # Policy checks protect these reviewed requirements, not model accuracy.
-        prompt = prompts.BASE_PROMPT
-        for rule in ("calendar\nimpossibilities", "without correcting\nthe date",
-                     "female (\u2640) and male (\u2642)", "do not substitute a similar-looking letter",
-                     "Never silently merge active and deleted text",
-                     "Check the next line", "separate entries in reading order",
-                     "Do not repeat ordinary annotations", "An address beneath a signature",
-                     "Incubation: Trace of red\none infertile", "source brackets in ANNOTATIONS",
-                     "Treat underlying text, cancellation strokes", "separate layers",
-                     "publisher/printer\nimprints", "A calendar-valid date may still have been misread",
-                     "Distinguish collectors, dealers, former owners, donors and annotators",
-                     "Do not invent identities, intentions or historical explanations"):
+        prompt = " ".join(prompts.BASE_PROMPT.split())
+        for rule in ("calendar-impossible dates without correcting them",
+                     "female (\u2640) and male (\u2642)", "bracketing doubtful symbols",
+                     "Never merge cancelled and surviving text",
+                     "Check the next line", "Preserve separate entries and their leading notation",
+                     "even on a card with one catalogue number",
+                     "A signature address does not establish the collecting locality",
+                     "every set-mark component and incubation line",
+                     "Preserve source-written brackets", "separate layers",
+                     "publisher/printer imprints",
+                     "collectors, dealers, former owners, donors and annotators distinct",
+                     "Never invent identities, intentions, historical explanations",
+                     "Preserve negation, uncertainty and explicitly associated reference numbers/prefixes",
+                     "A printed but empty field takes '-'", "a blank day remains absent",
+                     "an outside value cannot fill an inside field",
+                     "preserve separate measurements on successive lines"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, prompt)
         self.assertNotIn("Brandt", prompt)
+
+    def test_prompt_retains_set_mark_and_cancellation_safeguards(self):
+        policy = " ".join(prompts.BASE_PROMPT.split())
+        for rule in ("apparently clear typed, printed and stamped marks",
+                     "numerator, slash/bar and denominator separately",
+                     "2/3 lower strokes and bases and possible 4 shapes",
+                     "same hand or typeface on supplied sides",
+                     "shape comparisons, never replacement values",
+                     "Preserve a visible dot numerator as a dot ('./<denominator>')",
+                     "Only when evidence supports the interpretation",
+                     "without assigning a role",
+                     "never concatenate attempts or borrow their strokes",
+                     "BOTH visual checks",
+                     "Trace the suspected mark beyond the affected text",
+                     "crosses and deliberately deletes that specific text",
+                     "make no cancellation claim, even 'possibly crossed out'",
+                     "A stamp overlapping handwriting does not cancel it",
+                     "catalogue-number cancellations go once in TRANSCRIPTION NOTES",
+                     "Source-written cancellation statements remain source text"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, policy)
+
+    def test_output_skeleton_matches_supplied_sides_and_validator(self):
+        for sections in (("FRONT",), ("FRONT", "BACK OF SLIP"),
+                         ("BACK OF SLIP",), ("BACK OF SLIP", "BACK OF SLIP 2"),
+                         ("FRONT", "BACK OF SLIP", "BACK OF SLIP 2")):
+            with self.subTest(sections=sections):
+                card = t.Card("layout", ("E1",),
+                              tuple(Path(f"side{i}.jpg") for i in range(len(sections))), sections)
+                requirements = prompts.output_requirements(card)
+                headers = [label for label, _, _ in t.section_headers(requirements)]
+                expected = (["ANNOTATIONS"] if "FRONT" in sections else [])
+                expected += [section for section in sections if section != "FRONT"]
+                self.assertEqual(headers, expected + ["TRANSCRIPTION NOTES"])
+                # Render only the skeleton with synthetic content, then check the
+                # existing output grammar rather than changing the validator to fit it.
+                first_line = "<visible collection" if "FRONT" in sections else "BACK OF SLIP:"
+                skeleton = requirements[requirements.index("\n" + first_line) + 1:]
+                rendered = re.sub(r"<[^>]+>", "Visible source text", skeleton)
+                text, warnings, _ = t.validate_response(response(rendered), card)
+                self.assertEqual(text, rendered)
+                self.assertEqual(warnings, [])
+                self.assertEqual("back's translation or parallel account" in requirements,
+                                 "FRONT" in sections and len(sections) > 1)
+
+    def test_final_check_follows_hints_and_is_retained_on_format_retry(self):
+        card = self.cards({"E4268"})[0]
+        for use_hints in (False, True):
+            prompt = prompts.build_prompt(card, self.db(), use_hints)
+            self.assertTrue(prompt.endswith(prompts.FINAL_CHECKS))
+            self.assertEqual(prompt.count(prompts.FINAL_CHECKS), 1)
+        retry = prompts.format_correction(card, "Missing annotations")
+        self.assertIn(prompts.FINAL_CHECKS, retry)
+        self.assertIn("Transcribe the supplied images again, preserving all visible text", retry)
 
     def test_prompt_side_requirements_are_shared_by_initial_and_retry_instructions(self):
         card = t.Card("backs", ("E001",), (Path("back.jpg"), Path("back2.jpg")),

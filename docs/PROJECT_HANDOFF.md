@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **2026-10-27.2**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **10-28.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Prompt consolidation - 10-28.0 (prepared 27 October 2026)
+
+The maintainer authorized consolidating the prompt before further source-reviewed trials and requested the exact version label **10-28.0**. `egg_slip_prompt.py` now groups shared policy by topic, uses a supplied-side output skeleton, and places a short `FINAL_CHECKS` after hints and in format corrections. Full translation policy is shared; the Brandt and Steinbach addenda retain their distinctive reminders. Specimen-specific answer vocabulary and repeated explanations were removed, with reviewed examples retained as history in [transcription rules](transcription_rules.md#prompt-consolidation---10-280). That section maps previous requirements to their new homes.
+
+The base plus final checklist is 2,092 words versus the previous base's 3,933; Brandt is 162 versus 501, and Steinbach 63 versus 152 (whitespace counts, not tokens). The recent same-hand/typeface digit comparisons, dot numerators, two-check cancellation rule, surviving corrections, translation disclosures, partial dates, collection flags and source uncertainty remain. Multi-entry guidance remains unconditional because one catalogue number can have multiple narrative entries. The output skeleton handles front-only, back-only and multiple backs; parallel-back translation guidance is included only with both front and back.
+
+No responsibilities moved outside the prompt module. Provider, temperature 1.0, high thinking, image preparation, collector selection, validation/status meanings, retries, accounting and report rendering are unchanged. This intentionally changes prompt text and resulting normal fingerprints; history is preserved. The campaign process was confirmed stopped before editing. The existing local viewer edit was preserved. No campaign state/approvals, museum source data or saved reports were changed, and no live requests were made. Improved reading quality remains unmeasured.
+
+Verification in the existing project virtual environment: baseline **169 tests, 168 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**; final transcription/campaign suites **246 tests, 245 passed and the same fixture skipped**, including both mocked provider transports. Added checks cover retained critical policy, supplied-side skeletons accepted by the unchanged validator, and final-check placement in initial/retry prompts. The sandbox's temporary-directory access initially prevented fixture operations; normal temporary-folder access resolved that. The system interpreter lacked the optional OpenAI SDK, so the already configured project virtual environment was used for complete transport coverage.
 
 ## Typewritten set-mark digit comparisons - 27 October 2026
 
@@ -502,7 +512,7 @@ All of these selection/record/folder rules are domain behavior. Safe path checks
 
 ## Prompt and transcription architecture
 
-`BASE_PROMPT` and prompt assembly live in `egg_slip_prompt.py`. `build_prompt` appends `output_requirements(card)`, file warnings, multi-number references, and JSON catalogue hints for each matched record. Missing and uncatalogued records receive no invented reference values. `--no-csv-hints` is an ablation option, not a no-CSV execution mode.
+`BASE_PROMPT` and prompt assembly live in `egg_slip_prompt.py`. `build_prompt` appends the supplied-side skeleton from `output_requirements(card)`, file warnings, multi-number references, scoped collector guidance and JSON catalogue hints for matched records, then `FINAL_CHECKS`. Format correction reuses the side requirements and checklist with the original prompt/images. Missing and uncatalogued records receive no invented reference values. `--no-csv-hints` is an ablation option, not a no-CSV execution mode.
 
 `prepare_card` places a filename and explicit section label immediately before each image. The model is told how many front/back images were actually supplied and which back headings are expected, so a generic template cannot require a nonexistent back. The format retry adds a correction to the original evidence; it does not use the faulty answer as source truth or mutate the original request contents.
 

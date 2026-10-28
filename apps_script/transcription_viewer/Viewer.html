@@ -77,9 +77,8 @@
       <p role="status"><?= result.message ?></p>
     </div>
   <? } else if (result) { ?>
-    <p class="source">Report date: <?= result.reportDate ?> (report writer’s local time).
-      <a href="<?= result.sourceUrl ?>" target="_blank" rel="noopener noreferrer">Open source report</a>
-      <small>Original Drive links require separate permission. The record text and scans are available here.</small>
+    <p class="source">Report date: <?= result.reportDate ?>
+      <a href="<?= result.sourceUrl ?>" target="_blank" rel="noopener noreferrer">Open full report</a>
     </p>
     <? for (const record of result.records) { ?>
       <article>
