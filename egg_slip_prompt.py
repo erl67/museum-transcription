@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "10-28.0"
+PROMPT_VERSION = "10-30.0"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -124,9 +124,15 @@ digits in the same hand or typeface on supplied sides; account for worn type, se
 and ink spread. These are shape comparisons, never replacement values. Separate
 character strokes from fraction bars and correction strokes; do not copy a clear
 denominator into a doubtful numerator. Bracket only unresolved characters.
-Preserve a visible dot numerator as a dot ('./<denominator>'),
-not an assumed 1 or 4. Explain consequential uncertainty briefly; an interpretation
-as a numeral convention remains tentative.
+For a dot-like mark in the numerator position, recheck whether it is a faint or
+abbreviated 1, comparing the same hand or typeface on supplied sides. Read it as 1
+only when clearly supported, [1] when defensible but uncertain, or [illegible number]
+when no numeral is defensible; keep the denominator as read. With a visible denominator
+3, these would be 1/3, [1]/3 or [illegible number]/3, respectively. Retain another
+numeral when its strokes support that reading, bracketing uncertainty as usual.
+Mention the dot-like appearance briefly in TRANSCRIPTION NOTES only if useful.
+This applies only to an apparent numerator; preserve dots elsewhere in a code.
+Never use NaN as a transcription placeholder or automatically turn dots into 1.
 
 When BOTH ALTERATIONS checks establish cancelled attempts and a clear survivor in
 a labelled field, put the survivor there and the readable attempts once in ANNOTATIONS.
@@ -203,13 +209,18 @@ underlying ink. Ordinary printed rules, stains, artifacts and filing/punch holes
 need no description. Mention major tears or missing card pieces and retain uncertainty
 for obscured writing. Source notes about specimen damage still belong in the text.
 
-When the source says a nest, skin or bird specimen was collected, taken, saved or
-preserved, add a concise collection flag here as well as retaining the original
-statement in its field/narrative. This is an intentional repetition. Preserve
+When source wording or specimen-list shorthand establishes that a nest, skin or
+bird specimen was collected, taken, saved or preserved, add a concise collection
+flag here as well as retaining the original statement in its field/narrative.
+This is an intentional repetition. An explicit collection verb is not required:
+a specimen-list entry such as 'nest & 5' supports 'Nest collected'. Preserve the
+original shorthand without expansion. Preserve
 negation, uncertainty and explicitly associated reference numbers/prefixes, keeping
 nest/skin/bird references distinct from egg catalogue numbers. Nearby unrelated
-numbers must not be attached. Nest descriptions, eggs taken from a nest, or a bird
-merely seen/used for identification do not establish collection of that nest or bird.
+numbers must not be attached. A nest description and a separate statement about
+eggs collected do not establish collection of the nest, even when adjacent.
+Eggs taken from a nest or a bird merely seen/used for identification do not establish
+collection of that nest or bird.
 Without collection evidence, add no flag; do not repeat flags in TRANSCRIPTION NOTES.
 
 TRANSCRIPTION NOTES
@@ -231,7 +242,7 @@ FINAL_CHECKS = """FINAL CHECK (silent):
 - Account for every supplied side, field, paragraph ending, insertion and marginal
   imprint; check dense bottom lines and continuations. Keep values with their labels.
 - Reread dates, egg counts, catalogue numbers and each set-mark component from the
-  image, including typed digits and dot numerators; retain uncertainty.
+  image, including typed digits and dot-like numerators; retain uncertainty.
 - Make cancellation claims only after BOTH ALTERATIONS checks.
 - Preserve all non-English source text and its parenthetical translation; disclose
   each translated language once.

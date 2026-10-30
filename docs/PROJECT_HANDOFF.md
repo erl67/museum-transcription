@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **27 October 2026**, application build **2026-10-19.1**, prompt **10-28.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **30 October 2026**, application build **2026-10-19.1**, prompt **10-30.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Collection shorthand and dot-like numerators - 30 October 2026
+
+The maintainer approved two focused changes to the consolidated prompt. Prompt **10-30.0** accepts specimen-list shorthand such as `nest & 5` as collection evidence without requiring a collection verb, while explicitly rejecting proximity between a nest description and a separate egg-collection statement as evidence that the nest was collected. The maintainer confirmed E67's nest-collected interpretation; it is not a confirmed false positive. Original wording, negation, uncertainty and associated references remain preserved.
+
+For an apparent dot-like numerator, compare same-hand/typeface evidence for a faint or abbreviated 1. With a visible denominator 3, output `1/3` only when supported clearly, `[1]/3` when defensible but uncertain, or `[illegible number]/3` when no numeral is defensible. Other supported numerals remain possible; dots elsewhere in codes remain source text. Never invent `NaN` as a placeholder. No supplied example establishes that `NaN` was actually emitted. This deliberately replaces the literal-dot numerator rule in 10-28.0; earlier E7827 uncertainty remains historical evidence, not a newly confirmed reading.
+
+The checkout was clean and the campaign process was confirmed stopped. No responsibilities moved. Provider/settings, image handling, validation, accounting and the consolidated prompt structure remain unchanged. Existing policy assertions were updated. The new prompt intentionally changes normal fingerprints for future selections; journal history, saved transcriptions, museum source files and campaign state/approvals were not edited. No paid requests were made.
+
+The pre-edit offline baseline ran **172 tests: 171 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. Final transcription/campaign suites ran **246 tests: 245 passed and the same fixture skipped**, including both mocked provider transports. `git diff --check` passed. Offline verification checks software behavior and retained policy, not improved handwriting accuracy.
 
 ## Prompt consolidation - 10-28.0 (prepared 27 October 2026)
 

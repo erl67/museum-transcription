@@ -1283,6 +1283,10 @@ class DatasetTest(unittest.TestCase):
                      "publisher/printer imprints",
                      "collectors, dealers, former owners, donors and annotators distinct",
                      "Never invent identities, intentions, historical explanations",
+                     "An explicit collection verb is not required",
+                     "a specimen-list entry such as 'nest & 5' supports 'Nest collected'",
+                     "A nest description and a separate statement about eggs collected do not "
+                     "establish collection of the nest, even when adjacent",
                      "Preserve negation, uncertainty and explicitly associated reference numbers/prefixes",
                      "A printed but empty field takes '-'", "a blank day remains absent",
                      "an outside value cannot fill an inside field",
@@ -1298,7 +1302,11 @@ class DatasetTest(unittest.TestCase):
                      "2/3 lower strokes and bases and possible 4 shapes",
                      "same hand or typeface on supplied sides",
                      "shape comparisons, never replacement values",
-                     "Preserve a visible dot numerator as a dot ('./<denominator>')",
+                     "dot-like mark in the numerator position",
+                     "Read it as 1 only when clearly supported, [1] when defensible but uncertain, "
+                     "or [illegible number] when no numeral is defensible",
+                     "preserve dots elsewhere in a code",
+                     "Never use NaN as a transcription placeholder or automatically turn dots into 1",
                      "Only when evidence supports the interpretation",
                      "without assigning a role",
                      "never concatenate attempts or borrow their strokes",
