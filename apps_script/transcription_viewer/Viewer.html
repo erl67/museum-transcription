@@ -24,7 +24,14 @@
     input { width: 100%; padding: 10px; border: 1px solid #81938a; border-radius: 4px; margin-top: 5px; font: inherit; }
     button { justify-self: start; background: #245c49; color: white; border: 0; border-radius: 5px; padding: 11px 20px; font: inherit; cursor: pointer; }
     button:hover { background: #174333; }
-    input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #b7821d; outline-offset: 3px; }
+    input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #b7821d; outline-offset: 3px; }
+    .catalogue-family { margin-top: 12px; border: 1px solid #d2d9d3; border-radius: 5px; }
+    .catalogue-family summary { padding: 12px 16px; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+    .catalogue-browse h2, .catalogue-browse .subtitle { overflow-wrap: anywhere; }
+    .species-list { list-style: none; margin: 0; padding: 0 16px 12px 34px; }
+    .species-list a { display: inline-block; padding: 7px 0; overflow-wrap: anywhere; }
+    .card-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px 16px; list-style: none; padding: 0; margin: 20px 0 0; }
+    .card-list a { display: block; padding: 8px 0; overflow-wrap: anywhere; }
     .status { margin: 12px 0; padding: 12px 14px; background: #edf3ee; border-left: 4px solid #567c66; }
     .attention, .error { background: #fff5df; border-color: #ac7b22; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 17px; line-height: 1.65; margin-bottom: 0; }
@@ -60,14 +67,43 @@
       <? } else { ?><button type="button" disabled aria-label="Next record">Next &rarr;</button><? } ?>
     </nav>
   </header>
-  <div class="subtitle">Enter an E-number to view the available transcription and card scans.</div>
+  <div class="subtitle">Enter an E-number or species to view card records. <a href="<?= browseUrl ?>">Browse by family</a>.</div>
   <? if (result && result.navigationMessage) { ?>
     <p class="navigation-notice" role="status"><?= result.navigationMessage ?></p>
   <? } ?>
   <form method="get" action="<?= appUrl ?>">
-    <label>E-number<input name="e" required maxlength="6" pattern="[Ee]?[0-9]{1,5}" title="Enter up to five digits, with or without E."></label>
-    <button type="submit">Find record</button>
+    <label>E-number or species<input name="q" required maxlength="200" title="Enter an E-number or a complete scientific name."></label>
+    <button type="submit">Search</button>
   </form>
+  <? if (browse) { ?>
+    <section class="message catalogue-browse" aria-label="Catalogue results">
+      <? if (browse.kind === 'families') { ?>
+        <h2>Browse by family</h2>
+        <p class="subtitle">Select a family, then choose a species to view its cards.</p>
+        <? if (!browse.families.length) { ?><p>No numbered records are listed in the catalogue.</p><? } ?>
+        <? for (const family of browse.families) { ?>
+          <details class="catalogue-family">
+            <summary><?= family.name ?></summary>
+            <ul class="species-list">
+              <? for (const species of family.species) { ?>
+                <li><a href="<?= species.url ?>"><i><?= species.name ?></i></a></li>
+              <? } ?>
+            </ul>
+          </details>
+        <? } ?>
+      <? } else { ?>
+        <h2><i><?= browse.species ?></i></h2>
+        <? if (browse.family) { ?><div class="subtitle"><?= browse.family ?></div><? } ?>
+        <? if (browse.cards.length) { ?>
+          <ul class="card-list" aria-label="E-numbers">
+            <? for (const card of browse.cards) { ?>
+              <li><a href="<?= card.url ?>"><?= card.e ?></a></li>
+            <? } ?>
+          </ul>
+        <? } else { ?><p>No catalogue records match this species.</p><? } ?>
+      <? } ?>
+    </section>
+  <? } ?>
   <? if (result && result.error) { ?>
     <div class="message error" role="alert"><?= result.error ?></div>
   <? } else if (result && !result.records.length) { ?>

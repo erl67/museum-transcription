@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **30 October 2026**, application build **2026-10-19.1**, prompt **10-30.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **31 October 2026**, application build **2026-10-19.1**, prompt **10-30.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Viewer species search and family browsing - 31 October 2026
+
+The initial viewer stays empty of results. Its blank search field accepts an E-number or scientific species name; **Browse by family** opens alphabetical families that expand to reveal species links. Species open a separate list of catalogue E-numbers in numerical order, each linked to the existing record viewer. Both views use the existing Apps Script project/deployment and escaped `Viewer.html` template. Deploy **Code.gs and Viewer.html together**. See the [viewer guide](../apps_script/transcription_viewer/README.md#browse-species-and-families).
+
+`doGet` handles the new `q` search parameter and `view=families` / `view=species` routes while retaining existing `e`, location and Previous/Next links. `browseCatalogue_` reuses the full routing cache and existing catalogue sequence validation/sorting. Record lookup and browsing share the extracted `normalizeLocation_` helper, preserving the first-two-word species rule. No Python responsibilities moved. Initial-page requests do not read catalogue files or collection folders; numeric searches retain the one-bucket path and do not build browse lists. Browsing reads catalogue metadata only, without report/scan folder enumeration, and retains public request guards and lookup bounds. All numbered catalogue entries are listed regardless of file availability; duplicate routes are deduplicated, significant zeros remain distinct, and conflicting/incomplete numbered rows fail explicitly.
+
+The earlier local change to a six-hour catalogue cache is preserved. File identity, size and modification-time checks still invalidate changed exports immediately, and early cache eviction still falls back to reading the CSV. No source data, transcription settings, prompts, reports, campaign state or deployment was changed.
+
+Baseline: **105 viewer tests passed; 172 Python tests ran, 171 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**, including both mocked provider transports. Final: **114 viewer tests passed with no skips**. New checks exercise template branches, blank initial loading, unchanged numeric-cache access, list ordering/link destinations, duplicate/zero handling, missing records, public controls, input/time bounds, escaping and no report/scan reads during browsing. A local browser check with synthetic catalogue data confirmed the empty landing page, collapsed families, species links and typed-species results. Native Apps Script rendering and deployed response times remain deployment checks.
 
 ## Collection shorthand and dot-like numerators - 30 October 2026
 

@@ -404,16 +404,14 @@ test('CSV discovery rejects absent and ambiguous exports instead of choosing one
   }
 });
 
-test('form submits only E-number so a new search cannot inherit stale family or species', () => {
+test('form submits only the number/species search so it cannot inherit stale location hints', () => {
   const template = fs.readFileSync(path.join(__dirname, 'Viewer.html'), 'utf8');
-  assert.match(template.replace(/<\?[\s\S]*?\?>/g, ""), /name="e"[^>]*required/);
+  assert.match(template.replace(/<\?[\s\S]*?\?>/g, ""), /name="q"[^>]*required/);
   assert.doesNotMatch(template, /name="(?:family|species)"/);
   assert.ok(template.includes('<?= result.query.family ?>'));
-  assert.match(template, /<input name="e" required maxlength="6"/);
+  assert.match(template, /<input name="q" required maxlength="200"/);
   assert.doesNotMatch(template, /<input[^>]*placeholder=/);
-  const pattern = new RegExp('^(?:' + template.match(/<input[^>]*pattern="([^"]+)"/)[1] + ')$');
-  for (const value of ['E10215', '10215', 'e5350', '001']) assert.ok(pattern.test(value), value);
-  for (const value of ['123456', 'E123456', 'E', '12x']) assert.ok(!pattern.test(value), value);
+  assert.doesNotMatch(template, /<input[^>]*pattern=/);
   assert.doesNotMatch(template, /<input[^>]*\bvalue=/);
 });
 
@@ -678,6 +676,20 @@ function requestRenderer(drive, source = code, extra = {}) {
     ...extra
   }, source);
   return params => { local.doGet({ parameter: params }); return page; };
+}
+
+// Exercise template branches locally. Native Apps Script context escaping remains a deployment check.
+function renderViewer(page) {
+  const template = fs.readFileSync(path.join(__dirname, 'Viewer.html'), 'utf8');
+  let source = 'let html = "";\n', cursor = 0;
+  for (const match of template.matchAll(/<\?(=)?([\s\S]*?)\?>/g)) {
+    source += 'html += ' + JSON.stringify(template.slice(cursor, match.index)) + ';\n';
+    source += match[1] ? 'html += escapeHtml(' + match[2] + ');\n' : match[2] + '\n';
+    cursor = match.index + match[0].length;
+  }
+  source += 'html += ' + JSON.stringify(template.slice(cursor)) + ';\nhtml;';
+  const escapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  return vm.runInNewContext(source, { ...page, escapeHtml: value => String(value).replace(/[&<>"']/g, c => escapes[c]) });
 }
 
 test('browser title identifies the search page and normalized records, including scan-only searches', () => {
@@ -1283,6 +1295,159 @@ function navigationFixture(rows = navigationRows, reports = {}) {
   return { local, drive, storage, render: requestRenderer(drive, csvCode, extra),
     csvReads: () => csvReads, reportReads: () => reportReads };
 }
+
+test('opening the viewer leaves results empty and reads no catalogue or collection folders', () => {
+  const drive = { getFileById() { assert.fail('Initial page must not read files'); },
+    getFolderById() { assert.fail('Initial page must not read folders'); } };
+  const render = requestRenderer(drive);
+  for (const params of [{}, { q: '' }, { q: '  ' }]) {
+    const page = render(params), html = renderViewer(page);
+    assert.equal(page.result, null);
+    assert.equal(page.browse, null);
+    assert.equal(page.title, 'Egg Slip Record Search');
+    assert.match(html, />Browse by family<\/a>/);
+    assert.doesNotMatch(html, /<section|<details|<article|<input[^>]*\bvalue=/);
+    assert.ok(html.indexOf('<footer') > html.indexOf('</main>'));
+  }
+});
+
+test('number searches keep the single-bucket path and discard stale form location hints', () => {
+  const fixture = navigationFixture(navigationRows, { aves: { Alpha_bird: block(['2'], 'retained text') } });
+  let batchReads = 0;
+  fixture.storage.cache.getAll = () => { batchReads++; assert.fail('Number search must not read every bucket'); };
+  for (const q of ['2', 'e2', ' E2 ']) {
+    const page = fixture.render({ q, e: '35', family: 'Zed', species: 'Zeta bird' });
+    assert.equal(page.browse, null);
+    assert.equal(page.result.query.e, 'E2');
+    assert.equal(page.result.records[0].text, 'retained text');
+    assert.equal(page.title, 'E2 Egg Slip Record');
+    const html = renderViewer(page);
+    assert.match(html, /id="source-scans"/);
+    assert.doesNotMatch(html, /<details|<section class="message catalogue-browse"/);
+  }
+  assert.equal(fixture.csvReads(), 1);
+  assert.equal(batchReads, 0);
+});
+
+test('family browsing returns alphabetical families and linked species without reading report or image folders', () => {
+  const fixture = navigationFixture();
+  fixture.drive.getFolderById = () => ({ getFolders() { assert.fail('Browse must not list collection folders'); } });
+  const page = fixture.render({ view: 'families' });
+  assert.equal(page.result, null);
+  assert.equal(page.browse.kind, 'families');
+  assert.equal(page.title, 'Browse by Family | Egg Slip Records');
+  assert.equal(page.browse.families.map(f => f.name).join('|'), 'Aves|Zed');
+  assert.equal(page.browse.families[0].species.map(s => s.name).join('|'), 'Alpha bird|Beta bird');
+  assert.equal(page.browse.families[1].species.map(s => s.name).join('|'), 'Aardvark bird|Zeta bird');
+  const url = new URL(page.browse.families[0].species[0].url);
+  assert.equal(url.searchParams.get('view'), 'species');
+  assert.equal(url.searchParams.get('family'), 'Aves');
+  assert.equal(url.searchParams.get('species'), 'Alpha_bird');
+  const html = renderViewer(page);
+  assert.equal((html.match(/<details\b/g) || []).length, 2);
+  assert.doesNotMatch(html, /<details[^>]*\bopen|<ul class="card-list"|id="source-scans"/);
+  assert.equal(fixture.reportReads(), 0);
+});
+
+test('species searches and family links list exact species numbers numerically and reuse the catalogue cache', () => {
+  const fixture = navigationFixture([...navigationRows, ['E3', 'Aves', 'Alpha birdlike']]);
+  let batches = 0;
+  const getAll = fixture.storage.cache.getAll;
+  fixture.storage.cache.getAll = keys => { batches++; return getAll(keys); };
+  const families = fixture.render({ view: 'families' });
+  const link = families.browse.families[0].species.find(s => s.name === 'Alpha bird').url;
+  const requests = [{ q: 'alpha   BIRD' }, { q: 'Alpha_bird' },
+    Object.fromEntries(new URL(link).searchParams)];
+  for (const params of requests) {
+    const page = fixture.render(params);
+    assert.equal(page.result, null);
+    assert.equal(page.browse.species, 'Alpha bird');
+    assert.equal(page.title, 'Alpha bird | Egg Slip Records');
+    assert.equal(page.browse.cards.map(card => card.e).join('|'), 'E2|E10|E100');
+    assert.equal(new URL(page.browse.cards[0].url).search, '?e=E2');
+    const html = renderViewer(page);
+    assert.doesNotMatch(html, /<details|id="source-scans"/);
+    assert.match(html, /href="https:\/\/script.google.com\/example\/exec\?e=E2"/);
+    assert.ok(html.indexOf('>E2</a>') < html.indexOf('>E10</a>'));
+  }
+  assert.equal(batches, 4);
+  assert.equal(fixture.csvReads(), 1);
+  assert.equal(fixture.reportReads(), 0);
+});
+
+test('species results preserve leading zeros, deduplicate identical routes, and include records awaiting scans', () => {
+  const fixture = navigationFixture([catalogueHeader,
+    ['E10', 'Family', 'Genus species'], ['E1', 'Family', 'Genus species'],
+    ['E001', 'Family', 'Genus species'], ['E1', 'FAMILY', 'GENUS species subspecies']]);
+  const page = fixture.render({ q: 'Genus species' });
+  assert.equal(page.browse.cards.map(card => card.e).join('|'), 'E001|E1|E10');
+  const record = fixture.render(Object.fromEntries(new URL(page.browse.cards[0].url).searchParams));
+  assert.equal(record.result.query.e, 'E001');
+  assert.equal(record.result.records.length, 0);
+  assert.equal(record.result.imageRequest.query.e, 'E001');
+});
+
+test('species matching can span families or use the family link to select one group', () => {
+  const fixture = navigationFixture([catalogueHeader,
+    ['E30', 'Aves', 'Alpha bird'], ['E2', 'Zed', 'Alpha bird']]);
+  assert.equal(fixture.render({ q: 'Alpha bird' }).browse.cards.map(c => c.e).join('|'), 'E2|E30');
+  assert.equal(fixture.render({ view: 'species', species: 'Alpha bird', family: 'aves' }).browse.cards[0].e, 'E30');
+  const none = fixture.render({ q: 'No match' });
+  assert.equal(none.browse.cards.length, 0);
+  assert.match(renderViewer(none), /No catalogue records match this species/);
+  const empty = navigationFixture([catalogueHeader]).render({ view: 'families' });
+  assert.match(renderViewer(empty), /No numbered records are listed in the catalogue/);
+});
+
+test('browse lists reject conflicts and incomplete catalogues rather than returning partial lists', () => {
+  for (const extra of [['E2', 'Zed', 'Alpha bird'], ['E8', '', 'Beta bird'], ['E8', 'Aves', 'Incomplete']]) {
+    const fixture = navigationFixture([...navigationRows, extra]);
+    for (const params of [{ view: 'families' }, { q: 'Alpha bird' }]) {
+      const page = fixture.render(params);
+      assert.equal(page.browse, null);
+      assert.match(page.result.error, /conflicting|without a family|valid family/);
+      assert.doesNotMatch(renderViewer(page), /<details|<ul class="card-list"/);
+    }
+  }
+});
+
+test('browse requests enforce public controls, input bounds and lookup time limits', () => {
+  const noDrive = { getFolderById() { assert.fail('Unexpected folder read'); }, getFileById() { assert.fail('Unexpected file read'); } };
+  const invalid = requestRenderer(noDrive);
+  for (const params of [{ view: 'unknown' }, { q: 'x'.repeat(201) }, { q: ['Alpha bird'] },
+    { view: 'species', species: 'x'.repeat(201) }, { view: 'species', species: 'Alpha bird', family: [] },
+    { view: 'species' }, { q: 'Alpha/invalid bird' }]) {
+    assert.ok(invalid(params).result.error);
+  }
+  const controls = publicControls();
+  controls.values.set('VIEWER_PUBLIC_DISABLED', 'true');
+  const denied = requestRenderer(noDrive, code, controls.services);
+  for (const params of [{ view: 'families' }, { q: 'Alpha bird' }]) {
+    assert.match(denied(params).result.error, /temporarily unavailable/);
+  }
+  const limited = requestRenderer(noDrive, code.replace('MAX_REQUESTS_PER_DAY: 3000', 'MAX_REQUESTS_PER_DAY: 0'));
+  assert.match(limited({ view: 'families' }).result.error, /request limit/);
+  const fixture = navigationFixture();
+  const timed = requestRenderer(fixture.drive, csvCode.replace('MAX_LOOKUP_MS: 45000', 'MAX_LOOKUP_MS: -1'), { Utilities: csvUtilities });
+  const page = timed({ view: 'families' });
+  assert.match(page.result.error, /time limit.*list could not be completed/);
+  assert.equal(page.browse, null);
+  assert.equal(fixture.csvReads(), 0);
+});
+
+test('browse labels are escaped and link parameters are encoded rather than interpreted as markup', () => {
+  const fixture = navigationFixture([catalogueHeader, ['E1', "Birds & 'eggs'", "Genus spe'cies"]]);
+  const page = fixture.render({ view: 'families' });
+  const html = renderViewer(page);
+  assert.match(html, /Birds &amp; &#39;eggs&#39;/);
+  assert.match(html, /Genus spe&#39;cies/);
+  const params = Object.fromEntries(new URL(page.browse.families[0].species[0].url).searchParams);
+  assert.equal(params.family, "Birds & 'eggs'");
+  assert.equal(fixture.render(params).browse.cards[0].e, 'E1');
+  const attack = fixture.render({ q: '<script>alert(1)</script> bird' });
+  assert.equal(attack.browse, null);
+  assert.doesNotMatch(renderViewer(attack), /<script>alert/);
+});
 
 test('navigation sorts numeric identifiers within alphabetical family/species despite shuffled CSV rows', () => {
   const sequence = ctx.navigationSequence_(navigationRows, () => {});

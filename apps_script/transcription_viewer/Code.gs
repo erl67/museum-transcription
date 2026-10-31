@@ -15,7 +15,7 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   MAX_IMAGE_BYTES: 12 * 1024 * 1024,
   MAX_TOTAL_IMAGE_BYTES: 24 * 1024 * 1024,
   MAX_IMAGES: 40,
-  CATALOGUE_CACHE_SECONDS: 900,
+  CATALOGUE_CACHE_SECONDS: 21600, // Six hours, the CacheService maximum; CSV changes invalidate sooner.
   CATALOGUE_CACHE_BUCKETS: 64,
   SCAN_PLAN_SECONDS: 600,
   // Shared by ALL visitors, including anonymous callers; UTC fixed windows.
@@ -87,10 +87,23 @@ function doGet(e) {
     species: String(params.species || '').slice(0, 200)
   };
   page.appUrl = ScriptApp.getService().getUrl();
+  page.browseUrl = page.appUrl + '?view=families';
+  page.browse = null;
   page.result = null;
   try {
     timing.measure('access', requireViewerAccess_);
-    if (page.query.e || page.query.family || page.query.species) {
+    if (params.q != null && (typeof params.q !== 'string' || params.q.length > 200)) {
+      throw viewerError_('Enter an E-number or scientific name of no more than 200 characters.');
+    }
+    if (params.view != null && !['families', 'species'].includes(params.view)) {
+      throw viewerError_('Choose Browse by family or search for an E-number or species.');
+    }
+    const search = String(params.q || '').trim();
+    // A form search carries no location hints from the previously displayed record.
+    if (params.q != null) page.query = { e: search, family: '', species: '' };
+    if (params.view || (search && !/^(?:E|CM)?[0-9]+$/i.test(search))) {
+      page.browse = browseCatalogue_(params.view ? params : { view: 'species', species: search }, page.appUrl, timing);
+    } else if (page.query.e || page.query.family || page.query.species) {
       if (params.direction) {
         let navigation;
         try { navigation = timing.measure('navigation', () => navigateRecord_(page.query, String(params.direction), timing)); }
@@ -111,8 +124,8 @@ function doGet(e) {
     page.result = { error: error.viewerMessage ||
       'The reports could not be read. The collection maintainer should check the Family folder and its reports.' };
   }
-  const title = page.result && !page.result.error ?
-    page.result.query.e + ' Egg Slip Record' : 'Egg Slip Record Search';
+  const title = page.browse ? (page.browse.kind === 'families' ? 'Browse by Family' : page.browse.species) + ' | Egg Slip Records' :
+    page.result && !page.result.error ? page.result.query.e + ' Egg Slip Record' : 'Egg Slip Record Search';
   if (page.result && !page.result.error) page.result.timings = timing.snapshot();
   const output = timing.measure('template', () => page.evaluate().setTitle(title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1'));
@@ -180,8 +193,14 @@ function normalizeQuery_(query) {
   }
   const match = /^(?:E|CM)?([0-9]+)$/i.exec(String(query.e || '').trim());
   if (!match) throw viewerError_('Enter one complete E-number, such as E4268.');
-  const family = String(query.family || '').trim();
-  const scientificName = String(query.species || '').trim();
+  const location = normalizeLocation_(query.family, query.species);
+  return { e: 'E' + match[1], digits: match[1], family: location.family, species: location.species };
+}
+
+/** Shared catalogue/report location spelling, including the existing first-two-word species rule. */
+function normalizeLocation_(familyValue, speciesValue) {
+  const family = String(familyValue || '').trim();
+  const scientificName = String(speciesValue || '').trim();
   let species = '';
   if (scientificName) {
     const words = scientificName.replace(/_/g, ' ').split(/\s+/);
@@ -194,7 +213,7 @@ function normalizeQuery_(query) {
       /[. ]$/.test(value) || value === '.' || value === '..') || species.endsWith('_')) {
     throw viewerError_('The Family or Scientific Name is not a valid report location.');
   }
-  return { e: 'E' + match[1], digits: match[1], family: family, species: species };
+  return { family: family, species: species };
 }
 
 /** Read only catalogue routing fields; never return the raw CSV to the browser. */
@@ -237,7 +256,7 @@ function readCatalogue_(root, checkTime, digits, timing) {
     if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
       throw viewerError_('The catalogue CSV exceeds the viewer size limit. The E-number search could not be completed.');
     }
-    // null requests the full routing catalogue for navigation; undefined retains the raw CSV reader.
+    // null requests the full routing catalogue for navigation/browsing; undefined retains the raw CSV reader.
     const cache = digits === undefined ? null : userCache_();
     const version = cache ? fileVersion_(file) : '';
     const prefix = cache ? 'catalogue-v1:' + digest_(file.getId() + ':' + version) + ':' : '';
@@ -430,6 +449,50 @@ function navigationSequence_(rows, checkTime) {
     a[0].family.localeCompare(b[0].family, 'en', { sensitivity: 'base' }) ||
     a[0].species.localeCompare(b[0].species, 'en', { sensitivity: 'base' }))
     .reduce((all, group) => all.concat(group.sort(compareCatalogueNumbers_)), []);
+}
+
+/** Catalogue lists only: do not inspect report or scan folders until a record is opened. */
+function browseCatalogue_(params, appUrl, timing) {
+  if (['family', 'species'].some(key => params[key] != null &&
+      (typeof params[key] !== 'string' || params[key].length > 200))) {
+    throw viewerError_('The family or scientific name is invalid or too long.');
+  }
+  const location = params.view === 'species' ? normalizeLocation_(params.family, params.species) : null;
+  if (location && !location.species) throw viewerError_('Enter a complete scientific name.');
+  const started = Date.now();
+  const checkTime = () => {
+    if (Date.now() - started > TRANSCRIPTION_VIEWER.MAX_LOOKUP_MS) {
+      throw viewerError_('The catalogue search time limit was reached. The list could not be completed. Please try again.');
+    }
+  };
+  const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
+  const rows = measured_(timing, 'browseCatalogue', () => readCatalogue_(root, checkTime, null, timing));
+  const sequence = measured_(timing, 'browseSequence', () => navigationSequence_(rows, checkTime));
+  if (location) {
+    const matches = sequence.filter(route => route.species.toLowerCase() === location.species.toLowerCase() &&
+      (!location.family || route.family.toLowerCase() === location.family.toLowerCase())).sort(compareCatalogueNumbers_);
+    const families = new Map();
+    const cards = matches.map(route => {
+      checkTime();
+      families.set(route.family.toLowerCase(), route.family);
+      return { e: route.e, url: appUrl + '?e=' + encodeURIComponent(route.e) };
+    });
+    checkTime();
+    return { kind: 'species', species: location.species.replace(/_/g, ' '),
+      family: Array.from(families.values()).join(' · ') || location.family, cards: cards };
+  }
+  const families = new Map();
+  for (const route of sequence) {
+    checkTime();
+    const key = route.family.toLowerCase();
+    if (!families.has(key)) families.set(key, { name: route.family, species: new Map() });
+    families.get(key).species.set(route.species.toLowerCase(), {
+      name: route.species.replace(/_/g, ' '),
+      url: appUrl + '?view=species&family=' + encodeURIComponent(route.family) + '&species=' + encodeURIComponent(route.species)
+    });
+  }
+  return { kind: 'families', families: Array.from(families.values()).map(family =>
+    ({ name: family.name, species: Array.from(family.species.values()) })) };
 }
 
 /** Run only after a navigation click; ordinary searches do no adjacent-record work. */
