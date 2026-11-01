@@ -130,6 +130,51 @@ test('strips complete run footer and preserves final card text', () => {
   assert.equal(ctx.parseReport_(missing('Remarks: Some record') + footer, '001')[0].text, 'Remarks: Some record');
 });
 
+const savedUsageHeading = 'SAVED RESULT USAGE (includes recorded retries; not new spending this run):\n';
+const savedUsageFooter = savedUsageHeading + 'TOKENS: 10 in\n' +
+  'AVERAGE/CALL (1/1 calls with complete usage): 10 in\nRUN: 1 calls | 10 tokens | $0.00\n';
+
+test('campaign snapshot footer does not make the final shared card appear incomplete', () => {
+  const body = 'Collector: Last card\nBACK OF SLIP:\nHistorical text\nTRANSCRIPTION NOTES:\nNone.';
+  const report = block(['999'], 'earlier card', 'OK') + block(['001', '002'], body, 'OK') + savedUsageFooter;
+  for (const text of [report, '\uFEFF' + report.replace(/\n/g, '\r\n')]) {
+    for (const digits of ['001', '002']) {
+      const record = ctx.parseReport_(text, digits)[0];
+      assert.equal(record.text, body);
+      assert.equal(record.status, 'OK');
+      assert.equal(record.numbers.join(), 'E001,E002');
+    }
+    assert.equal(ctx.parseReport_(text, '999')[0].text, 'earlier card');
+  }
+  const result = select([candidate('20261013_1200', block(['001'], 'older')),
+    candidate('20261014_1200', report)]);
+  assert.equal(result.records[0].text, body);
+  assert.equal(result.reportId, '20261014_1200');
+});
+
+test('campaign footer is omitted from catalogue-only and failed records without dropping retained text', () => {
+  assert.equal(ctx.parseReport_(missing('Collector: Catalogue name') + savedUsageFooter, '001')[0].text, 'Collector: Catalogue name');
+  for (const status of ['FAILED', 'PAUSED']) {
+    const report = block(['001'], 'ERROR: private service detail\nSAVED RESPONSE (see error above):\nRetained [uncertain] wording', status);
+    const record = ctx.parseReport_(report + savedUsageFooter, '001')[0];
+    assert.equal(record.status, status);
+    assert.equal(record.text, 'Retained [uncertain] wording');
+  }
+});
+
+test('footer recognition preserves the same words inside a transcription and still rejects incomplete newest records', () => {
+  const body = savedUsageHeading + 'This heading is visible source wording.\nTRANSCRIPTION NOTES:\nNone.';
+  assert.equal(ctx.parseReport_(block(['001'], body, 'OK') + savedUsageFooter, '001')[0].text, body);
+  const truncated = [savedUsageHeading, savedUsageFooter.replace(/RUN:[^\n]*\n$/, ''),
+    savedUsageFooter.replace('TOKENS:', 'UNRECOGNIZED:')];
+  for (const footer of truncated) {
+    assert.throws(() => select([candidate('20261013_1200', block(['001'], 'older')),
+      candidate('20261014_1200', block(['001'], 'newest', 'OK') + footer)]), /incomplete/);
+  }
+  assert.throws(() => ctx.parseReport_(block(['001'], '', 'OK') + savedUsageFooter, '001'), /empty or incomplete/);
+  assert.throws(() => ctx.parseReport_(block(['001'], 'cut off', 'OK').trimEnd() + '\n' + savedUsageFooter, '001'), /incomplete/);
+});
+
 test('latest failure or pause is shown, with its retained text and without service details', () => {
   for (const status of ['FAILED', 'PAUSED']) {
     const report = block(['001'], 'ERROR: private service details\nSAVED RESPONSE (see error above):\nPartial [uncertain] text', status);

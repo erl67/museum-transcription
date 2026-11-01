@@ -586,9 +586,10 @@ function reportBanner_(line) {
 }
 
 function parseReport_(text, wantedDigits) {
-  // Strip only a recognized terminal run footer, never matching words inside a card.
+  // Strip only complete terminal usage footers, including the campaign snapshot heading.
+  // Keep the card's closing blank lines; incomplete footers must not bypass that check.
   text = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-  text = text.replace(/\n{3}TOKENS: [^\n]*\nAVERAGE\/CALL[^\n]*\nRUN: [^\n]*\n*$/, '\n\n\n');
+  text = text.replace(/\n{3}(?:SAVED RESULT USAGE \(includes recorded retries; not new spending this run\):\n)?TOKENS: [^\n]*\nAVERAGE\/CALL[^\n]*\nRUN: [^\n]*\n*$/, '\n\n\n');
   const lines = text.split('\n');
   const blocks = [];
   let current = null;

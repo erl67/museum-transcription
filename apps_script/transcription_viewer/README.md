@@ -120,7 +120,7 @@ Keep meaningful leading zeros as text: E001 and E1 are different records. Check 
 - Reads normal species reports directly in the matching family directory, newest first by filename timestamp and numeric collision counter, until the exact CM number is found. It excludes journals, mixed-species test reports, and individual ! / @ reports.
 - Keeps shared-slip numbers and their complete common text together. Duplicate catalogue-only rows remain separate.
 - Preserves historical wording, partial dates, annotations, supplied backs, uncertainty, and transcription notes.
-- Omits technical report headers and usage footers. Source words matching technical field names are not globally deleted.
+- Omits technical report headers and complete terminal usage footers from both ordinary runs and campaign snapshots. Campaign footers include a `SAVED RESULT USAGE (includes recorded retries; not new spending this run):` heading. Source words matching technical field names are not globally deleted.
 - Notes presence alone does not trigger a review warning. Other reasons and unexplained REVIEW statuses remain flagged. OK means structural acceptance, not human verification.
 - A newest matching FAILED, PAUSED, MISSING, or malformed record does not silently become an older successful reading. Available failed response text stays visible; service/debug error details are omitted.
 - Shows the report date, not a claimed date of fresh transcription, and identifies reused readings.
@@ -133,6 +133,8 @@ Keep meaningful leading zeros as text: E001 and E1 are different records. Check 
 - Uses the existing full-resolution JPGs, with no thumbnails, resizing, public image host, new OAuth scope or sharing changes. Progressive loading improves time to the first available image; it does not reduce total image bytes, and additional per-image requests can affect total completion time.
 - Keeps transcription visible if scans are missing, ambiguous, unreadable, or too large. Catalogue-only blocks may now have a separate gallery of current scans found by E-number.
 - Uses escaped HTML printing for text and links. Opening the original source report shows its unfiltered technical metadata.
+
+An older viewer could report “The newest matching record is empty or incomplete” for the final card in an otherwise complete campaign report: it did not recognize the campaign's usage heading and treated the footer as card text. Waiting for sync would not resolve that format mismatch; a new ordinary report could hide it by becoming the newest match. Update Code.gs and publish a new deployment version to read those existing campaign reports without retranscribing. The viewer still rejects empty or genuinely incomplete records and does not fall back to older readings to conceal them.
 
 ## Limits and verification
 
