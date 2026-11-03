@@ -1281,10 +1281,19 @@ class DatasetTest(unittest.TestCase):
                      "every set-mark component and incubation line",
                      "Preserve source-written brackets", "separate layers",
                      "publisher/printer imprints",
+                     "Read A.O.U. codes and egg counts independently, digit by digit",
+                     "Keep every visible A.O.U. letter suffix and its case with the code",
+                     "Never infer an A.O.U. code or suffix from the species name, filename or catalogue hint",
+                     "Read the complete entry from the image again before comparing it with the draft",
+                     "a name beside Set Mark is not part of the mark",
                      "collectors, dealers, former owners, donors and annotators distinct",
                      "Never invent identities, intentions, historical explanations",
                      "An explicit collection verb is not required",
                      "a specimen-list entry such as 'nest & 5' supports 'Nest collected'",
+                     "First locate the supporting source phrase in the supplied image",
+                     "A generic COLLECTION OF heading or COLLECTED BY field does not establish which objects were collected",
+                     "nest location, materials, construction, measurements or detailed observation does not "
+                     "establish that the nest itself was collected",
                      "A nest description and a separate statement about eggs collected do not "
                      "establish collection of the nest, even when adjacent",
                      "Preserve negation, uncertainty and explicitly associated reference numbers/prefixes",
@@ -1299,9 +1308,19 @@ class DatasetTest(unittest.TestCase):
         policy = " ".join(prompts.BASE_PROMPT.split())
         for rule in ("apparently clear typed, printed and stamped marks",
                      "numerator, slash/bar and denominator separately",
+                     "Keep every digit of a multi-digit numerator together",
+                     "Trace the handwritten fraction even when it spans a printed rule",
+                     "proximity to an Eggs in Set label alone does not make it a separate egg-count entry",
                      "2/3 lower strokes and bases and possible 4 shapes",
+                     "distinguish 5 from 3 and narrow or slanted 0 from 1",
                      "same hand or typeface on supplied sides",
                      "shape comparisons, never replacement values",
+                     "Follow each character's curves, diagonals, loops and crossbars",
+                     "keeping fraction bars and separate correction strokes out of its shape",
+                     "Knowing that a notation is a set mark does not establish its digits",
+                     "The denominator often, but not always, matches the number of eggs in the set",
+                     "Agreement alone does not validate either reading",
+                     "Never force agreement, copy one value into the other or fill a blank field",
                      "dot-like mark in the numerator position",
                      "Read it as 1 only when clearly supported, [1] when defensible but uncertain, "
                      "or [illegible number] when no numeral is defensible",
@@ -1344,6 +1363,10 @@ class DatasetTest(unittest.TestCase):
                                  "FRONT" in sections and len(sections) > 1)
 
     def test_final_check_follows_hints_and_is_retained_on_format_retry(self):
+        checks = " ".join(prompts.FINAL_CHECKS.split())
+        self.assertIn("Compare the source against the draft one field and paragraph at a time", checks)
+        self.assertIn("directly from the image, character by character", checks)
+        self.assertIn("omit unsupported flags", checks)
         card = self.cards({"E4268"})[0]
         for use_hints in (False, True):
             prompt = prompts.build_prompt(card, self.db(), use_hints)

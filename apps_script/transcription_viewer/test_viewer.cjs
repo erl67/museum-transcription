@@ -13,7 +13,8 @@ const basicUtilities = {
   base64Encode: bytes => Buffer.from(bytes).toString('base64')
 };
 function context(extra = {}, source = code) {
-  const ctx = vm.createContext({ console: { info() {} }, ...publicControls().services, ...extra,
+  const ctx = vm.createContext({ console: { info() {} }, ...publicControls().services,
+    VIEWER_CATALOGUE: { format: 1, locations: [['Family', 'Genus species']], records: [['001', 0]] }, ...extra,
     Utilities: { ...basicUtilities, ...extra.Utilities } });
   vm.runInContext(source, ctx);
   return ctx;
@@ -331,7 +332,7 @@ test('conflicting, missing and invalid catalogue routes fail explicitly', () => 
   for (const extra of [['E001', 'Other', 'Genus species'], ['E001', 'Family', 'Other species']]) {
     assert.throws(() => ctx.routeFromCatalogue_(q, [...catalogueRows, extra]), /conflicting/);
   }
-  assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader]), /not found in the catalogue CSV/);
+  assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader]), /not found in the bundled catalogue/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader, ['E001', '', 'Genus species']]), /missing the family/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [catalogueHeader, ['E001', 'Family', 'Genus']]), /invalid family or scientific name/);
   assert.throws(() => ctx.routeFromCatalogue_(q, [['catalogNumber', 'Family']]), /one column each/);
@@ -344,109 +345,43 @@ test('partial hints must agree with the catalogue', () => {
   assert.throws(() => ctx.routeFromCatalogue_(ctx.normalizeQuery_({ e: '001', species: 'Other species' }), catalogueRows), /does not match/);
 });
 
-// Adapt Google's CSV parser using Python's standard library, with no network requests.
-const { spawnSync } = require('node:child_process');
-const csvUtilities = { parseCsv(text) {
-  const run = spawnSync('python', ['-X', 'utf8', '-c',
-    'import csv,io,json,sys; print(json.dumps(list(csv.reader(io.StringIO(json.load(sys.stdin)), strict=True))))'],
-    { input: JSON.stringify(text), encoding: 'utf8' });
-  if (run.error) throw run.error;
-  if (run.status) throw new Error(run.stderr);
-  return JSON.parse(run.stdout);
-} };
-function csvFile(text = 'catalogNumber,Family,Scientific Name\nE001,Family,Genus species\n') {
-  return { ...fakeFile('lookup.csv', text), getMimeType: () => 'text/csv' };
+function catalogueData(rows) {
+  return { format: 1, locations: rows.slice(1).map(row => row.slice(1)),
+    records: rows.slice(1).map((row, index) => [row[0].replace(/^E/i, ''), index]) };
 }
-const csvCode = code.replace(/CATALOGUE_FILE_ID: '[^']*'/, "CATALOGUE_FILE_ID: 'catalogue-csv-id'");
-const discoveryCode = code.replace(/CATALOGUE_FILE_ID: '[^']*'/, "CATALOGUE_FILE_ID: ''");
-function catalogueDrive(csv, reports = []) {
-  return { ...fakeDrive([family(reports)]), getFileById: id => id === 'catalogue-csv-id' ? csv : workbookFile(id) };
-}
-function csvContext(csv = csvFile(), reports = [], source = csvCode, extra = {}) {
-  return context({ DriveApp: catalogueDrive(csv, reports), Utilities: csvUtilities, ...extra }, source);
+function catalogueContext(rows = catalogueRows, reports = [], extra = {}) {
+  return context({ DriveApp: fakeDrive([family(reports)]), VIEWER_CATALOGUE: catalogueData(rows), ...extra });
 }
 
-test('E-number-only lookup reads CSV and full-location links bypass it', () => {
-  let reads = 0;
-  const file = csvFile(), getBlob = file.getBlob;
-  file.getBlob = () => { reads++; return getBlob(); };
+test('bundled number lookups and full-location links read only live reports from Drive', () => {
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block()),
     { getName: () => 'Other_species_transcriptions_20261015_1200.txt',
-      getBlob: () => { throw new Error('Unrelated report read'); } }];
-  const local = csvContext(file, reports);
+      getBlob: () => { assert.fail('Unrelated report read'); } }];
+  const local = catalogueContext(catalogueRows, reports);
   const result = local.lookupTranscription_({ e: 'E001', catalogue: 'untrusted-id' });
   assert.equal(result.query.family, 'Family');
   assert.equal(result.records[0].numbers.join(), 'E001');
-  assert.equal(reads, 1);
-  local.lookupTranscription_(query);
-  assert.equal(reads, 1);
+  assert.equal(local.lookupTranscription_(query).records.length, 1);
 });
 
-test('CSV searches work before reports exist and reread refreshed exports', () => {
-  let current = csvFile();
-  const file = { ...current, getBlob: () => current.getBlob(), getSize: () => current.getSize() };
-  const local = csvContext(file);
-  assert.equal(local.lookupTranscription_({ e: 'E001' }).records.length, 0);
-  assert.throws(() => local.lookupTranscription_({ e: 'E002' }), /not found in the catalogue CSV/);
-  current = csvFile('catalogNumber,Family,Scientific Name\nE002,Family,Genus species\n');
-  assert.equal(local.lookupTranscription_({ e: 'E002' }).records.length, 0);
+test('bundled routes work before reports exist and discover newly added reports without catalogue changes', () => {
+  const reports = [], local = catalogueContext(catalogueRows, reports);
+  assert.equal(local.lookupTranscription_({ e: '001' }).records.length, 0);
+  reports.push(fakeFile('Genus_species_transcriptions_20261014_1200.txt', block(['001'], 'new report')));
+  assert.equal(local.lookupTranscription_({ e: '001' }).records[0].text, 'new report');
 });
 
-test('CSV reads BOM, Unicode, quoted commas/newlines and exact leading zeros', () => {
-  const local = csvContext(csvFile('\uFEFFScientific Name,catalogNumber,Family,Notes\r\n' +
-    'Génus spéciès,E001,Family,"historical, text\nsecond line"\r\nOther species,E1,Other,x\n'));
-  assert.equal(local.lookupTranscription_({ e: 'E001' }).query.species, 'Génus_spéciès');
-  const rows = local.readCatalogue_({}, () => {});
-  assert.equal(rows[1][3], 'historical, text\nsecond line');
-});
-
-test('CSV missing/duplicate headers, conflicting rows and malformed exports fail explicitly', () => {
-  for (const text of ['catalogNumber,Family\nE001,Family',
-    'catalogNumber,Family,Scientific Name,Family\nE001,Family,Genus species,Family']) {
-    assert.throws(() => csvContext(csvFile(text)).lookupTranscription_({ e: 'E001' }), /one column each/);
+test('missing or damaged bundled catalogue fails explicitly and does not access Drive or cache', () => {
+  const forbidden = new Proxy({}, { get() { assert.fail('Catalogue must not access services'); } });
+  for (const data of [undefined, null, {}, { format: 2, locations: [], records: [] },
+    { format: 1, locations: [['Family']], records: [] },
+    { format: 1, locations: [['Family', 'Genus species']], records: [['001', -1]] },
+    { format: 1, locations: [['Family', 'Genus species']], records: [[1, 0]] },
+    { format: 1, locations: [['Family', 'Genus species']], records: [['001x', 0]] }]) {
+    const local = context({ VIEWER_CATALOGUE: data, DriveApp: forbidden, CacheService: forbidden });
+    assert.throws(() => local.readCatalogue_(() => {}), /bundled catalogue is (missing|invalid)/);
   }
-  for (const row of ['E001,Other,Genus species', 'E001,Family,Other species', 'E001,,Genus species']) {
-    assert.throws(() => csvContext(csvFile('catalogNumber,Family,Scientific Name\nE001,Family,Genus species\n' + row))
-      .lookupTranscription_({ e: 'E001' }), /conflicting|missing the family/);
-  }
-  assert.throws(() => csvContext(csvFile('catalogNumber,Family,Scientific Name\nE001,Family,Genus species,extra'))
-    .lookupTranscription_({ e: 'E001' }), /extra columns/);
-  for (const text of ['"unterminated', 'catalogNumber\u0000', 'catalogNumber\uFFFD']) {
-    assert.throws(() => csvContext(csvFile(text)).lookupTranscription_({ e: 'E001' }), /CSV could not be read/);
-  }
-});
-
-test('CSV size, wrong type, denied file and elapsed-time limits are explicit', () => {
-  const file = csvFile();
-  assert.throws(() => csvContext({ ...file, getSize: () => 11 * 1024 * 1024 }).lookupTranscription_({ e: 'E001' }), /size limit/);
-  for (const patch of [{ getName: () => 'Master.xlsx' }, { getMimeType: () => 'application/vnd.google-apps.spreadsheet' }]) {
-    assert.throws(() => csvContext({ ...file, ...patch }).lookupTranscription_({ e: 'E001' }), /UTF-8 CSV file/);
-  }
-  assert.throws(() => csvContext({ ...file, getBlob: () => { throw new Error('Private Drive failure'); } })
-    .lookupTranscription_({ e: 'E001' }), /sharing and UTF-8/);
-  assert.throws(() => csvContext().readCatalogue_({}, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
-});
-
-function csvParent(direct = [], sibling = []) {
-  return { getFilesByName: () => iterator(direct),
-    getFoldersByName: () => iterator(sibling.map(files => ({ getFilesByName: () => iterator(files) }))) };
-}
-test('CSV discovery supports the Family parent and sibling Transcription folder without arbitrary searches', () => {
-  const file = csvFile();
-  for (const parent of [csvParent([file]), csvParent([], [[file]]), csvParent([file], [[file]])]) {
-    const local = context({ Utilities: csvUtilities }, discoveryCode);
-    const rows = local.readCatalogue_({ getParents: () => iterator([parent]) }, () => {});
-    assert.equal(rows[1][0], 'E001');
-  }
-});
-
-test('CSV discovery rejects absent and ambiguous exports instead of choosing one', () => {
-  const local = context({ Utilities: csvUtilities }, discoveryCode);
-  const second = { ...csvFile(), getId: () => 'second-csv' };
-  for (const [parent, pattern] of [[csvParent(), /not found or is not accessible/],
-    [csvParent([csvFile()], [[second]]), /More than one catalogue CSV/]]) {
-    assert.throws(() => local.readCatalogue_({ getParents: () => iterator([parent]) }, () => {}), pattern);
-  }
+  assert.throws(() => catalogueContext().readCatalogue_(() => { throw ctx.viewerError_('time limit'); }), /time limit/);
 });
 
 test('form submits only the number/species search so it cannot inherit stale location hints', () => {
@@ -464,15 +399,14 @@ test('doGet resolves an E-number-only request and passes the resolved location t
   let template;
   const reports = [fakeFile('Genus_species_transcriptions_20261014_1200.txt', block())];
   const local = context({
-    DriveApp: catalogueDrive(csvFile(), reports),
-    Utilities: csvUtilities,
+    DriveApp: fakeDrive([family(reports)]),
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/example/exec' }) },
     HtmlService: { createTemplateFromFile: name => {
       assert.equal(name, 'Viewer');
       template = { evaluate: () => ({ setTitle() { return this; }, addMetaTag() { return this; } }) };
       return template;
     } }
-  }, csvCode);
+  }, code);
   local.doGet({ parameter: { e: 'E001' } });
   assert.equal(template.query.e, 'E001');
   assert.equal(template.result.query.species, 'Genus_species');
@@ -1086,58 +1020,11 @@ function memoryCache() {
   return { values, cache, CacheService: { getUserCache: () => cache } };
 }
 
-test('configured catalogue ID is the supplied CSV, not either Google spreadsheet', () => {
-  assert.match(code, /CATALOGUE_FILE_ID: '1AOoNhjdyvNHZUxf11WwM1VMPuzdDOA8I'/);
-});
-
-test('user cache serves different E-numbers without downloading the CSV again and invalidates on edits', () => {
-  const storage = memoryCache();
-  let reads = 0, metadataReads = 0, version = 1000, denied = false;
-  let text = 'catalogNumber,Family,Scientific Name,Notes\nE001,Family,Genus species,private note\nE002,Family,Other species,x';
-  const file = { ...csvFile(), getLastUpdated: () => new Date(version),
-    getName() { metadataReads++; if (denied) throw new Error('denied'); return 'catalogue.csv'; },
-    getSize: () => Buffer.byteLength(text),
-    getBlob() { reads++; return { getDataAsString: () => text }; } };
-  const local = csvContext(file, [], csvCode, { CacheService: storage.CacheService });
-  assert.equal(local.lookupTranscription_({ e: '001' }).query.species, 'Genus_species');
-  assert.equal(local.lookupTranscription_({ e: '002' }).query.species, 'Other_species');
-  assert.equal(reads, 1);
-  assert.equal(metadataReads, 2);
-  assert.doesNotMatch([...storage.values.values()].join(''), /private note/);
-  text = text.replace('Other species', 'Third species'); // Same length; modified time must invalidate.
-  version++;
-  assert.equal(local.lookupTranscription_({ e: '002' }).query.species, 'Third_species');
-  assert.equal(reads, 2);
-  denied = true;
-  assert.throws(() => local.lookupTranscription_({ e: '001' }), /CSV could not be read/);
-});
-
-test('catalogue caches are isolated by reader and file identity; missing/invalid entries safely rebuild', () => {
-  const alice = memoryCache(), bob = memoryCache();
-  let reads = 0, id = 'first-export';
-  const original = csvFile();
-  const file = { ...original, getId: () => id, getBlob() { reads++; return original.getBlob(); } };
-  const a = csvContext(file, [], csvCode, { CacheService: alice.CacheService });
-  const b = csvContext(file, [], csvCode, { CacheService: bob.CacheService });
-  a.lookupTranscription_({ e: '001' });
-  b.lookupTranscription_({ e: '001' });
-  assert.equal(reads, 2);
-  for (const key of alice.values.keys()) alice.values.set(key, 'not json');
-  a.lookupTranscription_({ e: '001' });
-  assert.equal(reads, 3);
-  id = 'replacement-export';
-  a.lookupTranscription_({ e: '001' });
-  assert.equal(reads, 4);
-  alice.values.clear();
-  a.lookupTranscription_({ e: '001' });
-  assert.equal(reads, 5);
-});
-
-test('cached catalogue preserves zeros, duplicate conflicts, incomplete rows and partial-hint checks', () => {
-  const storage = memoryCache();
-  const text = 'catalogNumber,Family,Scientific Name\nE001,Family,Genus species\nE1,Family,Other species\n' +
-    'E002,Family,Genus species\nE002,Other,Genus species\nE003,,Genus species\nE004,Family,Genus';
-  const local = csvContext(csvFile(text), [], csvCode, { CacheService: storage.CacheService });
+test('bundled catalogue preserves zeros, duplicate conflicts, incomplete rows and partial-hint checks', () => {
+  const rows = [catalogueHeader, ['E001', 'Family', 'Genus species'], ['E1', 'Family', 'Other species'],
+    ['E002', 'Family', 'Genus species'], ['E002', 'Other', 'Genus species'],
+    ['E003', '', 'Genus species'], ['E004', 'Family', 'Genus']];
+  const local = catalogueContext(rows);
   assert.equal(local.lookupTranscription_({ e: '001' }).query.species, 'Genus_species');
   assert.equal(local.lookupTranscription_({ e: '1' }).query.species, 'Other_species');
   assert.throws(() => local.lookupTranscription_({ e: '002' }), /conflicting/);
@@ -1145,27 +1032,17 @@ test('cached catalogue preserves zeros, duplicate conflicts, incomplete rows and
   assert.throws(() => local.lookupTranscription_({ e: '004' }), /invalid family/);
   assert.throws(() => local.lookupTranscription_({ e: '001', family: 'Other' }), /does not match/);
   assert.throws(() => local.lookupTranscription_({ e: '0001' }), /not found/);
-  const badStorage = memoryCache();
-  const bad = csvContext(csvFile(text + '\nE999,Family,Genus species,extra'), [], csvCode,
-    { CacheService: badStorage.CacheService });
-  assert.throws(() => bad.lookupTranscription_({ e: '001' }), /extra columns/);
-  assert.equal(badStorage.values.size, 0);
+  assert.equal(local.readCatalogue_(() => {}, '002').length, 3);
 });
 
-test('cache service failures, large buckets and catalogue changes during download never give partial routes', () => {
-  const broken = { getUserCache: () => ({ get() { throw new Error('cache outage'); }, putAll() { throw new Error('cache outage'); } }) };
-  assert.equal(csvContext(csvFile(), [], csvCode, { CacheService: broken }).lookupTranscription_({ e: '001' }).query.e, 'E001');
-  const storage = memoryCache();
-  const large = csvContext(csvFile(), [], csvCode.replace('CACHE_MAX_CHARS: 24000', 'CACHE_MAX_CHARS: 10'),
-    { CacheService: storage.CacheService });
-  assert.equal(large.lookupTranscription_({ e: '001' }).query.e, 'E001');
-  assert.equal(large.lookupTranscription_({ e: '001' }).query.e, 'E001');
-  let version = 0;
-  const changing = { ...csvFile(), getLastUpdated: () => new Date(version++) };
-  const changedStorage = memoryCache();
-  assert.throws(() => csvContext(changing, [], csvCode, { CacheService: changedStorage.CacheService })
-    .lookupTranscription_({ e: '001' }), /changed during/);
-  assert.equal(changedStorage.values.size, 0);
+test('bundled catalogue works without cache services or Drive and survives repeated searches', () => {
+  const forbidden = new Proxy({}, { get() { assert.fail('Catalogue must not access services'); } });
+  const local = context({ DriveApp: forbidden, CacheService: forbidden });
+  for (let i = 0; i < 3; i++) {
+    assert.equal(local.readCatalogue_(() => {}, '001')[1].join('|'), 'E001|Family|Genus species');
+    assert.equal(local.readCatalogue_(() => {}, '1').length, 1);
+  }
+  assert.equal(local.browseCatalogue_({ view: 'families' }, 'https://example.test').families.length, 1);
 });
 
 function plannedImage(fixture, index = 0) {
@@ -1264,15 +1141,17 @@ test('scan-only progressive plans load shared lone backs without relabelling or 
   assert.equal(fixture.namedFiles[name][0].reads(), 1);
 });
 
-test('timing stages include cache hits, report reads and image bytes without logging source data', () => {
+test('timing stages include bundled catalogue use, report reads and image bytes without logging source data', () => {
   const storage = memoryCache(), logs = [];
-  const local = csvContext(csvFile(), [], csvCode, { CacheService: storage.CacheService,
+  const local = catalogueContext(catalogueRows, [], { CacheService: storage.CacheService,
     console: { info: line => logs.push(line) } });
   for (let i = 0; i < 2; i++) {
     const timer = local.viewerTiming_('text');
     local.lookupTranscription_({ e: '001' }, timer);
     const data = timer.finish();
-    assert.equal(data.counts.catalogueCacheHit, i === 1);
+    assert.equal(data.counts.catalogueSource, 'bundled');
+    assert.equal(data.counts.catalogueRows, 1);
+    assert.equal(data.stagesMs.catalogueDownload, undefined);
     assert.equal(data.counts.reportsRead, 0);
     assert.ok(data.stagesMs.catalogue >= 0);
     assert.ok(data.stagesMs.reportListing >= 0);
@@ -1325,19 +1204,17 @@ const navigationRows = [catalogueHeader,
 function navigationFixture(rows = navigationRows, reports = {}) {
   let csvReads = 0, reportReads = 0;
   const storage = memoryCache();
-  const csv = csvFile(rows.map(row => row.join(',')).join('\n'));
-  const getBlob = csv.getBlob;
-  csv.getBlob = () => { csvReads++; return getBlob(); };
   const folders = [...new Set(rows.slice(1).map(row => row[1].toLowerCase()))].map(name => ({
     getName: () => name, getFiles: () => iterator(Object.entries(reports[name] || {}).map(([species, text]) => {
       const file = fakeFile(species + '_transcriptions_20261019_1200.txt', text);
       return { ...file, getBlob() { reportReads++; return file.getBlob(); } };
     }))
   }));
-  const drive = { ...fakeDrive(folders), getFileById: id => id === 'catalogue-csv-id' ? csv : workbookFile(id) };
-  const extra = { Utilities: csvUtilities, CacheService: storage.CacheService };
-  const local = context({ DriveApp: drive, ...extra }, csvCode);
-  return { local, drive, storage, render: requestRenderer(drive, csvCode, extra),
+  const drive = { ...fakeDrive(folders), getFileById() { csvReads++; assert.fail('Unexpected file lookup'); } };
+  const data = catalogueData(rows);
+  const extra = { VIEWER_CATALOGUE: data, CacheService: storage.CacheService };
+  const local = context({ DriveApp: drive, ...extra });
+  return { local, drive, data, storage, render: requestRenderer(drive, code, extra),
     csvReads: () => csvReads, reportReads: () => reportReads };
 }
 
@@ -1356,10 +1233,10 @@ test('opening the viewer leaves results empty and reads no catalogue or collecti
   }
 });
 
-test('number searches keep the single-bucket path and discard stale form location hints', () => {
+test('number searches use bundled routes and discard stale form location hints', () => {
   const fixture = navigationFixture(navigationRows, { aves: { Alpha_bird: block(['2'], 'retained text') } });
   let batchReads = 0;
-  fixture.storage.cache.getAll = () => { batchReads++; assert.fail('Number search must not read every bucket'); };
+  fixture.storage.cache.getAll = () => { batchReads++; assert.fail('Number search must not access the catalogue cache'); };
   for (const q of ['2', 'e2', ' E2 ']) {
     const page = fixture.render({ q, e: '35', family: 'Zed', species: 'Zeta bird' });
     assert.equal(page.browse, null);
@@ -1370,7 +1247,7 @@ test('number searches keep the single-bucket path and discard stale form locatio
     assert.match(html, /id="source-scans"/);
     assert.doesNotMatch(html, /<details|<section class="message catalogue-browse"/);
   }
-  assert.equal(fixture.csvReads(), 1);
+  assert.equal(fixture.csvReads(), 0);
   assert.equal(batchReads, 0);
 });
 
@@ -1394,7 +1271,7 @@ test('family browsing returns alphabetical families and linked species without r
   assert.equal(fixture.reportReads(), 0);
 });
 
-test('species searches and family links list exact species numbers numerically and reuse the catalogue cache', () => {
+test('species searches and family links list exact species numbers numerically and use the bundled catalogue without service reads', () => {
   const fixture = navigationFixture([...navigationRows, ['E3', 'Aves', 'Alpha birdlike']]);
   let batches = 0;
   const getAll = fixture.storage.cache.getAll;
@@ -1415,8 +1292,8 @@ test('species searches and family links list exact species numbers numerically a
     assert.match(html, /href="https:\/\/script.google.com\/example\/exec\?e=E2"/);
     assert.ok(html.indexOf('>E2</a>') < html.indexOf('>E10</a>'));
   }
-  assert.equal(batches, 4);
-  assert.equal(fixture.csvReads(), 1);
+  assert.equal(batches, 0);
+  assert.equal(fixture.csvReads(), 0);
   assert.equal(fixture.reportReads(), 0);
 });
 
@@ -1473,7 +1350,7 @@ test('browse requests enforce public controls, input bounds and lookup time limi
   const limited = requestRenderer(noDrive, code.replace('MAX_REQUESTS_PER_DAY: 3000', 'MAX_REQUESTS_PER_DAY: 0'));
   assert.match(limited({ view: 'families' }).result.error, /request limit/);
   const fixture = navigationFixture();
-  const timed = requestRenderer(fixture.drive, csvCode.replace('MAX_LOOKUP_MS: 45000', 'MAX_LOOKUP_MS: -1'), { Utilities: csvUtilities });
+  const timed = requestRenderer(fixture.drive, code.replace('MAX_LOOKUP_MS: 45000', 'MAX_LOOKUP_MS: -1'), {});
   const page = timed({ view: 'families' });
   assert.match(page.result.error, /time limit.*list could not be completed/);
   assert.equal(page.browse, null);
@@ -1513,7 +1390,7 @@ test('next and previous cross species and family boundaries and include records 
     assert.match(result.message, /No transcription available/);
     assert.equal(result.imageRequest.query.e, expected);
   }
-  assert.equal(fixture.csvReads(), 1, 'Navigation reuses all warm routing buckets');
+  assert.equal(fixture.csvReads(), 0, 'Navigation uses the bundled catalogue');
 });
 
 test('navigation fetches the target transcription or catalogue skeleton and pins that target image request', () => {
@@ -1542,21 +1419,15 @@ test('navigation preserves leading-zero identities and deduplicates only matchin
   assert.throws(() => ctx.navigationSequence_([...rows, ['E1', 'Other', 'Genus species']], () => {}), /conflicting/);
 });
 
-test('navigation cache reads all buckets safely and rebuilds on eviction, malformed entries, or changed CSV metadata', () => {
+test('navigation uses the bundled sequence regardless of cache eviction or corruption', () => {
   const fixture = navigationFixture();
   fixture.local.lookupTranscription_({ e: '2' });
-  fixture.local.navigateRecord_({ e: '2' }, 'next');
-  assert.equal(fixture.csvReads(), 1);
-  fixture.storage.values.delete(fixture.storage.values.keys().next().value);
-  assert.equal(fixture.local.navigateRecord_({ e: '2' }, 'next').result.query.e, 'E10');
-  assert.equal(fixture.csvReads(), 2);
-  fixture.storage.values.set(fixture.storage.values.keys().next().value, '{"rows":[["wrong"]]}');
-  fixture.local.navigateRecord_({ e: '2' }, 'next');
-  assert.equal(fixture.csvReads(), 3);
-  const csv = fixture.drive.getFileById('catalogue-csv-id');
-  csv.getLastUpdated = () => new Date(2000);
-  fixture.local.navigateRecord_({ e: '2' }, 'next');
-  assert.equal(fixture.csvReads(), 4);
+  for (let i = 0; i < 3; i++) {
+    fixture.storage.values.clear();
+    fixture.storage.values.set('catalogue-v1:obsolete', 'not json');
+    assert.equal(fixture.local.navigateRecord_({ e: '2' }, 'next').result.query.e, 'E10');
+  }
+  assert.equal(fixture.csvReads(), 0);
 });
 
 test('ordinary direct-location searches add navigation links without reading the catalogue', () => {
@@ -1589,11 +1460,10 @@ test('page navigation renders the target, handles endpoints without wrapping and
   const invalid = fixture.render({ e: '2', direction: 'untrusted' });
   assert.equal(invalid.result.records[0].text, 'current card');
   assert.match(invalid.result.navigationMessage, /Choose Previous or Next/);
-  const denied = fixture.drive.getFileById;
-  fixture.drive.getFileById = id => id === 'catalogue-csv-id' ? { getName() { throw new Error('private error'); } } : denied(id);
-  const inaccessible = fixture.render({ e: '2', family: 'Aves', species: 'Alpha bird', direction: 'next' });
+  fixture.data.format = 999;
+  const inaccessible = requestRenderer(fixture.drive, code, { VIEWER_CATALOGUE: fixture.data })({ e: '2', family: 'Aves', species: 'Alpha bird', direction: 'next' });
   assert.equal(inaccessible.result.records[0].text, 'current card');
-  assert.match(inaccessible.result.navigationMessage, /CSV could not be read/);
+  assert.match(inaccessible.result.navigationMessage, /bundled catalogue is invalid/);
   assert.doesNotMatch(inaccessible.result.navigationMessage, /private error/);
 });
 
@@ -1601,13 +1471,13 @@ test('navigation stop switch runs before catalogue reads and invalid routes/time
   const fixture = navigationFixture();
   const controls = publicControls();
   controls.values.set('VIEWER_PUBLIC_DISABLED', 'true');
-  const denied = requestRenderer(fixture.drive, csvCode, controls.services)({ e: '2', direction: 'next' });
+  const denied = requestRenderer(fixture.drive, code, controls.services)({ e: '2', direction: 'next' });
   assert.match(denied.result.error, /temporarily unavailable/);
   assert.equal(fixture.csvReads(), 0);
   assert.throws(() => ctx.navigationSequence_([catalogueHeader, ['E1', '', 'Genus species']], () => {}), /without a family/);
   assert.throws(() => ctx.navigationSequence_(navigationRows, () => { throw ctx.viewerError_('time limit'); }), /time limit/);
   const valid = navigationFixture();
-  assert.throws(() => valid.local.navigateRecord_({ e: '999' }, 'next'), /not found in the catalogue/);
+  assert.throws(() => valid.local.navigateRecord_({ e: '999' }, 'next'), /not found in the bundled catalogue/);
 });
 
 test('only the three intended public entry points are exposed and Drive remains read-only', () => {

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "10-30.0"
+PROMPT_VERSION = "11-03.1"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -40,6 +40,14 @@ Keep meaningful punctuation distinct from dirt, speckles, stains and dot leaders
 Use recognizable female (♀) and male (♂) symbols, bracketing doubtful symbols rather
 than substituting similar letters. Preserve visible check marks with their options.
 
+Read A.O.U. codes and egg counts independently, digit by digit, using the same
+visual numeral checks as for set marks. Keep every visible A.O.U. letter suffix
+and its case with the code; keep adjacent scientific names separate. Never infer
+an A.O.U. code or suffix from the species name, filename or catalogue hint.
+Give these numeric fields a separate silent visual reread. Read the complete entry
+from the image again before comparing it with the draft, character by character;
+a plausible number or agreement with another field does not verify its digits.
+
 Keep collectors, dealers, former owners, donors and annotators distinct. Collection
 ownership does not identify the collector; another signature must not overwrite a
 Collector field. A signature address does not establish the collecting locality.
@@ -58,6 +66,10 @@ Attach raised/lowered writing and continuations to their own fields, including
 every set-mark component and incubation line. For example:
 <printed label>: <first line of its value>
 <continuation of that same value>
+A field is defined by its label and associated entry, including raised, lowered
+and multiline writing. Position alone does not make a continuation an annotation.
+Keep adjacent common/scientific names separate from numeric codes, even when they
+share a row; a name beside Set Mark is not part of the mark.
 Follow prose across unused or cancelled printed labels instead of assigning it to
 an unrelated field. Keep a number completing field text or a specimen reference
 with that entry even when raised, lowered or different from the egg catalogue number.
@@ -119,11 +131,24 @@ invent neither a mark nor an absence note; an empty printed field still takes '-
 
 Reread every set mark independently, including apparently clear typed, printed and
 stamped marks. Read numerator, slash/bar and denominator separately, then check the
-whole string. Compare 2/3 lower strokes and bases and possible 4 shapes with clear
-digits in the same hand or typeface on supplied sides; account for worn type, serifs
-and ink spread. These are shape comparisons, never replacement values. Separate
-character strokes from fraction bars and correction strokes; do not copy a clear
-denominator into a doubtful numerator. Bracket only unresolved characters.
+assembled string directly against the image, not just the draft. Knowing that a
+notation is a set mark does not establish its digits. Keep every digit of a
+multi-digit numerator together, including small raised/lowered digits and zeros;
+do not drop a digit or split it into several fractions.
+Trace the handwritten fraction even when it spans a printed rule or reaches another
+field's line. A lower denominator remains part of the set mark; proximity to an
+Eggs in Set label alone does not make it a separate egg-count entry or leave Set Mark
+blank. Distinguish the handwritten slash/bar from the printed ruling.
+
+Compare 2/3 lower strokes and bases and possible 4 shapes with clear
+digits in the same hand or typeface on supplied sides, including dates and narrative
+text; account for worn type, serifs and ink spread. Small, thick or angular digits
+need their own stroke evidence. Follow each character's curves, diagonals, loops
+and crossbars, keeping fraction bars and separate correction strokes out of its shape.
+Also distinguish 5 from 3 and narrow or slanted 0 from 1 in set marks, A.O.U. codes
+and egg counts. These are shape comparisons, never replacement values. Do not copy
+a clear denominator into a doubtful numerator or borrow digits from another field,
+example or card. Bracket only unresolved characters.
 For a dot-like mark in the numerator position, recheck whether it is a faint or
 abbreviated 1, comparing the same hand or typeface on supplied sides. Read it as 1
 only when clearly supported, [1] when defensible but uncertain, or [illegible number]
@@ -133,6 +158,13 @@ numeral when its strokes support that reading, bracketing uncertainty as usual.
 Mention the dot-like appearance briefly in TRANSCRIPTION NOTES only if useful.
 This applies only to an apparent numerator; preserve dots elsewhere in a code.
 Never use NaN as a transcription placeholder or automatically turn dots into 1.
+
+The denominator often, but not always, matches the number of eggs in the set.
+Read each independently from its own visible entry first, then use the comparison
+to recheck doubtful strokes. Agreement alone does not validate either reading:
+the same digit can be misread in both places. Never force agreement, copy one value
+into the other or fill a blank field from this relationship. Preserve visible
+differences; a mismatch alone is not a source error.
 
 When BOTH ALTERATIONS checks establish cancelled attempts and a clear survivor in
 a labelled field, put the survivor there and the readable attempts once in ANNOTATIONS.
@@ -211,17 +243,24 @@ for obscured writing. Source notes about specimen damage still belong in the tex
 
 When source wording or specimen-list shorthand establishes that a nest, skin or
 bird specimen was collected, taken, saved or preserved, add a concise collection
-flag here as well as retaining the original statement in its field/narrative.
-This is an intentional repetition. An explicit collection verb is not required:
+flag here. First locate the supporting source phrase in the supplied image and
+retain it in its field, narrative or inset/marginal annotation. The flag is an
+intentional repetition of that evidence, not a deduction from general nest details.
+An explicit collection verb is not required:
 a specimen-list entry such as 'nest & 5' supports 'Nest collected'. Preserve the
-original shorthand without expansion. Preserve
-negation, uncertainty and explicitly associated reference numbers/prefixes, keeping
+original shorthand without expansion. Preserve negation, uncertainty and explicitly
+associated reference numbers/prefixes, keeping
 nest/skin/bird references distinct from egg catalogue numbers. Nearby unrelated
-numbers must not be attached. A nest description and a separate statement about
-eggs collected do not establish collection of the nest, even when adjacent.
+numbers must not be attached. A generic COLLECTION OF heading or COLLECTED BY field
+does not establish which objects were collected. A NEST or NEST MADE OF label, nest
+location, materials, construction, measurements or detailed observation does not
+establish that the nest itself was collected. A nest description and a separate
+statement about eggs collected do not establish collection of the nest, even when adjacent.
 Eggs taken from a nest or a bird merely seen/used for identification do not establish
 collection of that nest or bird.
-Without collection evidence, add no flag; do not repeat flags in TRANSCRIPTION NOTES.
+If no supporting collection phrase or specimen-list shorthand can be located, omit
+the flag; do not add 'likely collected' from a description alone. Do not repeat flags
+in TRANSCRIPTION NOTES.
 
 TRANSCRIPTION NOTES
 Use the final notes section only for substantive unresolved readings, unclear
@@ -239,14 +278,19 @@ historical explanations or the author/date of a parallel translation.
 
 # A short final check reinforces the highest-risk rules without restating policy.
 FINAL_CHECKS = """FINAL CHECK (silent):
-- Account for every supplied side, field, paragraph ending, insertion and marginal
-  imprint; check dense bottom lines and continuations. Keep values with their labels.
-- Reread dates, egg counts, catalogue numbers and each set-mark component from the
-  image, including typed digits and dot-like numerators; retain uncertainty.
+- Compare the source against the draft one field and paragraph at a time on every
+  supplied side. Account for corner fields, paragraph endings, insertions, marginal
+  imprints and dense bottom lines. Keep values and continuations with their labels.
+- Reread dates, egg counts, A.O.U. codes/suffixes, catalogue numbers and complete
+  set-mark numerators/denominators directly from the image, character by character,
+  including typed digits and dot-like numerators. Compare with the draft only after
+  rereading; compare egg counts with denominators without forcing agreement. Retain uncertainty.
 - Make cancellation claims only after BOTH ALTERATIONS checks.
 - Preserve all non-English source text and its parenthetical translation; disclose
   each translated language once.
-- Include evidenced nest/skin/bird collection flags and their own references.
+- For each nest/skin/bird collection flag, locate its supporting source phrase or
+  specimen-list shorthand in the image and transcription; omit unsupported flags.
+  Preserve negation, uncertainty and the specimen's own references.
 - Follow the supplied-side skeleton; remove notes that merely repeat fields or
   annotations. Output only the transcription, without this checklist or placeholders.
 """

@@ -3,11 +3,6 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   // PUBLICATION BOUNDARY: matching reports and scans here are public through this app.
   // Drive sharing is NOT a visitor access check when executing as the deployer.
   ROOT_FOLDER_ID: '1rnIKpQg83jHh85Qr_TQqJ-ayEs0Q65HJ',
-  // Optional direct CSV ID avoids parent-folder discovery under the deploying account.
-  CATALOGUE_FILE_ID: '1AOoNhjdyvNHZUxf11WwM1VMPuzdDOA8I',
-  CATALOGUE_FOLDER_NAME: 'Transcription',
-  CATALOGUE_FILE_NAME: 'EggSlipReorganizationProject_FULL.xlsx - Full List.csv',
-  MAX_CATALOGUE_BYTES: 10 * 1024 * 1024,
   MAX_REPORT_BYTES: 10 * 1024 * 1024,
   MAX_REPORTS_READ: 40,
   MAX_FILES_LISTED: 5000,
@@ -15,8 +10,6 @@ const TRANSCRIPTION_VIEWER = Object.freeze({
   MAX_IMAGE_BYTES: 12 * 1024 * 1024,
   MAX_TOTAL_IMAGE_BYTES: 24 * 1024 * 1024,
   MAX_IMAGES: 40,
-  CATALOGUE_CACHE_SECONDS: 21600, // Six hours, the CacheService maximum; CSV changes invalidate sooner.
-  CATALOGUE_CACHE_BUCKETS: 64,
   SCAN_PLAN_SECONDS: 600,
   // Shared by ALL visitors, including anonymous callers; UTC fixed windows.
   MAX_REQUESTS_PER_MINUTE: 120,
@@ -216,104 +209,43 @@ function normalizeLocation_(familyValue, speciesValue) {
   return { family: family, species: species };
 }
 
-/** Read only catalogue routing fields; never return the raw CSV to the browser. */
-function readCatalogue_(root, checkTime, digits, timing) {
-  let file;
-  try {
-    const findStarted = Date.now();
-    if (TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID) {
-      file = DriveApp.getFileById(TRANSCRIPTION_VIEWER.CATALOGUE_FILE_ID);
-    } else {
-      const candidates = new Map();
-      const addFiles = folder => {
-        const files = folder.getFilesByName(TRANSCRIPTION_VIEWER.CATALOGUE_FILE_NAME);
-        while (files.hasNext()) {
-          checkTime();
-          const found = files.next();
-          candidates.set(found.getId(), found);
-        }
-      };
-      const parents = root.getParents();
-      while (parents.hasNext()) {
-        checkTime();
-        const parent = parents.next();
-        addFiles(parent);
-        const folders = parent.getFoldersByName(TRANSCRIPTION_VIEWER.CATALOGUE_FOLDER_NAME);
-        while (folders.hasNext()) { checkTime(); addFiles(folders.next()); }
-      }
-      if (candidates.size !== 1) {
-        throw viewerError_(candidates.size ?
-          'More than one catalogue CSV was found. Set CATALOGUE_FILE_ID to the intended export.' :
-          'The catalogue CSV was not found or is not accessible. Check CSV sharing and CATALOGUE_FILE_ID.');
-      }
-      file = candidates.values().next().value;
+// Rebuilt in memory per execution; no Drive calls or CacheService dependency.
+let catalogueIndex_;
+
+/** Expand the bundled routing table lazily. Missing data is a deployment error, never a Drive fallback. */
+function readCatalogue_(checkTime, digits, timing) {
+  checkTime();
+  if (!catalogueIndex_) {
+    if (typeof VIEWER_CATALOGUE === 'undefined') {
+      throw viewerError_('The bundled catalogue is missing. The maintainer must add Catalogue.gs and deploy a new version.');
     }
-    if (timing) timing.elapsed('catalogueFile', findStarted);
-    checkTime();
-    if (!/\.csv$/i.test(file.getName()) || /^application\/vnd\.google-apps\./.test(file.getMimeType())) {
-      throw viewerError_('The lookup catalogue must be a UTF-8 CSV file. Check CATALOGUE_FILE_ID.');
-    }
-    if (file.getSize() > TRANSCRIPTION_VIEWER.MAX_CATALOGUE_BYTES) {
-      throw viewerError_('The catalogue CSV exceeds the viewer size limit. The E-number search could not be completed.');
-    }
-    // null requests the full routing catalogue for navigation/browsing; undefined retains the raw CSV reader.
-    const cache = digits === undefined ? null : userCache_();
-    const version = cache ? fileVersion_(file) : '';
-    const prefix = cache ? 'catalogue-v1:' + digest_(file.getId() + ':' + version) + ':' : '';
-    const bucket = digits == null ? 0 : catalogueBucket_(digits);
-    const cached = measured_(timing, 'catalogueCacheRead', () => readCatalogueCache_(cache, prefix, digits, bucket));
-    if (cached) {
-      if (timing) timing.count('catalogueCacheHit', true);
+    const data = VIEWER_CATALOGUE;
+    const invalid = () => viewerError_('The bundled catalogue is invalid. The maintainer must regenerate Catalogue.gs.');
+    if (!data || data.format !== 1 || !Array.isArray(data.locations) || !Array.isArray(data.records) ||
+        !data.locations.every(location => Array.isArray(location) && location.length === 2 &&
+          location.every(value => typeof value === 'string'))) throw invalid();
+    const rows = [], byNumber = new Map();
+    for (const record of data.records) {
       checkTime();
-      return [['catalogNumber', 'Family', 'Scientific Name']].concat(cached);
+      if (!Array.isArray(record) || record.length !== 2 || typeof record[0] !== 'string' ||
+          !/^[0-9]+$/.test(record[0]) || !Number.isInteger(record[1]) ||
+          record[1] < 0 || record[1] >= data.locations.length) throw invalid();
+      const row = ['E' + record[0], ...data.locations[record[1]]];
+      rows.push(row);
+      if (!byNumber.has(record[0])) byNumber.set(record[0], []);
+      byNumber.get(record[0]).push(row);
     }
-    if (timing) timing.count('catalogueCacheHit', false);
-    const text = measured_(timing, 'catalogueDownload', () => file.getBlob().getDataAsString('UTF-8')).replace(/^\uFEFF/, '');
-    if (/[\u0000\uFFFD]/.test(text)) throw new Error('Invalid UTF-8 export');
-    checkTime();
-    const rows = measured_(timing, 'catalogueParse', () => Utilities.parseCsv(text));
-    checkTime();
-    if (cache) {
-      const buckets = catalogueBuckets_(rows);
-      if (fileVersion_(file) !== version) throw viewerError_('The catalogue CSV changed during the search. Please try again.');
-      measured_(timing, 'catalogueCacheWrite', () => {
-        const values = {};
-        buckets.forEach((rows, index) => {
-          const value = JSON.stringify({ rows: rows });
-          if (value.length <= TRANSCRIPTION_VIEWER.CACHE_MAX_CHARS) values[prefix + index] = value;
-        });
-        try { cache.putAll(values, TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_SECONDS); } catch (error) { /* Cache is optional. */ }
-      });
-    }
-    return rows;
-  } catch (error) {
-    if (error.viewerMessage) throw error;
-    throw viewerError_('The catalogue CSV could not be read. Check its sharing and UTF-8 export format.');
+    catalogueIndex_ = { rows: rows, byNumber: byNumber };
   }
+  if (timing) {
+    timing.count('catalogueSource', 'bundled');
+    timing.count('catalogueRows', catalogueIndex_.rows.length);
+  }
+  return [['catalogNumber', 'Family', 'Scientific Name']].concat(
+    digits == null ? catalogueIndex_.rows : catalogueIndex_.byNumber.get(digits) || []);
 }
 
-function readCatalogueCache_(cache, prefix, digits, bucket) {
-  if (!cache) return null;
-  try {
-    let entries;
-    if (digits === null) {
-      const keys = Array.from({ length: TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS }, (_, index) => prefix + index);
-      const values = cache.getAll(keys);
-      entries = keys.map(key => JSON.parse(values[key] || 'null'));
-    } else entries = [cachedJson_(cache, prefix + bucket)];
-    if (entries.some(entry => !entry || !Array.isArray(entry.rows) || !entry.rows.every(row =>
-        Array.isArray(row) && row.length === 3 && row.every(value => typeof value === 'string')))) return null;
-    return entries.reduce((all, entry) => all.concat(entry.rows), []);
-  } catch (error) { return null; }
-}
-
-function catalogueBucket_(digits) {
-  let value = 0;
-  for (const digit of digits) value = (value * 31 + digit.charCodeAt(0)) % TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS;
-  return value;
-}
-
-function catalogueBuckets_(rows) {
+function catalogueRows_(rows) {
   rows = rows.filter(row => row.some(value => String(value).trim()));
   const header = (rows[0] || []).map(value => String(value).trim());
   const fields = ['catalogNumber', 'Family', 'Scientific Name'];
@@ -321,13 +253,13 @@ function catalogueBuckets_(rows) {
   if (fields.some((name, i) => columns[i] < 0 || header.lastIndexOf(name) !== columns[i])) {
     throw viewerError_('The catalogue needs one column each named catalogNumber, Family, and Scientific Name.');
   }
-  const buckets = Array.from({ length: TRANSCRIPTION_VIEWER.CATALOGUE_CACHE_BUCKETS }, () => []);
+  const entries = [];
   for (const row of rows.slice(1)) {
     if (row.length > header.length) throw viewerError_('The catalogue CSV has a row with extra columns. Check its export format.');
     const number = /^E?([0-9]+)$/i.exec(String(row[columns[0]] || '').trim());
-    if (number) buckets[catalogueBucket_(number[1])].push(columns.map(column => String(row[column] || '')));
+    if (number) entries.push(columns.map(column => String(row[column] || '')));
   }
-  return buckets;
+  return entries;
 }
 
 function routeFromCatalogue_(query, rows) {
@@ -355,7 +287,7 @@ function routeFromCatalogue_(query, rows) {
     routes.set(route.family.toLowerCase() + '\n' + route.species.toLowerCase(), route);
   }
   if (!routes.size) {
-    throw viewerError_(query.e + ' was not found in the catalogue CSV. Check the number or refresh the catalogue export.');
+    throw viewerError_(query.e + ' was not found in the bundled catalogue. Check the number or ask the maintainer to update the catalogue.');
   }
   if (routes.size !== 1) {
     throw viewerError_('The catalogue lists conflicting families or species for ' + query.e + '. Check the duplicate catalogue rows.');
@@ -379,7 +311,7 @@ function lookupTranscription_(rawQuery, timing, checkBudget) {
   };
   const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
   if (!query.family || !query.species) {
-    query = measured_(timing, 'catalogue', () => routeFromCatalogue_(query, readCatalogue_(root, checkTime, query.digits, timing)));
+    query = measured_(timing, 'catalogue', () => routeFromCatalogue_(query, readCatalogue_(checkTime, query.digits, timing)));
     checkTime();
   }
   const family = measured_(timing, 'familyFolder', () => familyFolder_(root, query, checkTime));
@@ -426,7 +358,7 @@ function compareCatalogueNumbers_(a, b) {
 
 /** Alphabetical family/species, then numeric identifiers; CSV row order does not define neighbours. */
 function navigationSequence_(rows, checkTime) {
-  const catalogueRows = catalogueBuckets_(rows).reduce((all, bucket) => all.concat(bucket), []);
+  const catalogueRows = catalogueRows_(rows);
   const species = new Map(), numbers = new Map();
   for (const row of catalogueRows) {
     checkTime();
@@ -465,8 +397,7 @@ function browseCatalogue_(params, appUrl, timing) {
       throw viewerError_('The catalogue search time limit was reached. The list could not be completed. Please try again.');
     }
   };
-  const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
-  const rows = measured_(timing, 'browseCatalogue', () => readCatalogue_(root, checkTime, null, timing));
+  const rows = measured_(timing, 'browseCatalogue', () => readCatalogue_(checkTime, null, timing));
   const sequence = measured_(timing, 'browseSequence', () => navigationSequence_(rows, checkTime));
   if (location) {
     const matches = sequence.filter(route => route.species.toLowerCase() === location.species.toLowerCase() &&
@@ -505,8 +436,7 @@ function navigateRecord_(rawQuery, direction, timing) {
     }
   };
   const query = normalizeQuery_(rawQuery);
-  const root = DriveApp.getFolderById(TRANSCRIPTION_VIEWER.ROOT_FOLDER_ID);
-  const rows = measured_(timing, 'navigationCatalogue', () => readCatalogue_(root, checkTime, null, timing));
+  const rows = measured_(timing, 'navigationCatalogue', () => readCatalogue_(checkTime, null, timing));
   const current = routeFromCatalogue_(query, rows);
   const sequence = navigationSequence_(rows, checkTime);
   const index = sequence.findIndex(route => route.digits === current.digits);
