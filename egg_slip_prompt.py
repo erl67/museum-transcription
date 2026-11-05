@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "11-03.1"
+PROMPT_VERSION = "11-04.0"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -56,20 +56,25 @@ and repeated source text on each supplied side without reconciling their account
 
 LAYOUT AND FIELDS
 Use actual printed labels in visual order: top to bottom, left to right within a
-row, including corner panels. Prefer 'Label: value' on separate lines; retain
+row, including corner panels. Identify separate panels/columns before assigning
+entries; complete each field before moving to a neighbouring panel. Prefer
+'Label: value' on separate lines; retain
 sublabels and multiline values. Harmless colon/line-layout variations need no note.
 A printed but empty field takes '-'; faint, obscured or illegible writing is not
 blank. Narrative slips keep paragraphs and entry boundaries without invented fields.
 Keep Set No. and Collector separate.
 
 Attach raised/lowered writing and continuations to their own fields, including
-every set-mark component and incubation line. For example:
-<printed label>: <first line of its value>
+every set-mark component and incubation line. A complete set mark stays on one
+output line as specified below. Genuinely multiline prose/entries keep their lines:
+<printed prose/entry label>: <first line of its value>
 <continuation of that same value>
 A field is defined by its label and associated entry, including raised, lowered
 and multiline writing. Position alone does not make a continuation an annotation.
 Keep adjacent common/scientific names separate from numeric codes, even when they
 share a row; a name beside Set Mark is not part of the mark.
+Transcribe an unlabelled name area on its own body line, without inventing a label
+or joining its text to a neighbouring numbered field.
 Follow prose across unused or cancelled printed labels instead of assigning it to
 an unrelated field. Keep a number completing field text or a specimen reference
 with that entry even when raised, lowered or different from the egg catalogue number.
@@ -128,6 +133,16 @@ characters separately. If its role is ambiguous, keep it at its source position
 without assigning a role, explaining consequential ambiguity in TRANSCRIPTION NOTES.
 A labelled set mark stays in its field without duplication. Many cards have none:
 invent neither a mark nor an absence note; an empty printed field still takes '-'.
+
+A set mark need not be a fraction: it may be a plain number, an alphanumeric code,
+or a code followed by a fraction. Inspect the entire entry through its final
+character, including letters/digits close to the next printed label; do not drop
+a terminal character or absorb it into that label. Keep all parts of one mark
+together on one output line after its label, writing a stacked fraction inline as
+numerator/denominator. Keep a preceding code and its fraction together, not split
+around a neighbouring name. Preserve meaningful spaces between code groups without
+inserting spaces inside a continuous alphanumeric group. This does not combine
+separate entries, cancelled attempts or uncertainly associated marginal marks.
 
 Reread every set mark independently, including apparently clear typed, printed and
 stamped marks. Read numerator, slash/bar and denominator separately, then check the
@@ -227,16 +242,28 @@ name correction does not cancel the common name. Source-written cancellation
 statements remain source text, not proof of a visible strike. No editorial deletion
 tags belong in fields.
 
+For an egg-count correction that passes both checks with a clear replacement,
+put the surviving count and any visible unit in the egg-count field. Record the
+crossed-out count once in ANNOTATIONS, identifying that field. Do not merge the
+two counts, silently discard the earlier count or choose one by agreement with a
+set-mark denominator. If the replacement or cancellation is uncertain, preserve
+the readings and uncertainty rather than selecting a count by position or darkness.
+
 ANNOTATIONS
 Record unlabelled additions, standalone catalogue numbers/stamps, marginal writing,
 publisher/printer imprints, form codes and meaningful alterations on their own side.
-Keep each source item once, with a short location only when useful. Preserve numeric
-stamps without inventing an E prefix. The collection heading belongs at the start
+Keep each source item once. For standalone additions, give the item type, a brief
+source location and its visible text, not an unexplained list of numbers or phrases.
+For example, 'Stamp at top left: <visible text>' or 'Pencil note above heading:
+<visible text>' when those descriptions are supported. If the medium/type is
+unclear, use 'Note' or 'Number' with its location rather than guessing. For an
+alteration within a field, its printed field name supplies the location.
+Preserve numeric stamps without inventing an E prefix. The collection heading belongs at the start
 of the front; only meaningful alterations to it also belong here. Separate later
 filing/ownership notes from original entries when handwriting and placement support it.
 Avoid stroke inventories, orientation descriptions and routine comments on spacing,
-underlining or flourishes. Mention colour/medium only when clear and necessary to
-distinguish entries; scan tint or a crossing stroke's colour does not identify the
+underlining or flourishes. Mention colour/medium when clearly supported and useful
+to identify an item; scan tint or a crossing stroke's colour does not identify the
 underlying ink. Ordinary printed rules, stains, artifacts and filing/punch holes
 need no description. Mention major tears or missing card pieces and retain uncertainty
 for obscured writing. Source notes about specimen damage still belong in the text.
@@ -285,7 +312,11 @@ FINAL_CHECKS = """FINAL CHECK (silent):
   set-mark numerators/denominators directly from the image, character by character,
   including typed digits and dot-like numerators. Compare with the draft only after
   rereading; compare egg counts with denominators without forcing agreement. Retain uncertainty.
+- Keep the full set mark, including any code and inline fraction, on one output
+  line; keep neighbouring names separate and recheck terminal characters.
 - Make cancellation claims only after BOTH ALTERATIONS checks.
+- Keep a clearly corrected egg count in its field and its cancelled predecessor
+  in ANNOTATIONS. Give standalone annotations an item type and brief source location.
 - Preserve all non-English source text and its parenthetical translation; disclose
   each translated language once.
 - For each nest/skin/bird collection flag, locate its supporting source phrase or

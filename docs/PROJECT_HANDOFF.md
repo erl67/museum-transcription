@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **3 November 2026**, application build **2026-10-19.1**, prompt **11-03.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **4 November 2026**, application build **2026-10-19.1**, prompt **11-04.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Field grouping, corrected counts and annotation descriptions - 4 November 2026
+
+The maintainer supplied Quiscalus quiscula E346/E347 and requested complete set marks, separation of adjacent name areas, preservation of a corrected egg count and more descriptive annotations. Prompt **11-04.0** keeps each complete set mark on one output line, including a code with a raised fraction, and checks trailing characters before the next printed label. It distinguishes panels before assigning entries and retains unlabelled names on their own body lines. The generic multiline example now explicitly applies to genuinely multiline prose/entries. Standalone annotations give an evidenced item type, brief location and text; unclear media use neutral descriptions. The old **2026-10-21.1** prompt at `5e15eb7` was inspected, but its conditional location wording was not sufficient to require this preference.
+
+After both existing cancellation checks establish a clear egg-count correction, the surviving count stays in the field and the crossed-out count appears once in annotations with its field identified. E346's maintainer-confirmed count is `6` with `5` crossed out; E347's set mark is `12B 1/5`, separate from `Purple Grackle`. E346's final set-mark character remains unconfirmed, and the older reports are not complete verified references. See [reviewed passages and policy](transcription_rules.md#field-grouping-and-descriptive-annotations---11-040). E347's explicit nest collection wording remains valid under the unchanged collection-evidence rule.
+
+The checkout was clean at `15fea7e` before editing, and no campaign process was running. This is a prompt-policy revision only: no responsibilities moved, no provider/settings or validation/status behavior changed, and no postprocessing or extra service requests were added. Prompt changes intentionally change fingerprints for subsequent normal selections while retaining old journal history. Source scans/CSV, saved reports, campaign state/approvals and viewer files were not edited. Verification is offline; no paid requests were made.
+
+Pre-edit baseline: **172 tests ran, 171 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. Final transcription/campaign suites: **246 tests ran, 245 passed and the same fixture skipped**, including both mocked provider transports. Existing policy assertions were extended for panel separation, complete single-line set marks, trailing characters, corrected counts and annotation descriptions. These checks verify software behavior and instruction retention, not recognition accuracy. `git diff --check` passed.
 
 ## Restored numeral checks and collection evidence - 3 November 2026
 

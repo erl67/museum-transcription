@@ -1286,6 +1286,10 @@ class DatasetTest(unittest.TestCase):
                      "Never infer an A.O.U. code or suffix from the species name, filename or catalogue hint",
                      "Read the complete entry from the image again before comparing it with the draft",
                      "a name beside Set Mark is not part of the mark",
+                     "Identify separate panels/columns before assigning entries",
+                     "Transcribe an unlabelled name area on its own body line",
+                     "give the item type, a brief source location and its visible text",
+                     "If the medium/type is unclear, use 'Note' or 'Number' with its location rather than guessing",
                      "collectors, dealers, former owners, donors and annotators distinct",
                      "Never invent identities, intentions, historical explanations",
                      "An explicit collection verb is not required",
@@ -1308,6 +1312,10 @@ class DatasetTest(unittest.TestCase):
         policy = " ".join(prompts.BASE_PROMPT.split())
         for rule in ("apparently clear typed, printed and stamped marks",
                      "numerator, slash/bar and denominator separately",
+                     "A set mark need not be a fraction",
+                     "Inspect the entire entry through its final character",
+                     "Keep all parts of one mark together on one output line after its label",
+                     "without inserting spaces inside a continuous alphanumeric group",
                      "Keep every digit of a multi-digit numerator together",
                      "Trace the handwritten fraction even when it spans a printed rule",
                      "proximity to an Eggs in Set label alone does not make it a separate egg-count entry",
@@ -1335,6 +1343,9 @@ class DatasetTest(unittest.TestCase):
                      "make no cancellation claim, even 'possibly crossed out'",
                      "A stamp overlapping handwriting does not cancel it",
                      "catalogue-number cancellations go once in TRANSCRIPTION NOTES",
+                     "put the surviving count and any visible unit in the egg-count field",
+                     "Record the crossed-out count once in ANNOTATIONS, identifying that field",
+                     "If the replacement or cancellation is uncertain, preserve the readings and uncertainty",
                      "Source-written cancellation statements remain source text"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, policy)
@@ -1367,6 +1378,8 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("Compare the source against the draft one field and paragraph at a time", checks)
         self.assertIn("directly from the image, character by character", checks)
         self.assertIn("omit unsupported flags", checks)
+        self.assertIn("including any code and inline fraction, on one output line", checks)
+        self.assertIn("Give standalone annotations an item type and brief source location", checks)
         card = self.cards({"E4268"})[0]
         for use_hints in (False, True):
             prompt = prompts.build_prompt(card, self.db(), use_hints)
