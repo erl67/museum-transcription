@@ -1408,6 +1408,7 @@ def run(args, engine=None) -> int:
     totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0, "missing": 0}
     selected = 0
     start = time.monotonic()
+    outcome = "Stopped"
     try:
         for species, allowed in targets.items():
             try:
@@ -1548,7 +1549,9 @@ def run(args, engine=None) -> int:
                     durable_write(output, f"TEST FINISHED: {totals['fresh']} new, {totals['review']} review, "
                                   f"{totals['failed']} failed; {totals['discovery_issues']} file issues; "
                                   f"{engine.requests} API attempt(s).\n")
+        outcome = "Finished"
     except KeyboardInterrupt:
+        outcome = "Interrupted"
         print("\nInterrupted. Completed test output is saved; the next test starts fresh." if test_mode or single_card_test else
               "\nInterrupted. Completed saved cards can be reused by running the same target again.")
         return 130
@@ -1561,14 +1564,16 @@ def run(args, engine=None) -> int:
                 print(token_usage.tokens_line(token_usage.aggregate(calls)))
                 print(token_usage.averages(calls))
                 print(token_usage.summary(calls))
+                completed = totals["fresh"] + totals["reused"]
+                print(f"\n{outcome} in {time.monotonic() - start:.1f}s: "
+                      f"{completed} completed ({completed - totals['review']} OK, {totals['review']} needing review); "
+                      f"{totals['fresh']} new, {totals['reused']} reused, "
+                      f"{totals['failed']} failed, {totals['paused']} paused, "
+                      f"{totals['missing']} missing CSV record(s); {engine.requests} API attempt(s).")
+            if totals["discovery_issues"]:
+                print(f"File/routing issues: {totals['discovery_issues']}; see messages above.")
     if args.dry_run:
         print(f"\nDry run: {selected} card group(s), {totals['missing']} missing CSV record(s); no API calls or output files.")
-    else:
-        print(f"\nFinished in {time.monotonic() - start:.1f}s: "
-              f"{totals['fresh']} new, {totals['reused']} reused, {totals['review']} needing review, "
-              f"{totals['failed']} failed, {totals['missing']} missing CSV record(s); {engine.requests} API attempt(s).")
-    if totals["discovery_issues"]:
-        print(f"File/routing issues: {totals['discovery_issues']}; see messages above.")
     return 1 if totals["failed"] or totals["paused"] or totals["discovery_issues"] else 0
 
 

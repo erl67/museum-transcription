@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **4 November 2026**, application build **2026-10-19.1**, prompt **11-04.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **7 November 2026**, application build **2026-10-19.1**, prompt **11-07.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Set-mark character checks, faint additions and rows - 7 November 2026
+
+The maintainer requested further set-mark work on E228, E10229, E4629, E4624, E4623 and E4621. All six source JPEGs and their saved November 6 **11-04.0** report blocks were inspected read-only through the mounted Google Drive. Detail crops in a temporary folder preserved the originals. Reviewed readings support `8/4` for E228/E4629, `B1` for E10229, the faint addition in E4624's `D-4 [=4/4]`, and E4621's lettered and numbered rows. E4624's report incorrectly called its addition crossed out; E4629's report also absorbed its catalogue stamp into the mark. E4623's `C-4 = 3/4` was already captured. See [reviewed passages and report provenance](transcription_rules.md#set-mark-characters-additions-and-series---11-070); other fields are not certified.
+
+Prompt **11-07.0** gives set marks explicit priority and checks letter/digit identity, 8/3/4 shapes, actual fraction separators, faint attached alternatives, equals signs and source brackets. It retains each individual mark on one line while preserving separate rows/column associations in a series, without filling expected sequences, inventing equivalences or duplicating body text in annotations. Codes/fractions under `Set No.` receive the checks with their printed label intact; adjacent catalogue stamps remain separate. Source uncertainty, the two cancellation checks, descriptive annotations, corrected counts and collection-evidence requirements remain intact.
+
+No responsibilities moved. These are shared reading instructions, not hardcoded card answers, a code-conversion lookup, postprocessing, extra requests or automatic crop generation. The model/settings, image pipeline, validation/status meanings and accounting are unchanged by this task. The prompt intentionally changes fingerprints for subsequent normal selections while preserving old journal history. Local console-summary changes in README, transcribe.py, tests and this handoff were inspected and preserved. No campaign process was running before edits; scans, source CSV, saved reports/journals and campaign state/approvals were not changed. No paid requests were made.
+
+Offline verification: the pre-edit `test_transcribe.py` baseline ran 174 tests (173 passed, one optional supplied-scan fixture skipped). After the prompt changes, `.venv/Scripts/python.exe -m unittest -v test_transcribe.py test_campaign.py` ran 248 tests (247 passed, the same fixture skipped because `EGG_SLIP_SAMPLE_DIR` was unset), including both mocked provider transports. Existing policy assertions now cover the added rules and final reminder. These checks verify software behavior and prompt assembly, not handwriting accuracy or improved live readings.
 
 ## Field grouping, corrected counts and annotation descriptions - 4 November 2026
 
@@ -545,7 +555,7 @@ Console-only normal runs make fresh API calls with no report or transcription jo
 
 Test mode routes every recognized card in one flat directory through the same parsing/prompt/image/provider/validation machinery. It skips production folder lookup, marks missing CSV references for review, uses `TEST_TEMPERATURE` unless explicitly overridden, and writes one model-tagged report. It never opens a `Journal`, even if production cache entries would match. A restart after a partial test starts at the first card again.
 
-Exit code 0 means no recorded failed/paused/discovery issues; accepted review results do not make the run fail. Code 1 covers run failures, missing/ambiguous files/routing, quota pauses, or an empty test set. Keyboard interruption returns 130. Argument-parser errors use argparse's code 2. A fatal stop can happen before the final totals/footer, so read the actual messages and report termination state.
+Exit code 0 means no recorded failed/paused/discovery issues; accepted review results do not make the run fail. Code 1 covers run failures, missing/ambiguous files/routing, quota pauses, or an empty test set. Keyboard interruption returns 130. Argument-parser errors use argparse's code 2. Run cleanup prints console card totals alongside usage even on fatal service/quota stops or keyboard interruption, labelled Stopped or Interrupted rather than Finished. Completed is fresh plus reused `ok`/`review` results; failed/paused results and unattempted cards are excluded. Report usage footers remain finalized through the existing output context; read the stop messages and report termination state.
 
 ## Configuration and model system
 

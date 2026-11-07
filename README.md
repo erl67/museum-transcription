@@ -122,6 +122,8 @@ Normal reuse requires matching images, ordered filenames, reading instructions, 
 
 Keep `transcribe_request_usage.json` beside the script when moving or updating the installation, or continue using the same `--quota-file` path. It preserves local request counts across restarts. Report footers show fresh call counts, token usage, and estimated standard paid-rate costs; estimates are not invoices and do not establish whether an account is being charged. [Configuration and request control](docs/configuration.md) explains the limits, retries, and accounting.
 
+The closing console summary includes completed cards (structural `OK` or needing review), new/reused results, failures, pauses, missing CSV records, and request attempts, including when service errors, quota limits, or Ctrl+C stop a run early. Completed counts include reused results and do not mean human verification; cards not reached before a stop are not counted as failed.
+
 ## Verification and continued development
 
 For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).

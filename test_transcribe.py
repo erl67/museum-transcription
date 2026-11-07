@@ -1310,17 +1310,30 @@ class DatasetTest(unittest.TestCase):
 
     def test_prompt_retains_set_mark_and_cancellation_safeguards(self):
         policy = " ".join(prompts.BASE_PROMPT.split())
-        for rule in ("apparently clear typed, printed and stamped marks",
+        for rule in ("Set marks are a high-priority transcription target",
+                     "Apply these reading checks to codes/fractions within Set No. too, retaining that printed label",
+                     "Keep nearby standalone catalogue stamps separate from the code",
+                     "apparently clear typed, printed and stamped marks",
                      "numerator, slash/bar and denominator separately",
                      "A set mark need not be a fraction",
                      "Inspect the entire entry through its final character",
                      "Keep all parts of one mark together on one output line after its label",
                      "without inserting spaces inside a continuous alphanumeric group",
+                     "Retain both the main code and an attached addition",
+                     "including visible equals signs and source-written brackets",
+                     "preserve separate rows and their column associations",
+                     "never fill or correct a character to complete an alphabetic/numeric sequence",
+                     "Alignment alone does not justify adding an equals sign",
+                     "A series retained in the body is not copied again into ANNOTATIONS",
                      "Keep every digit of a multi-digit numerator together",
                      "Trace the handwritten fraction even when it spans a printed rule",
                      "proximity to an Eggs in Set label alone does not make it a separate egg-count entry",
                      "2/3 lower strokes and bases and possible 4 shapes",
                      "distinguish 5 from 3 and narrow or slanted 0 from 1",
+                     "Check an 8's two loops and waist against an open 3 or angular 4",
+                     "B versus 3/8, and lowercase a, b, c or d versus numerals",
+                     "Alphabetic numerators are valid",
+                     "retain a slash only when visible as a separate separator",
                      "same hand or typeface on supplied sides",
                      "shape comparisons, never replacement values",
                      "Follow each character's curves, diagonals, loops and crossbars",
@@ -1379,6 +1392,7 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("directly from the image, character by character", checks)
         self.assertIn("omit unsupported flags", checks)
         self.assertIn("including any code and inline fraction, on one output line", checks)
+        self.assertIn("Preserve series rows, faint additions, equals signs and source brackets", checks)
         self.assertIn("Give standalone annotations an item type and brief source location", checks)
         card = self.cards({"E4268"})[0]
         for use_hints in (False, True):
@@ -1713,6 +1727,44 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(len(client.calls), 2)
         self.assertEqual(len(clock.delays), 1)
         self.assertTrue(result["fatal"])
+
+    def test_service_stop_prints_totals_with_reused_review_and_fresh_ok(self):
+        self.args.target = "E4268"
+        review = transcript(self.cards({"E4268"})[0].sections).replace("TEST FIXTURE ONLY", "[unclear]")
+        self.assertEqual(t.run(self.args, self.engine([response(review)])[0]), 0)
+        self.write_csv(["E4268", "E4927", "E5000", "E6000"])
+        self.card_image("Accipiter_gentilis_E5000.jpg")
+        self.card_image("Accipiter_gentilis_E6000.jpg")
+        self.args.target = "Accipiter_gentilis"
+        engine, client, _ = self.engine(
+            [response(transcript()), *[FakeAPIError(503) for _ in range(self.args.attempts)]])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 1)
+        console = output.getvalue()
+        self.assertIn("Stopped: Repeated rate-limit/network/server errors", console)
+        self.assertEqual(console.count("Stopped in "), 1)
+        self.assertNotIn("Finished in ", console)
+        self.assertIn("2 completed (1 OK, 1 needing review); 1 new, 1 reused, 1 failed, 0 paused", console)
+        self.assertIn("6 API attempt(s).", console)
+        self.assertEqual(len(client.calls), 6)
+        self.assertTrue(client.closed)
+        entries = [json.loads(line) for line in next(self.family.glob("*_cache.jsonl")).read_text().splitlines()]
+        self.assertEqual([entry["status"] for entry in entries], ["review", "ok", "failed"])
+        self.assertFalse(any("E6000" in entry["base_id"] for entry in entries))
+
+    def test_service_stop_on_first_test_card_prints_zero_completed(self):
+        self.sample_args()
+        engine, client, _ = self.engine([FakeAPIError(503) for _ in range(self.args.attempts)])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 1)
+        console = output.getvalue()
+        self.assertEqual(console.count("Stopped in "), 1)
+        self.assertIn("0 completed (0 OK, 0 needing review); 0 new, 0 reused, 1 failed, 0 paused", console)
+        report = next((self.root / "outputs").glob("*.txt")).read_text()
+        self.assertIn("TEST STOPPED:", report)
+        self.assertNotIn("TEST FINISHED:", report)
+        self.assertIn(f"RUN: {self.args.attempts} calls", report)
+        self.assertTrue(client.closed)
 
     def test_empty_response_gets_one_retry_and_incomplete_result_stays_failed(self):
         engine, client, _ = self.engine([response(""), response("partial")])
@@ -2184,7 +2236,10 @@ class DatasetTest(unittest.TestCase):
     def test_daily_cap_pauses_next_card_and_restart_reuses_completed_work(self):
         self.args.rpd = 1
         engine, client, _ = self.engine()
-        self.assertEqual(t.run(self.args, engine), 1)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 1)
+        self.assertIn("1 completed (1 OK, 0 needing review); 1 new, 0 reused, 0 failed, 1 paused", output.getvalue())
+        self.assertEqual(output.getvalue().count("Stopped in "), 1)
         self.assertEqual(len(client.calls), 1)
         report = next(self.family.glob("*_transcriptions_*.txt")).read_text()
         self.assertIn("STATUS: OK", report)
@@ -2196,7 +2251,10 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(client.calls, [])
         self.args.rpd = 2
         engine, client, _ = self.engine()
-        self.assertEqual(t.run(self.args, engine), 0)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 0)
+        self.assertIn("2 completed (2 OK, 0 needing review); 1 new, 1 reused, 0 failed, 0 paused", output.getvalue())
+        self.assertEqual(output.getvalue().count("Finished in "), 1)
         self.assertEqual(len(client.calls), 1)
 
     def test_format_retry_consumes_daily_budget_and_keeps_saved_response(self):
@@ -2509,7 +2567,11 @@ class DatasetTest(unittest.TestCase):
     def test_sample_interruption_keeps_completed_output_and_closes_client(self):
         self.sample_args()
         engine, client, _ = self.engine([response(transcript(self.cards()[0].sections)), KeyboardInterrupt()])
-        self.assertEqual(t.run(self.args, engine), 130)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 130)
+        self.assertIn("1 completed (1 OK, 0 needing review); 1 new, 0 reused, 0 failed, 0 paused", output.getvalue())
+        self.assertEqual(output.getvalue().count("Interrupted in "), 1)
+        self.assertNotIn("Finished in ", output.getvalue())
         text = next((self.root / "outputs").glob("*.txt")).read_text()
         self.assertIn("STATUS: OK", text)
         self.assertNotIn("TEST FINISHED", text)

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "11-04.0"
+PROMPT_VERSION = "11-07.0"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -65,8 +65,9 @@ blank. Narrative slips keep paragraphs and entry boundaries without invented fie
 Keep Set No. and Collector separate.
 
 Attach raised/lowered writing and continuations to their own fields, including
-every set-mark component and incubation line. A complete set mark stays on one
-output line as specified below. Genuinely multiline prose/entries keep their lines:
+every set-mark component and incubation line. Each individual set mark stays intact
+on one output line; a series keeps its source rows as specified below.
+Genuinely multiline prose/entries keep their lines:
 <printed prose/entry label>: <first line of its value>
 <continuation of that same value>
 A field is defined by its label and associated entry, including raised, lowered
@@ -120,13 +121,18 @@ dates need no explanation. Before claiming a discrepancy between sides, reread b
 sets of digit shapes; bracket doubt and retain genuine differences.
 
 SET MARKS
+Set marks are a high-priority transcription target. Give their character identity,
+completeness and placement a dedicated silent check before finalizing.
 Inspect labelled Mark/Set/Set Mark fields and the whole supplied card, including
-faint pencil at the top, corners, margins and backs. Copy every character, leading
+faint pencil at the top, corners, margins and backs. Apply these reading checks to
+codes/fractions within Set No. too, retaining that printed label. Copy every character, leading
 zero, case, slash and hyphen; do not decode a mark or force it to match the egg count.
 Shortness, a slash or marginal position alone does not establish a set mark.
 Keep entry-leading numbers and measurements with their narrative/field. Exclude
-A.O.U., catalogue/accession numbers, Set No., dates, egg counts and other references
-from set-mark classification. Only when evidence supports the interpretation,
+A.O.U., catalogue/accession numbers, dates, egg counts and other references from
+set-mark classification; a Set No. label alone does not establish that its value
+is a set mark. Keep nearby standalone catalogue stamps separate from the code,
+even on the same line. Only when evidence supports the interpretation,
 record an otherwise unlabelled mark once in that side's ANNOTATIONS as
 'Likely set mark <visible value>'. 'Likely' qualifies its role; bracket doubtful
 characters separately. If its role is ambiguous, keep it at its source position
@@ -144,8 +150,26 @@ around a neighbouring name. Preserve meaningful spaces between code groups witho
 inserting spaces inside a continuous alphanumeric group. This does not combine
 separate entries, cancelled attempts or uncertainly associated marginal marks.
 
+Inspect immediately after, above and below a code for faint pencil additions or
+alternate notations. Retain both the main code and an attached addition, including
+visible equals signs and source-written brackets, in the same field. Faintness,
+different ink or enclosure does not establish cancellation or make a reading optional.
+Do not discard either notation as redundant, evaluate an equality or infer a
+conversion. If attachment is unclear, retain the addition once with its location
+in ANNOTATIONS. Preserve source brackets under UNCERTAINTY and bracket only genuine
+reading doubt; do not label visible source brackets as model uncertainty.
+
+For a series of marks, preserve separate rows and their column associations in
+plain text, keeping each individual fraction inline. Read every row left to right,
+then recheck each column's characters against the image, including a faint lower
+row. Compare repeated shapes, but never fill or correct a character to complete an
+alphabetic/numeric sequence or copy a denominator from its neighbours. Alignment
+alone does not justify adding an equals sign or claiming one row replaces another.
+Keep adjacent dates/narrative separate. A series retained in the body is not copied
+again into ANNOTATIONS merely to classify it as set marks.
+
 Reread every set mark independently, including apparently clear typed, printed and
-stamped marks. Read numerator, slash/bar and denominator separately, then check the
+stamped marks. For a fraction, read numerator, slash/bar and denominator separately, then check the
 assembled string directly against the image, not just the draft. Knowing that a
 notation is a set mark does not establish its digits. Keep every digit of a
 multi-digit numerator together, including small raised/lowered digits and zeros;
@@ -161,7 +185,13 @@ text; account for worn type, serifs and ink spread. Small, thick or angular digi
 need their own stroke evidence. Follow each character's curves, diagonals, loops
 and crossbars, keeping fraction bars and separate correction strokes out of its shape.
 Also distinguish 5 from 3 and narrow or slanted 0 from 1 in set marks, A.O.U. codes
-and egg counts. These are shape comparisons, never replacement values. Do not copy
+and egg counts. Check an 8's two loops and waist against an open 3 or angular 4;
+faint or overlapping strokes may obscure the distinction. Consider letters as well
+as digits: B versus 3/8, and lowercase a, b, c or d versus numerals. Compare stems,
+loops and joins in the same hand on supplied images. Alphabetic numerators are valid.
+A slanted letter stroke is not automatically a fraction separator: retain a slash
+only when visible as a separate separator, not to turn an alphanumeric code into
+a numeric fraction. These are shape comparisons, never replacement values. Do not copy
 a clear denominator into a doubtful numerator or borrow digits from another field,
 example or card. Bracket only unresolved characters.
 For a dot-like mark in the numerator position, recheck whether it is a faint or
@@ -312,8 +342,9 @@ FINAL_CHECKS = """FINAL CHECK (silent):
   set-mark numerators/denominators directly from the image, character by character,
   including typed digits and dot-like numerators. Compare with the draft only after
   rereading; compare egg counts with denominators without forcing agreement. Retain uncertainty.
-- Keep the full set mark, including any code and inline fraction, on one output
-  line; keep neighbouring names separate and recheck terminal characters.
+- Prioritize each complete set mark, including any code and inline fraction, on one
+  output line. Preserve series rows, faint additions, equals signs and source brackets.
+  Recheck 8/3/4 and letter/digit distinctions; keep adjacent names/stamps separate.
 - Make cancellation claims only after BOTH ALTERATIONS checks.
 - Keep a clearly corrected egg count in its field and its cancelled predecessor
   in ANNOTATIONS. Give standalone annotations an item type and brief source location.
