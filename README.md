@@ -124,6 +124,22 @@ Keep `transcribe_request_usage.json` beside the script when moving or updating t
 
 The closing console summary includes completed cards (structural `OK` or needing review), new/reused results, failures, pauses, missing CSV records, and request attempts, including when service errors, quota limits, or Ctrl+C stop a run early. Completed counts include reused results and do not mean human verification; cards not reached before a stop are not counted as failed.
 
+Failures list their E-numbers, for example `2 failed (E123, E1235)`. Shared slips list all their numbers together (`E123/E124`) and count as one physical card; uncatalogued failures list their source filenames. In an existing report, search for `STATUS: FAILED` and read the preceding `ID:` and CM banners. Retry a numbered card by entering its E-number as a normal target. Rerunning the same normal batch retries failures while reusing matching completed results up to 48 hours old; older results or changed inputs/settings receive fresh requests too.
+
+For a later collection-wide retry list, the saved reports and normal `*_cache.jsonl` journals retain failure status and card identifiers. Such a list should reconcile later successful results before selecting unresolved failures, and include report-only local failures that occurred before a journal key could be prepared. There is currently no dedicated retry-all-failures command.
+
+To list cards whose **latest saved result failed or is a special fresh check the viewer cannot use**, run this from the repository's PowerShell terminal:
+
+```powershell
+.\scripts\find-failed-transcriptions.ps1 -FamilyRoot 'G:\My Drive\Egg Slip Scanning\Family'
+```
+
+The script shows progress while finding and reading reports, then prints only cards needing follow-up, their statuses, recorded error reasons (including service codes such as 503), and source report paths, with a short overall summary. It also writes that summary to `Status-Failed.txt` in the current directory, replacing it on subsequent runs; use `-OutputFile 'C:\path\Status-Failed.txt'` to choose another destination. Source reports, journals and scans are read only, and no requests are made.
+
+Reports contain only the selected cards; later single-card or partial runs do not merge earlier reports. The script therefore reads all normal species reports and individual E-number reports directly inside each family subfolder, keeping the latest recorded status for each card ID within that family. Cards absent from newer reports retain their last recorded result; a later `OK` or `REVIEW` removes an earlier failure. Normal `PAUSED` results are excluded from the failure list. Shared-card IDs and leading zeros are preserved; renamed card IDs remain separate. Combined test reports, journals and CSV-only missing blocks are excluded. Results are ordered by the timestamp in the report filename and then the numeric run counter (`_10` is later than `_2`), with modification time breaking remaining ties. Missing roots, unreadable files and unrecognized report filenames stop the script instead of reporting a misleading clean result. This reports saved statuses, not whether an old successful result remains reusable under current prompts or settings.
+
+If a card's latest result is an individual `!` / `@` fresh-check report, it is also listed regardless of status, with a special-check note and a suggested `python transcribe.py E123 --force` command. These reports are not read by the website viewer; an older normal result may still be visible. A later normal report for the same card clears the special-check flag. `--force` requests a fresh normal reading instead of reusing an older cached result; it does not copy or publish the special-check text. Commands are printed for manual use and never executed by the search script. A failed special check appears once, with both its error and follow-up command.
+
 ## Verification and continued development
 
 For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).

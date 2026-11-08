@@ -1744,7 +1744,7 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("Stopped: Repeated rate-limit/network/server errors", console)
         self.assertEqual(console.count("Stopped in "), 1)
         self.assertNotIn("Finished in ", console)
-        self.assertIn("2 completed (1 OK, 1 needing review); 1 new, 1 reused, 1 failed, 0 paused", console)
+        self.assertIn("2 completed (1 OK, 1 needing review); 1 new, 1 reused, 1 failed (E5000), 0 paused", console)
         self.assertIn("6 API attempt(s).", console)
         self.assertEqual(len(client.calls), 6)
         self.assertTrue(client.closed)
@@ -1759,12 +1759,34 @@ class DatasetTest(unittest.TestCase):
             self.assertEqual(t.run(self.args, engine), 1)
         console = output.getvalue()
         self.assertEqual(console.count("Stopped in "), 1)
-        self.assertIn("0 completed (0 OK, 0 needing review); 0 new, 0 reused, 1 failed, 0 paused", console)
+        self.assertIn("0 completed (0 OK, 0 needing review); 0 new, 0 reused, 1 failed (E4268), 0 paused", console)
         report = next((self.root / "outputs").glob("*.txt")).read_text()
         self.assertIn("TEST STOPPED:", report)
         self.assertNotIn("TEST FINISHED:", report)
         self.assertIn(f"RUN: {self.args.attempts} calls", report)
         self.assertTrue(client.closed)
+
+    def test_finished_summary_identifies_failed_shared_and_uncatalogued_cards(self):
+        self.card_image("Accipiter_gentilis_E001_E187.jpg")
+        for side in ("A", "B"):
+            self.card_image(f"Accipiter_gentilis_Uncatalogued01({side}).jpg")
+        self.args.attempts = 1
+        engine, client, _ = self.engine([response("incomplete fixture") for _ in range(4)])
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 1)
+        summary = next(line for line in output.getvalue().splitlines() if line.startswith("Finished in "))
+        self.assertIn("0 completed (0 OK, 0 needing review)", summary)
+        self.assertIn("4 failed (E001/E187, E4268, E4927, "
+                      "Accipiter_gentilis_Uncatalogued01(A).jpg; "
+                      "Accipiter_gentilis_Uncatalogued01(B).jpg), 0 paused", summary)
+        self.assertEqual(len(client.calls), 4)
+        engine, client, _ = self.engine()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args, engine), 0)
+        summary = next(line for line in output.getvalue().splitlines() if line.startswith("Finished in "))
+        self.assertIn("4 completed", summary)
+        self.assertIn("0 failed, 0 paused", summary)
+        self.assertEqual(len(client.calls), 4)
 
     def test_empty_response_gets_one_retry_and_incomplete_result_stays_failed(self):
         engine, client, _ = self.engine([response(""), response("partial")])

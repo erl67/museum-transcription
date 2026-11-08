@@ -1406,6 +1406,7 @@ def run(args, engine=None) -> int:
     console_only = star_mode or args.console_only
     engine = engine or Transcriber(args)
     totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0, "missing": 0}
+    failed_cards = []
     selected = 0
     start = time.monotonic()
     outcome = "Stopped"
@@ -1518,6 +1519,9 @@ def run(args, engine=None) -> int:
                     result = {**result, "provider": args.provider, "model": args.model}
                     if result["status"] in {"failed", "paused"}:
                         totals[result["status"]] += 1
+                        if result["status"] == "failed":
+                            failed_cards.append("/".join(card.enums) if card.enums else
+                                                "; ".join(path.name for path in card.paths))
                     else:
                         totals["reused" if reused else "fresh"] += 1
                         if result["status"] == "review":
@@ -1565,10 +1569,11 @@ def run(args, engine=None) -> int:
                 print(token_usage.averages(calls))
                 print(token_usage.summary(calls))
                 completed = totals["fresh"] + totals["reused"]
+                failed_details = " (" + ", ".join(failed_cards) + ")" if failed_cards else ""
                 print(f"\n{outcome} in {time.monotonic() - start:.1f}s: "
                       f"{completed} completed ({completed - totals['review']} OK, {totals['review']} needing review); "
                       f"{totals['fresh']} new, {totals['reused']} reused, "
-                      f"{totals['failed']} failed, {totals['paused']} paused, "
+                      f"{totals['failed']} failed{failed_details}, {totals['paused']} paused, "
                       f"{totals['missing']} missing CSV record(s); {engine.requests} API attempt(s).")
             if totals["discovery_issues"]:
                 print(f"File/routing issues: {totals['discovery_issues']}; see messages above.")

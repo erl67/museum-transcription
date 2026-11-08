@@ -1,5 +1,7 @@
 # Testing and the behavioral baseline
 
+For the standalone PowerShell latest-card follow-up search, run `python -m unittest -v test_failed_reports.py`. These checks invoke PowerShell against temporary synthetic reports and verify filename timestamps/counters, reconciliation across partial and individual reports, later successes/failures, shared IDs and leading zeros, error reasons, empty reports, compact follow-up output, special-check flags and manual commands, later normal results clearing those flags, progress updates/cleanup, source preservation and explicit input errors. They make no service requests and skip if PowerShell is unavailable.
+
 For unattended-worker changes, also run `python -m unittest -v test_campaign.py`,
 or run both modules together. The campaign suite uses temporary generated images,
 simulated days, the existing fake model client, and process-lock recovery tests.

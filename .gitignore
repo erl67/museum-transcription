@@ -38,6 +38,7 @@ Thumbs.db
 !/tests/inputs/*.[jJ][pP][eE][gG]
 
 # Generated transcriptions, journals, coordination files, and daily counters
+Status-Failed*
 #*_transcriptions_*.txt
 *_transcriptions_cache.jsonl
 *_transcriptions.lock
