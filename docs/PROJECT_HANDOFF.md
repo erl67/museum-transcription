@@ -1,6 +1,14 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **7 November 2026**, application build **2026-10-19.1**, prompt **11-07.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **11 November 2026**, application build **2026-10-19.1**, prompt **11-11.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Uncertainty, identifiers and collection quotations - 11 November 2026
+
+The maintainer approved the prompt-review refinements, then explicitly limited the work to the main prompt and rejected the proposed crop feature. Prompt **11-11.0** preserves the possible faint-1 reading while allowing letter numerators, reserves `[illegible number]` for clearly numeric writing, and makes unresolved ambiguity after rereading remain bracketed. Identifier strings/prefixes/suffixes are exempt from ordinary-word translation while non-English labels and explanatory prose still receive English translations. Each nest/skin/bird collection flag includes a short exact source quotation and field/location beside it, preserving specimen context, negation and uncertainty. Valid `nest & 5` shorthand and the prohibition on unsupported collection claims remain. See [current rules](transcription_rules.md#uncertainty-identifier-translation-and-collection-evidence---11-110).
+
+The checkout was clean and no campaign process was running before editing. Changes are confined to shared prompt wording, its existing policy test and documentation; no responsibilities moved. No crop option, new reference-set tooling, image/provider/settings changes, postprocessing or validation changes were introduced. The prompt intentionally changes future normal fingerprints while retaining journal history. No source scans, CSV, saved reports, campaign state/approvals or quota state were changed, and no paid requests were made.
+
+Pre-edit offline baseline: `.venv/Scripts/python.exe -m unittest -v test_transcribe.py` ran **175 tests: 174 passed, one optional supplied-scan fixture skipped** because `EGG_SLIP_SAMPLE_DIR` was unset. Final `.venv/Scripts/python.exe -m unittest -v test_transcribe.py test_campaign.py` ran **249 tests: 248 passed, the same fixture skipped**, including both mocked provider transports. The existing dot-numerator policy assertion was updated to match the clarified rule. `git diff --check` passed. These checks verify software behavior and prompt assembly, not recognition accuracy; no live readings were generated.
 
 ## Set-mark character checks, faint additions and rows - 7 November 2026
 

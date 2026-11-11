@@ -1343,8 +1343,8 @@ class DatasetTest(unittest.TestCase):
                      "Agreement alone does not validate either reading",
                      "Never force agreement, copy one value into the other or fill a blank field",
                      "dot-like mark in the numerator position",
-                     "Read it as 1 only when clearly supported, [1] when defensible but uncertain, "
-                     "or [illegible number] when no numeral is defensible",
+                     "Do not assume the numerator is numeric; consider supported letters too",
+                     "Read it as 1 only when clearly supported, [1] when defensible but uncertain",
                      "preserve dots elsewhere in a code",
                      "Never use NaN as a transcription placeholder or automatically turn dots into 1",
                      "Only when evidence supports the interpretation",

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "11-07.0"
+PROMPT_VERSION = "11-11.0"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -195,11 +195,13 @@ a numeric fraction. These are shape comparisons, never replacement values. Do no
 a clear denominator into a doubtful numerator or borrow digits from another field,
 example or card. Bracket only unresolved characters.
 For a dot-like mark in the numerator position, recheck whether it is a faint or
-abbreviated 1, comparing the same hand or typeface on supplied sides. Read it as 1
-only when clearly supported, [1] when defensible but uncertain, or [illegible number]
-when no numeral is defensible; keep the denominator as read. With a visible denominator
-3, these would be 1/3, [1]/3 or [illegible number]/3, respectively. Retain another
+abbreviated 1, comparing the same hand or typeface on supplied sides. Do not assume
+the numerator is numeric; consider supported letters too. Read it as 1 only when
+clearly supported, [1] when defensible but uncertain. Retain another letter or
 numeral when its strokes support that reading, bracketing uncertainty as usual.
+If no character is defensible, use [illegible]; reserve [illegible number] for
+clearly numeric writing. Keep the denominator as read: an unresolved letter-or-digit
+numerator over a visible 3 becomes [illegible]/3.
 Mention the dot-like appearance briefly in TRANSCRIPTION NOTES only if useful.
 This applies only to an apparent numerator; preserve dots elsewhere in a code.
 Never use NaN as a transcription placeholder or automatically turn dots into 1.
@@ -219,7 +221,12 @@ without choosing a survivor by position, darkness or presumed sequence.
 
 UNCERTAINTY
 Put only the uncertain portion of a defensible reading in [square brackets].
-Use [illegible] or [illegible number] when no reading is defensible. A signature
+Use [illegible] when no reading is defensible; reserve [illegible number] for
+clearly numeric writing. Rereading is not confirmation by itself. If multiple
+characters remain plausible, bracket the best supported candidate, or use
+[illegible] when none can be preferred. Do not make a reading certain because it
+matches a hint, another field, a sequence or the first draft. Discuss alternatives
+in TRANSCRIPTION NOTES only when useful. A signature
 that remains inferred stays bracketed. Do not substitute fluent speculation, 'sic'
 or a claimed source error for unresolved writing. These rules also govern annotations,
 notes and translations; an explanatory note cannot make a doubtful reading certain.
@@ -236,7 +243,13 @@ and Icelandic, without requiring CSV hints. Locality/country hints can suggest a
 language, but the words must support it; different passages may use different languages.
 If the visible collector is Steinbach, inspect inset or pasted notes for German too.
 Personal, place and scientific names remain untranslated, and existing English stays
-as written. Bracket uncertain translations. For wholly unreadable or untranslatable
+as written. Preserve set marks and set/collector/catalogue/accession/reference
+identifiers, including their prefixes and suffixes, without translation or expansion.
+Do not translate an identifier component merely because it resembles a word.
+Non-English labels and explanatory prose in these fields still receive translations.
+If the identifier/prose role is unresolved, retain the original and explain that
+uncertainty rather than asserting a translation. Bracket uncertain translations.
+For wholly unreadable or untranslatable
 text, retain the source/uncertainty and explain the unresolved language or translation
 instead of inventing a meaning. Disclose each language you actually translated once
 in TRANSCRIPTION NOTES: '<Language> text translated into English in parentheses.'
@@ -301,11 +314,16 @@ for obscured writing. Source notes about specimen damage still belong in the tex
 When source wording or specimen-list shorthand establishes that a nest, skin or
 bird specimen was collected, taken, saved or preserved, add a concise collection
 flag here. First locate the supporting source phrase in the supplied image and
-retain it in its field, narrative or inset/marginal annotation. The flag is an
-intentional repetition of that evidence, not a deduction from general nest details.
+retain it in its field, narrative or inset/marginal annotation. On the same line as
+each flag, give its printed field name or brief source location and a short exact
+quotation of the supporting wording. Quote enough contiguous wording to establish
+which specimen it concerns; do not drop negation or join disconnected phrases.
+Preserve reading uncertainty in the quotation. The flag and its short quotation
+intentionally repeat supporting evidence, not deductions from general nest details.
 An explicit collection verb is not required:
-a specimen-list entry such as 'nest & 5' supports 'Nest collected'. Preserve the
-original shorthand without expansion. Preserve negation, uncertainty and explicitly
+a specimen-list entry such as 'nest & 5' supports 'Nest collected'. For that wording
+on an inset label, write: Nest collected - inset label: "nest & 5".
+Preserve the original shorthand without expansion. Preserve negation, uncertainty and explicitly
 associated reference numbers/prefixes, keeping
 nest/skin/bird references distinct from egg catalogue numbers. Nearby unrelated
 numbers must not be attached. A generic COLLECTION OF heading or COLLECTED BY field
@@ -341,17 +359,19 @@ FINAL_CHECKS = """FINAL CHECK (silent):
 - Reread dates, egg counts, A.O.U. codes/suffixes, catalogue numbers and complete
   set-mark numerators/denominators directly from the image, character by character,
   including typed digits and dot-like numerators. Compare with the draft only after
-  rereading; compare egg counts with denominators without forcing agreement. Retain uncertainty.
+  rereading; compare egg counts with denominators without forcing agreement.
+  Retain uncertainty that rereading does not resolve, including letter/digit ambiguity.
 - Prioritize each complete set mark, including any code and inline fraction, on one
   output line. Preserve series rows, faint additions, equals signs and source brackets.
   Recheck 8/3/4 and letter/digit distinctions; keep adjacent names/stamps separate.
 - Make cancellation claims only after BOTH ALTERATIONS checks.
 - Keep a clearly corrected egg count in its field and its cancelled predecessor
   in ANNOTATIONS. Give standalone annotations an item type and brief source location.
-- Preserve all non-English source text and its parenthetical translation; disclose
-  each translated language once.
+- Preserve non-English labels/prose and their parenthetical translations; keep
+  identifier strings intact and disclose each translated language once.
 - For each nest/skin/bird collection flag, locate its supporting source phrase or
   specimen-list shorthand in the image and transcription; omit unsupported flags.
+  Include a short exact source quotation and its field/location beside the flag.
   Preserve negation, uncertainty and the specimen's own references.
 - Follow the supplied-side skeleton; remove notes that merely repeat fields or
   annotations. Output only the transcription, without this checklist or placeholders.
