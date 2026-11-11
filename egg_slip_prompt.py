@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from transcribe import Card, Database
 
 
-PROMPT_VERSION = "11-11.0"
+PROMPT_VERSION = "11-11.1"
 
 
 BASE_PROMPT = """Transcribe the supplied oological specimen slip images into plain
@@ -40,6 +40,11 @@ Keep meaningful punctuation distinct from dirt, speckles, stains and dot leaders
 Use recognizable female (♀) and male (♂) symbols, bracketing doubtful symbols rather
 than substituting similar letters. Preserve visible check marks with their options.
 
+Reread every word of scientific names, including internal letters and endings,
+directly from the image. Repeated epithets remain repeated when written that way;
+do not substitute a similar familiar name, vary a repeated word or repair spelling
+from taxonomy, filenames or hints. Keep visible abbreviations and authorship intact.
+
 Read A.O.U. codes and egg counts independently, digit by digit, using the same
 visual numeral checks as for set marks. Keep every visible A.O.U. letter suffix
 and its case with the code; keep adjacent scientific names separate. Never infer
@@ -60,6 +65,11 @@ row, including corner panels. Identify separate panels/columns before assigning
 entries; complete each field before moving to a neighbouring panel. Prefer
 'Label: value' on separate lines; retain
 sublabels and multiline values. Harmless colon/line-layout variations need no note.
+Omit printed fill-in rules and dot leaders from labels. A leader's first dot is not
+a label-ending period. Use a colon or whitespace between label and value; never
+add a period or comma absent from the label. Keep genuine punctuation, including
+abbreviation periods in A.O.U., Ref. and No. For a label printed Set Mark followed
+only by dot leaders, write Set Mark: <value>, not Set Mark. <value>.
 A printed but empty field takes '-'; faint, obscured or illegible writing is not
 blank. Narrative slips keep paragraphs and entry boundaries without invented fields.
 Keep Set No. and Collector separate.
@@ -72,6 +82,10 @@ Genuinely multiline prose/entries keep their lines:
 <continuation of that same value>
 A field is defined by its label and associated entry, including raised, lowered
 and multiline writing. Position alone does not make a continuation an annotation.
+Inspect the whole entry area within its panel, above and below the label/baseline.
+An entry beneath a label or in different ink/pencil still belongs to that field
+when its attachment is clear. A Ref. No. entry may contain a name plus a number;
+keep both there. Uncertain characters do not make a clearly attached entry an annotation.
 Keep adjacent common/scientific names separate from numeric codes, even when they
 share a row; a name beside Set Mark is not part of the mark.
 Transcribe an unlabelled name area on its own body line, without inventing a label
@@ -81,6 +95,14 @@ an unrelated field. Keep a number completing field text or a specimen reference
 with that entry even when raised, lowered or different from the egg catalogue number.
 If attachment is unclear, preserve the passage in ANNOTATIONS with a short location
 and explain the uncertainty in TRANSCRIPTION NOTES.
+
+Before finalizing, account for every printed field, including corner panels. For
+each blank or omitted field, check its full entry area and the draft annotations
+against the image. Move a clearly displaced value into its own field and remove
+the duplicate annotation; do not leave '-' where that field has visible writing.
+Standalone marginal notes remain annotations when not attached to a printed field.
+Matching subject matter alone does not attach a marginal note to an empty field
+or justify inventing a label.
 
 Check the next line before declaring a word incomplete. Letters crossing a printed
 rule or card border remain readable; claim cropping only when the image actually
@@ -146,8 +168,9 @@ character, including letters/digits close to the next printed label; do not drop
 a terminal character or absorb it into that label. Keep all parts of one mark
 together on one output line after its label, writing a stacked fraction inline as
 numerator/denominator. Keep a preceding code and its fraction together, not split
-around a neighbouring name. Preserve meaningful spaces between code groups without
-inserting spaces inside a continuous alphanumeric group. This does not combine
+around a neighbouring name. Read the preceding code independently; never copy the
+fraction's numerator into that code. Preserve meaningful spaces between code groups
+without inserting spaces inside a continuous alphanumeric group. This does not combine
 separate entries, cancelled attempts or uncertainly associated marginal marks.
 
 Inspect immediately after, above and below a code for faint pencil additions or
@@ -185,13 +208,14 @@ text; account for worn type, serifs and ink spread. Small, thick or angular digi
 need their own stroke evidence. Follow each character's curves, diagonals, loops
 and crossbars, keeping fraction bars and separate correction strokes out of its shape.
 Also distinguish 5 from 3 and narrow or slanted 0 from 1 in set marks, A.O.U. codes
-and egg counts. Check an 8's two loops and waist against an open 3 or angular 4;
+and egg counts. Compare 1 with 7 using its top stroke and stem. Check an 8's two
+loops and waist against an open 3 or angular 4;
 faint or overlapping strokes may obscure the distinction. Consider letters as well
 as digits: B versus 3/8, and lowercase a, b, c or d versus numerals. Compare stems,
 loops and joins in the same hand on supplied images. Alphabetic numerators are valid.
-A slanted letter stroke is not automatically a fraction separator: retain a slash
-only when visible as a separate separator, not to turn an alphanumeric code into
-a numeric fraction. These are shape comparisons, never replacement values. Do not copy
+A slanted digit or letter stroke is not automatically a fraction separator: retain
+a slash only when visible as a separate separator; never insert one into a plain
+number or alphanumeric code. These are shape comparisons, never replacement values. Do not copy
 a clear denominator into a doubtful numerator or borrow digits from another field,
 example or card. Bracket only unresolved characters.
 For a dot-like mark in the numerator position, recheck whether it is a faint or
@@ -356,6 +380,10 @@ FINAL_CHECKS = """FINAL CHECK (silent):
 - Compare the source against the draft one field and paragraph at a time on every
   supplied side. Account for corner fields, paragraph endings, insertions, marginal
   imprints and dense bottom lines. Keep values and continuations with their labels.
+- Recheck blank/omitted fields against their entry areas and annotations; return
+  clearly attached values to their fields. Keep true marginal notes as annotations.
+  Remove dot leaders and invented label punctuation; preserve genuine abbreviation periods.
+- Reread scientific names word by word, including repeated epithets and endings.
 - Reread dates, egg counts, A.O.U. codes/suffixes, catalogue numbers and complete
   set-mark numerators/denominators directly from the image, character by character,
   including typed digits and dot-like numerators. Compare with the draft only after

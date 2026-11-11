@@ -1,6 +1,16 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **11 November 2026**, application build **2026-10-19.1**, prompt **11-11.0**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **11 November 2026**, application build **2026-10-19.1**, prompt **11-11.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Larus field placement, names and punctuation - 11 November 2026
+
+The maintainer reported six Larus argentatus reading problems and confirmed that the blank Set Mark example was **E2235**, correcting the initial E2245 reference. Source scans and the saved October 23/November 11 reports were inspected read-only, along with prompt **2026-10-21.1** at `5e15eb7`. E25's repeated `argentatus` epithet, E2235's displaced set-mark entry, E2237's invented label period and E3187's misplaced `Hartert 2015` support focused shared instructions. E3187 also has plain set mark `64`, misread as `6/4`. E1798's prefix is `7`; its compact fraction is not certified here. E836's `AOU 51a` was already retained as a marginal annotation in the recent report. See [reviewed passages and provenance](transcription_rules.md#field-placement-label-punctuation-and-names---11-111).
+
+Prompt **11-11.1** checks complete field panels and compares supposedly blank/omitted fields with draft annotations, keeping clearly attached writing in its field and genuine marginal notes separate. It explicitly omits dot leaders without adding punctuation, preserves genuine abbreviation periods, rereads scientific names word by word, and checks set-mark prefixes independently of their fractions. Slanted digit strokes must not introduce a slash into plain numbers. Existing uncertainty, collection-evidence and cancellation safeguards remain.
+
+The checkout was clean at `32faa0d` and no campaign process was running before editing. Changes are confined to the shared prompt and documentation; no responsibilities moved. Provider/settings, image handling, validation/status meanings and accounting remain unchanged. No crops, extra requests or automatic text corrections were added. The revised prompt intentionally changes future normal fingerprints while preserving journal history. No source scans, CSV, saved reports, campaign state/approvals or quota state were edited. Pre-edit offline baseline: **175 tests ran, 174 passed and one optional `EGG_SLIP_SAMPLE_DIR` fixture skipped**. No live requests were made.
+
+Final `.venv/Scripts/python.exe -m unittest -v test_transcribe.py test_campaign.py`: **249 tests ran, 248 passed and the same optional fixture skipped** because `EGG_SLIP_SAMPLE_DIR` was unset, including both mocked provider transports. Existing policy and assembly checks passed without changes to the tests. `git diff --check` passed. These checks do not establish improved recognition accuracy; no new model readings were generated.
 
 ## Uncertainty, identifiers and collection quotations - 11 November 2026
 
