@@ -140,6 +140,18 @@ Reports contain only the selected cards; later single-card or partial runs do no
 
 If a card's latest result is an individual `!` / `@` fresh-check report, it is also listed regardless of status, with a special-check note and a suggested `python transcribe.py E123 --force` command. These reports are not read by the website viewer; an older normal result may still be visible. A later normal report for the same card clears the special-check flag. `--force` requests a fresh normal reading instead of reusing an older cached result; it does not copy or publish the special-check text. Commands are printed for manual use and never executed by the search script. A failed special check appears once, with both its error and follow-up command.
 
+### Check the full catalogue for missing transcriptions
+
+Run this from the repository's PowerShell terminal:
+
+```powershell
+.\scripts\find-missing-transcriptions.ps1
+```
+
+The script checks the current Drive CSV against dated text reports in each catalogue family's folder. A complete saved `OK` or `REVIEW` block counts, including reused results, earlier successful reports and individual fresh checks. Shared slips cover every E-number on the block. Counts measure saved transcription coverage. Human review is a separate step.
+
+The script writes `scripts\Status-Transcription-Coverage.txt` and prints the same list. It preserves the status, error and report path for failed or paused cards without a complete result. It omits CSV-only entries from the follow-up list when a saved `(MISSING)` block contains catalogue data, and shows the omitted count in the summary. An empty `(MISSING)` block still needs follow-up. Override the defaults with `-CsvPath`, `-FamilyRoot` or `-OutputFile`. The audit reads the catalogue and reports and makes no transcription requests.
+
 ## Verification and continued development
 
 For a reviewed, unattended multi-day run, see [campaign setup and recovery](docs/campaign.md).
