@@ -589,6 +589,83 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("RUN: 0 calls", report)
         self.assertNotIn("CM186", report)
 
+    def test_missing_species_folder_searches_family_and_annotates_shared_slip(self):
+        self.write_csv(["E186", "E187", "E001"])
+        alternate = self.family / "Buteo" / "Buteo_jamaicensis" / "JPEG"
+        alternate.mkdir(parents=True)
+        for path in self.folder.iterdir():
+            path.unlink()
+        self.folder.rmdir()
+        self.folder.parent.rmdir()
+        for name in ("Buteo_jamaicensis_E186_E187(B).jpg", "Buteo_jamaicensis_E186_E187(A).jpg",
+                     "Buteo_jamaicensis_E1.jpg", "Buteo_jamaicensis_Uncatalogued01.jpg"):
+            with Image.new("RGB", (64, 40)) as image:
+                image.save(alternate / name, "JPEG")
+        engine, client, _ = self.engine([response(
+            "Species: TEST FIXTURE ONLY\nANNOTATIONS:\nSource annotation\n"
+            "BACK OF SLIP: Back text\nTRANSCRIPTION NOTES:")])
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(len(client.calls), 1)
+        report = next(self.family.glob("Accipiter_gentilis_transcriptions_*.txt")).read_text()
+        self.assertIn("CM001 (MISSING)", report)
+        self.assertIn("CM186=", report)
+        self.assertIn("CM187=", report)
+        self.assertIn("FILES: Buteo_jamaicensis_E186_E187(A).jpg; Buteo_jamaicensis_E186_E187(B).jpg", report)
+        self.assertIn("ANNOTATIONS:\nCollection note (scan location): Found in "
+                      "Accipitridae/Buteo/Buteo_jamaicensis/JPEG. The CSV lists Accipiter gentilis "
+                      "in Accipitridae.\nSource annotation", report)
+        self.assertNotIn("Uncatalogued01", report)
+        journal = next(self.family.glob("*_cache.jsonl"))
+        self.assertNotIn("Collection note (scan location)", journal.read_text())
+        engine, client, _ = self.engine()
+        self.assertEqual(t.run(self.args, engine), 0)
+        self.assertEqual(client.calls, [])
+        self.assertTrue(any("STATUS: OK (reused)" in p.read_text() and
+                            "Collection note (scan location)" in p.read_text()
+                            for p in self.family.glob("*.txt")))
+
+    def test_missing_species_folder_uses_csv_with_no_match_in_its_family(self):
+        folder = self.root / "Family" / "OtherFamily" / "Buteo_jamaicensis" / "JPEG"
+        folder.mkdir(parents=True)
+        path = self.card_image("Buteo_jamaicensis_E001.jpg")
+        path.rename(folder / path.name)
+        for path in self.folder.iterdir():
+            path.unlink()
+        self.folder.rmdir()
+        self.args.target = "E001"
+        with patch.object(t, "load_api_key", side_effect=AssertionError("key lookup")), \
+                patch.object(t, "Journal", side_effect=AssertionError("cache access")):
+            self.assertEqual(t.run(self.args), 0)
+        report = next(self.family.glob("*.txt")).read_text()
+        self.assertIn("CM001 (MISSING)", report)
+        self.assertIn("RUN: 0 calls", report)
+
+    def test_rejected_or_ambiguous_family_matches_do_not_use_the_csv(self):
+        first = self.family / "Buteo_jamaicensis" / "JPEG"
+        second = self.family / "Buteo_platypterus" / "JPEG"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        bad = first / "Buteo_jamaicensis_E001(WRONG).jpg"
+        bad.touch()
+        self.args.target = "E001"
+        for ambiguous in (False, True):
+            if ambiguous:
+                bad.rename(first / "Buteo_jamaicensis_E001(A).jpg")
+                (second / "Buteo_platypterus_E001(B).jpg").touch()
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(t.run(self.args), 1)
+            self.assertIn("more than one folder" if ambiguous else "Unrecognized side suffix", output.getvalue())
+            self.assertNotIn("MISSING (CSV data)", output.getvalue())
+            self.assertFalse(list(self.family.glob("*.txt")))
+
+    def test_unreadable_family_search_is_not_csv_fallback(self):
+        self.args.target = "E001"
+        with patch.object(t, "family_scan_index", side_effect=PermissionError("access denied")), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(t.run(self.args), 1)
+        self.assertIn("access denied", output.getvalue())
+        self.assertFalse(list(self.family.glob("*.txt")))
+
     def test_missing_records_join_species_report_in_order_before_uncatalogued(self):
         self.card_image("Accipiter_gentilis_Uncatalogued01.jpg")
         engine, client, _ = self.engine()

@@ -100,9 +100,9 @@ Repeated report names receive a counter rather than overwriting an earlier file.
 | `REVIEW` | The reading was accepted with flags, such as bracketed passages or side warnings. Transcription notes alone do not trigger this status. |
 | `FAILED` | An input, request, or response check failed. Inspect the error and any retained text. |
 | `PAUSED` | A quota or service condition stopped processing. Completed saved work remains available. |
-| `(MISSING)` | No matching JPEG was found for a selected catalogue number in its resolved species folder. The block contains selected CSV values, not a transcription of an unseen card. |
+| `(MISSING)` | The scan search found no JPEG for this catalogue number. The block contains selected CSV values only. |
 
-Missing-card blocks preserve partial dates, omit empty selected fields, and refresh from the CSV each run without spending request quota. A missing or ambiguous species directory remains an error; it does not establish that the physical cards are absent from the collection.
+`transcribe.py` searches other species folders in the same family when it cannot match a catalogue number in the expected folder. It records recovered scan locations in the report annotations. After a complete search, missing-card blocks preserve partial dates, omit empty selected fields, and refresh from the CSV without spending request quota. Ambiguous matches and access errors require a file check.
 
 The reading rules cover set marks in fields and margins, including short codes and fractions. Plausible unlabelled marks are annotated as “Likely set mark …”; no mark is supplied when absent. Statements that a nest, skin or bird specimen was collected are highlighted in annotations with any associated reference numbers, preserving uncertainty and negation.
 
@@ -151,6 +151,21 @@ Run this from the repository's PowerShell terminal:
 The script checks the current Drive CSV against dated text reports in each catalogue family's folder. A complete saved `OK` or `REVIEW` block counts, including reused results, earlier successful reports and individual fresh checks. Shared slips cover every E-number on the block. Counts measure saved transcription coverage. Human review is a separate step.
 
 The script writes `scripts\Status-Transcription-Coverage.txt` and prints the same list. It preserves the status, error and report path for failed or paused cards without a complete result. It omits CSV-only entries from the follow-up list when a saved `(MISSING)` block contains catalogue data, and shows the omitted count in the summary. An empty `(MISSING)` block still needs follow-up. Override the defaults with `-CsvPath`, `-FamilyRoot` or `-OutputFile`. The audit reads the catalogue and reports and makes no transcription requests.
+
+### Find egg slips associated with nests, birds or skins
+
+Run this from the repository's PowerShell terminal. Install the optional Excel exporter once in the Python environment used by the script.
+
+```powershell
+python -m pip install openpyxl
+.\scripts\find-associated-specimens.ps1
+```
+
+The workbook has **Nests** for possible collected nests and **Birds and Skins** for possible collected birds and skins. Column A opens the public slip page using the first E-number shown on the row. Each row also gives the specimen type, wording, any recognized specimen reference, and the report filename and line number as plain text. Slips with multiple distinct passages can have multiple rows. Use the **Review** column to record what the scan supports.
+
+The search reads complete saved reports across dates, including reports that predate collection annotations. It looks for collection wording, specimen lists and references. A collection flag in an annotation needs supporting wording in its quotation to appear in the workbook. Descriptions such as “a nest with 2 eggs” do not qualify as specimen lists. A standalone `S1234` appears as an identifier to review. Identical excerpts for the same slip and specimen appear once, with the filename and line from the newest matching report. Check the source scan before adopting any association. Older reports can omit relevant text, so a slip can still have an association without appearing in the workbook.
+
+The default input is the mounted Family folder. Use `-FamilyRoot` to scan another copy and `-OutputFile` to name the workbook. Each run defaults to a new dated workbook in the current directory and refuses to overwrite an existing file. The search reads saved reports and makes no transcription requests.
 
 ## Verification and continued development
 

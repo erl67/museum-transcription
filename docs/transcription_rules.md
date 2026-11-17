@@ -362,7 +362,7 @@ See [retry configuration](configuration.md#retry-policy) for the one corrective 
 
 ## Missing-card CSV blocks
 
-When a selected catalogue number has no JPEG in its resolved species folder, render its catalogue data directly under the normal aligned banner with `(MISSING)`, for example `======================CM385 (MISSING)=============`. This is CSV evidence, not a model reading: omit model, token, transcription-status and source-image metadata from the block. Keep two blank lines between blocks and numbered ordering, with uncatalogued material last. Duplicate CSV rows each retain a separate block; do not merge conflicting values. Report-level usage still counts only API attempts.
+When the [scan search](filename_rules.md#records-without-scans) finds no JPEG for a selected catalogue number, render its catalogue data directly under the normal aligned banner with `(MISSING)`, for example `======================CM385 (MISSING)=============`. A CSV-only block omits model, token, transcription-status and source-image metadata. Keep two blank lines between blocks and numbered ordering, with uncatalogued material last. Duplicate CSV rows each retain a separate block, preserving conflicting values. Report-level usage still counts only API attempts.
 
 Include populated cells from **A, B, C, G, L, M, N, S through AF, AG through AJ combined, AK, AL, AM, and BD**. Use the CSV header as the label, with the blank B header named `Case`. Omit the entire line when its value is empty; retain zero values and multiline text. Stop at `Remarks` (BD); omit BG and all other unselected columns.
 

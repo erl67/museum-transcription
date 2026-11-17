@@ -325,10 +325,9 @@ def select_targets(db: Database, target: str) -> tuple[dict, bool]:
 # --- 4. Resolve folders, group numbered/uncatalogued scans, and order sides ---
 def child_directory(parent: Path, name: str) -> Path | None:
     safe_component(name)
-    if not parent.is_dir():
-        return None
-    matches = [path for path in parent.iterdir()
-               if path.is_dir() and path.name.casefold() == name.casefold()]
+    with os.scandir(parent) as entries:
+        matches = [Path(entry.path) for entry in entries
+                   if entry.name.casefold() == name.casefold() and entry.is_dir()]
     if len(matches) > 1:
         raise ValueError(f"More than one folder matches {name!r} in {parent}")
     return matches[0] if matches else None
@@ -338,7 +337,7 @@ class MissingJPEGDirectory(ValueError):
     """The family resolved, but this species has no supported JPEG directory."""
 
 
-def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]:
+def resolve_family(root: Path, db: Database, species: str) -> Path:
     families = db.families.get(species, set())
     distinct = {name.casefold() for name in families}
     if len(distinct) != 1:
@@ -346,6 +345,10 @@ def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]
     family_dir = child_directory(root, sorted(families)[0])
     if family_dir is None:
         raise ValueError(f"Family directory not found under {root}: {sorted(families)[0]}")
+    return family_dir
+
+
+def resolve_species_jpeg(family_dir: Path, species: str) -> Path:
     candidates = []
     # Original layout first; also support Family / Genus / Species / JPEG.
     genus_dir = child_directory(family_dir, species.split("_")[0])
@@ -359,7 +362,12 @@ def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]
     if len(candidates) != 1:
         problem = MissingJPEGDirectory if not candidates else ValueError
         raise problem(f"Expected one JPEG folder for {species}; found {len(candidates)} in {family_dir}.")
-    return family_dir, candidates[0]
+    return candidates[0]
+
+
+def resolve_folders(root: Path, db: Database, species: str) -> tuple[Path, Path]:
+    family_dir = resolve_family(root, db, species)
+    return family_dir, resolve_species_jpeg(family_dir, species)
 
 
 FILENAME_PATTERN = re.compile(
@@ -396,17 +404,32 @@ class Card:
     paths: tuple[Path, ...]
     sections: tuple[str, ...]
     warnings: list[str] = field(default_factory=list)
+    location_note: str = ""
+
+
+def jpeg_paths(folder: Path) -> list[Path]:
+    with os.scandir(folder) as entries:
+        return [Path(entry.path) for entry in entries
+                if entry.name.lower().endswith((".jpg", ".jpeg")) and entry.is_file()]
+
+
+def filename_enums(path: Path) -> list[str]:
+    # Even a rejected scan can be evidence of a catalogue number.
+    return re.findall(r"(?<![A-Z0-9])E\d+(?![A-Z0-9])", path.stem.upper())
 
 
 def discover_cards(folder: Path, allowed: set[str] | None, *,
                    include_uncatalogued: bool | None = None) -> tuple[list[Card], list[str], set[str]]:
+    return group_jpegs(jpeg_paths(folder), allowed, include_uncatalogued=include_uncatalogued)
+
+
+def group_jpegs(paths, allowed: set[str] | None, *,
+                include_uncatalogued: bool | None = None) -> tuple[list[Card], list[str], set[str]]:
     if include_uncatalogued is None:
         include_uncatalogued = allowed is None
     grouped: dict[str, list] = {}
     issues = []
-    for path in sorted(folder.iterdir(), key=lambda p: natural_key(p.name)):
-        if not path.is_file() or path.suffix.lower() not in {".jpg", ".jpeg"}:
-            continue
+    for path in sorted(paths, key=lambda p: natural_key(p.name)):
         match = FILENAME_PATTERN.fullmatch(path.name)
         uncatalogued = False
         if not match:
@@ -455,9 +478,7 @@ def discover_cards(folder: Path, allowed: set[str] | None, *,
     return cards, issues, (allowed - found if allowed is not None else set())
 
 
-def missing_catalogue_numbers(folder: Path, db: Database, species: str,
-                              allowed: set[str] | None) -> set[str]:
-    """Find CSV records without JPEGs, not scans rejected for naming/side issues."""
+def catalogue_numbers(db: Database, species: str, allowed: set[str] | None) -> set[str]:
     expected = set()
     for enum, rows in db.by_enum.items():
         if not re.fullmatch(r"E\d+", enum) or (allowed is not None and enum not in allowed):
@@ -470,12 +491,91 @@ def missing_catalogue_numbers(folder: Path, db: Database, species: str,
             if matches:
                 expected.add(enum)
                 break
-    present = set()
-    for path in folder.iterdir():
-        if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg"}:
-            # Even a rejected scan is evidence that this is not a missing card.
-            present.update(re.findall(r"(?<![A-Z0-9])E\d+(?![A-Z0-9])", path.stem.upper()))
-    return expected - present
+    return expected
+
+
+def missing_catalogue_numbers(folder: Path, db: Database, species: str,
+                              allowed: set[str] | None) -> set[str]:
+    """Find CSV records without JPEGs in one folder, including rejected filenames as evidence."""
+    return catalogue_numbers(db, species, allowed) - {
+        enum for path in jpeg_paths(folder) for enum in filename_enums(path)}
+
+
+def family_scan_index(family: Path) -> dict[str, set[Path]]:
+    """Index filenames in the supported layouts, including species absent from the CSV."""
+    def directories(parent):
+        with os.scandir(parent) as entries:
+            return [Path(entry.path) for entry in entries if entry.is_dir()]
+
+    family_path = family.resolve(strict=True)
+    index: dict[str, set[Path]] = {}
+    for child in directories(family):
+        # Direct species folders use Genus_species. Other directories can be
+        # genus folders; inspect only their matching species children.
+        if not child.resolve(strict=True).is_relative_to(family_path):
+            raise ValueError(f"Folder points outside the family: {child}")
+        if "_" in child.name:
+            species_dirs = [child]
+        else:
+            prefix = child.name.casefold() + "_"
+            species_dirs = [path for path in directories(child) if path.name.casefold().startswith(prefix)]
+        for species_dir in species_dirs:
+            jpeg = child_directory(species_dir, "JPEG")
+            if jpeg is None:
+                continue
+            if not jpeg.resolve(strict=True).is_relative_to(family_path):
+                raise ValueError(f"JPEG directory points outside the family: {jpeg}")
+            for path in jpeg_paths(jpeg):
+                for enum in filename_enums(path):
+                    index.setdefault(enum, set()).add(path)
+    return index
+
+
+def discover_species(family: Path, db: Database, species: str, allowed: set[str] | None,
+                     include_uncatalogued: bool, family_indexes: dict[Path, dict[str, set[Path]]]
+                     ) -> tuple[Path | None, list[Card], list[str], set[str], set[str]]:
+    try:
+        primary = resolve_species_jpeg(family, species)
+        paths = jpeg_paths(primary)
+    except MissingJPEGDirectory:
+        primary, paths = None, []
+    cards, issues, _ = group_jpegs(paths, allowed, include_uncatalogued=include_uncatalogued)
+    expected = catalogue_numbers(db, species, allowed)
+    absent = expected - {enum for path in paths for enum in filename_enums(path)}
+    if absent:
+        if family not in family_indexes:
+            family_indexes[family] = family_scan_index(family)
+        index = family_indexes[family]
+        by_folder: dict[Path, set[Path]] = {}
+        ambiguous = set()
+        for enum in sorted(absent, key=natural_key):
+            matches = index.get(enum, set())
+            folders = {path.parent for path in matches}
+            if len(folders) > 1:
+                ambiguous.add(enum)
+                locations = ", ".join(sorted(folder.relative_to(family).as_posix() for folder in folders))
+                issues.append(f"{enum}: scans match more than one folder in {family.name}: {locations}")
+            elif folders:
+                by_folder.setdefault(next(iter(folders)), set()).update(matches)
+        for folder, matches in sorted(by_folder.items()):
+            try:
+                resolve_species_jpeg(family, folder.parent.name)
+            except ValueError as exc:
+                issues.append(str(exc))
+                continue
+            recovered, problems, _ = group_jpegs(matches, absent, include_uncatalogued=False)
+            location = folder.relative_to(family.parent).as_posix()
+            issues.extend(f"{location}: {problem}" for problem in problems)
+            for card in recovered:
+                if ambiguous.intersection(card.enums):
+                    continue
+                card.location_note = (f"Collection note (scan location): Found in {location}. "
+                                      f"The CSV lists {species.replace('_', ' ')} in {family.name}.")
+                cards.append(card)
+        absent -= index.keys()
+    found = {enum for card in cards for enum in card.enums}
+    missing = (expected if allowed is None else allowed) - found - absent
+    return primary, cards, issues, missing, absent
 
 
 # --- 5. Image preparation and exact-input fingerprints for safe reuse ---
@@ -1297,6 +1397,19 @@ def missing_output_block(enum: str, rows: list[dict]) -> str:
     return "".join(blocks)
 
 
+def with_location_annotation(text: str, note: str) -> str:
+    for label, start, end in section_headers(text):
+        if label == "ANNOTATIONS":
+            # Keep existing annotations exactly as supplied, including inline text.
+            newline = text.find("\n", end)
+            if newline < 0:
+                return text + "\n" + note
+            return text[:newline + 1] + note + "\n" + text[newline + 1:]
+        if label == "TRANSCRIPTION NOTES":
+            return text[:start] + "ANNOTATIONS:\n" + note + "\n\n" + text[start:]
+    return text.rstrip("\r\n") + "\n\nANNOTATIONS:\n" + note
+
+
 def output_block(card: Card, result: dict, cached: bool = False) -> str:
     bar = "=" * 50
     # Fixed left padding aligns CM labels (and their digits) across all records.
@@ -1332,11 +1445,18 @@ def output_block(card: Card, result: dict, cached: bool = False) -> str:
     cost = token_usage.cost_text(calls) if calls is not None else "unknown"
     lines.append(token_usage.tokens_line(usage) + " |  " + cost)
     lines.append(bar)
+    text = result.get("text", "")
+    if card.location_note:
+        # The folder is report context, outside the prompt and saved response.
+        if result["status"] in {"ok", "review"}:
+            text = with_location_annotation(text, card.location_note)
+        else:
+            lines.extend(["ANNOTATIONS:", card.location_note, ""])
     if result.get("error"):
         lines.append("ERROR: " + result["error"])
         if result.get("text"):
             lines.append("SAVED RESPONSE (see error above):")
-    lines.append(result.get("text", ""))
+    lines.append(text)
     return "\n".join(lines).rstrip("\r\n") + "\n\n\n"  # Two blank lines between slips.
 
 
@@ -1408,6 +1528,7 @@ def run(args, engine=None) -> int:
     totals = {"fresh": 0, "reused": 0, "review": 0, "failed": 0, "paused": 0, "discovery_issues": 0, "missing": 0}
     failed_cards = []
     selected = 0
+    family_indexes: dict[Path, dict[str, set[Path]]] = {}
     start = time.monotonic()
     outcome = "Stopped"
     try:
@@ -1418,13 +1539,13 @@ def run(args, engine=None) -> int:
                     family_dir = Path(args.test_output_dir).expanduser().resolve()
                     if not args.dry_run:
                         input_dir.mkdir(parents=True, exist_ok=True)
+                    cards, issues, missing = discover_cards(
+                        input_dir, allowed, include_uncatalogued=include_uncatalogued)
+                    csv_missing = set()
                 else:
-                    family_dir, input_dir = resolve_folders(Path(args.base_dir), db, species)
-                cards, issues, missing = discover_cards(
-                    input_dir, allowed, include_uncatalogued=include_uncatalogued)
-                csv_missing = set() if test_mode else missing_catalogue_numbers(input_dir, db, species, allowed)
-                # Rejected groups remain errors; successful CSV fallback is not a failure.
-                missing -= csv_missing
+                    family_dir = resolve_family(Path(args.base_dir), db, species)
+                    input_dir, cards, issues, missing, csv_missing = discover_species(
+                        family_dir, db, species, allowed, include_uncatalogued, family_indexes)
                 if test_mode:
                     for card in cards:
                         unmatched = [enum for enum in card.enums if enum not in db.by_enum]
@@ -1445,7 +1566,7 @@ def run(args, engine=None) -> int:
             selected += len(cards)
             print(f"\n[{species}] {len(cards)} card group(s), {sum(len(card.paths) for card in cards)} image(s).")
             if not cards and not csv_missing:
-                print(f"No usable target cards in {input_dir}")
+                print(f"No usable target cards in {input_dir or family_dir}")
                 totals["discovery_issues"] += 1
                 continue
             if args.dry_run:
@@ -1453,6 +1574,8 @@ def run(args, engine=None) -> int:
                     print(f"  {card.base_id} -> {', '.join(card.enums) or 'Uncatalogued (filename header)'}")
                     for path, section in zip(card.paths, card.sections):
                         print(f"    {section}: {path.name}")
+                    if card.location_note:
+                        print("    " + card.location_note)
                     for warning in card.warnings:
                         print("    REVIEW: " + warning)
                 for enum in sorted(csv_missing, key=natural_key):
