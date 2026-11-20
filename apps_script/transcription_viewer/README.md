@@ -1,4 +1,6 @@
-# Egg Slip Record Search
+# Egg Slip Record Search (legacy Apps Script viewer)
+
+> The public egg-slip reader now uses the website mirror. This Apps Script viewer is retained for reference and is no longer actively maintained for public display. The `/exec` URLs, deployment instructions and formulas below apply to the legacy viewer. For the current workflow, see the [hosted reader and workbook link guide](../../docs/egg-reader.md).
 
 Spreadsheet links open this viewer and retrieve the latest available species report at click time. The form accepts an E-number or a scientific species name; **Browse by family** opens an alphabetical family list. Catalogue lookup and browsing use the compact Catalogue.gs file bundled with the app; only reports and scans are read from Drive. Existing record links with family and scientific name still work. Opening a record shows its text first, then displays full-resolution scans as each finishes loading. If no transcription exists, it finds available scans by the complete E-number and keeps each physical card’s sides together.
 
@@ -6,15 +8,13 @@ No transcription text is stored in the spreadsheet, hidden sheets, script proper
 
 ## Open Egg Slip Record Search
 
-[Open Egg Slip Record Search at cmbirds.org/eggs](https://cmbirds.org/eggs).
-
-Use **https://cmbirds.org/eggs** as the canonical link for opening, sharing and bookmarking **Egg Slip Record Search**. Readers do not need to open the spreadsheet first. The page heading is **Egg-slip transcription / scan viewer**, with the instruction **Enter an E-number or species to view card records.** followed by a **Browse by family** link. The search field starts blank, with no example placeholder, and no catalogue lists or results appear until requested. Enter an E-number (for example, **E10215** or **10215**) or a complete scientific name such as **Pipilo erythrophthalmus**, then choose **Search**. The field accepts up to 200 characters. After a search, it is empty and ready for another query.
+The old Apps Script viewer used **cmbirds.org/eggs** as its public address. An installed legacy instance can be opened through its `/exec` deployment URL. The page heading is **Egg-slip transcription / scan viewer**, with the instruction **Enter an E-number or species to view card records.** followed by a **Browse by family** link. The search field starts blank. Enter an E-number (for example, **E10215** or **10215**) or a complete scientific name such as **Pipilo erythrophthalmus**, then choose **Search**.
 
 The browser tab is titled **Egg Slip Record Search** on the initial search page and when a search returns an error. A successful record lookup uses the normalized E-number, for example **E4268 Egg Slip Record**. That title also applies when only scans or catalogue information are available. Leading zeros remain part of the title, so E001 is shown as **E001 Egg Slip Record**. Catalogue pages use **Browse by Family | Egg Slip Records** or the selected species followed by **| Egg Slip Records**.
 
 A footer below the transcription and source scans links to this project's GitHub source, gives the maintainer's contact address, and states that the website is independently created and maintained, is not owned, operated, sponsored, or endorsed by the museums, and does not represent official museum communications or institutional positions. The content area is at least one viewport tall, followed by extra spacing, keeping the footer below the initial view even while scans are loading or on a short search/error page.
 
-Viewer.html is Apps Script template source. Opening the local HTML file directly previews the layout but does not run the search, evaluate template expressions, or load Drive scans. Use [cmbirds.org/eggs](https://cmbirds.org/eggs) for the working viewer. Paste the HTML source into the Apps Script HTML file named **Viewer**, and the JavaScript sources into **Code.gs** and **Catalogue.gs**.
+Viewer.html is Apps Script template source. Opening the local file previews the layout. The legacy deployment evaluates its templates and loads Drive scans. Paste the HTML source into the Apps Script HTML file named **Viewer**, and the JavaScript sources into **Code.gs** and **Catalogue.gs**.
 
 ## Browse species and families
 
@@ -70,7 +70,7 @@ Use a separate Apps Script project from the Egg Scan Linker.
 6. For an existing deployment, save and choose **Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy**. Keep the existing deployment URL so spreadsheet links stay valid.
 7. For a first deployment, choose **Deploy → New deployment → Web app**, use the settings above, and copy the resulting URL ending in **/exec**.
 
-Saving source alone does not update a versioned /exec deployment. The execution URL is used for deployment checks and direct record links; the canonical public access link remains [cmbirds.org/eggs](https://cmbirds.org/eggs). If the deployment URL changes, update the target behind the canonical link and check that it opens the current viewer. Do not upload the generator, README or test files as Apps Script source. Running doGet in the editor does not open the viewer.
+Saving source alone does not update a versioned `/exec` deployment. Use its execution URL to check a legacy deployment or open an existing legacy record link. Do not upload the generator, README or test files as Apps Script source. Running doGet in the editor does not open the viewer.
 
 ## Bundled catalogue and direct viewer links
 
@@ -93,7 +93,7 @@ Then replace Catalogue.gs in Apps Script and publish a new version of the existi
 
 The CSV must have exactly one of each required header; surrounding header whitespace and reordered columns are supported. The generator supports UTF-8/BOM and quoted commas/newlines, rejects malformed exports and extra columns beyond the header, and preserves all numbered routing rows. Its SHA-256 identifies only the compact routing data, so changing unused columns does not change the bundle. It cannot recover leading zeros already lost in the source export. Python's transcription workflow continues reading its configured full CSV unchanged.
 
-To share the viewer independently of the spreadsheet, use [cmbirds.org/eggs](https://cmbirds.org/eggs). Readers can search by E-number or species, or browse families. For direct record links, the deployment URL ending in **/exec?e=E4268** opens that record. The formulas below retain execution URLs for these record-specific requests; use the canonical link for general viewer access. Both are public after deploying the new version with the settings above.
+For an existing legacy deployment, the URL ending in **/exec?e=E4268** opens that record. The old formulas below are retained to identify links that need migrating. Use the [current workbook formulas](../../docs/egg-reader.md#update-workbook-links) for the website reader.
 
 The known catalogue columns are **Family in C**, **Scientific Name in G**, and **catalogNumber in N**. Confirm these headers if columns have moved. On row 2, a direct-location link is:
 
@@ -150,7 +150,7 @@ Compare an initial E-number-only search with several different E-numbers in the 
 
 Drive sync delays affect new reports and scans. Filename timestamps use the report writer's local wall time, so clock/time-zone changes on that computer affect ordering.
 
-Open [cmbirds.org/eggs](https://cmbirds.org/eggs) in a signed-out/incognito browser and confirm it reaches the current viewer. Check the versioned **/exec** app for deployment diagnostics. Confirm E-number searches, direct-location links and Previous/Next work without authorization. Confirm text appears before scans. Test a record without a report, a shared slip, a lone back, a catalogue-only block, REVIEW and FAILED/PAUSED text, and missing/ambiguous scan folders. Original Drive links may correctly refuse anonymous access while embedded scans work. Verify image retry leaves text intact. Set VIEWER_PUBLIC_DISABLED=true and confirm both fresh pages and pending/retried image requests stop; restore it afterwards. Inspect counters in Script properties. After an intended routing correction, regenerate Catalogue.gs and deploy a new version before checking it in the viewer. No paid transcription request is needed for these checks.
+For a legacy deployment, open its versioned **/exec** URL in a signed-out/incognito browser. Confirm E-number searches, direct-location links and Previous/Next work without authorization. Confirm text appears before scans. Test a record without a report, a shared slip, a lone back, a catalogue-only block, REVIEW and FAILED/PAUSED text, and missing/ambiguous scan folders. Original Drive links may correctly refuse anonymous access while embedded scans work. Verify image retry leaves text intact. Set VIEWER_PUBLIC_DISABLED=true and confirm both fresh pages and pending/retried image requests stop; restore it afterwards. Inspect counters in Script properties. After an intended routing correction, regenerate Catalogue.gs and deploy a new version before checking it in the viewer. No paid transcription request is needed for these checks.
 
 After deploying the browsing update, confirm the initial page is blank apart from its heading, instructions, navigation and search form. Search a species, check numerical E-number order, then open one record. Open **Browse by family**, expand a family, and confirm species links open a separate number list. Check both desktop and narrow layouts. Repeat a numeric search and inspect its timing log: it should have no `browseCatalogue` or `browseSequence` stage. The offline tests exercise these paths with synthetic catalogue data; deployed response times still require measurement.
 

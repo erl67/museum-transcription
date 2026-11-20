@@ -1,6 +1,14 @@
 # Project handoff: museum transcription
 
-Originally prepared 22 September 2026 for moving development to Codex. Updated through **11 November 2026**, application build **2026-10-19.1**, prompt **11-11.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+Originally prepared 22 September 2026 for moving development to Codex. Updated through **20 November 2026**, application build **2026-10-19.1**, prompt **11-11.1**. The current overview and execution map below describe this checkout; dated entries preserve the history of earlier builds. This is technical institutional memory, not a specification for a framework that already exists.
+
+## Hosted egg-slip reader - 20 November 2026
+
+Google Drive remains the working location for scans and saved reports. The public reader now lives on ericlaslo.com and loads the published catalogue, species data and JPEGs from the site's mirror using JavaScript. Workbook transcription formulas can carry the same `e`, `family` and `species` parameters to the new reader. The **Scan Link** column continues to open the original Drive file. The maintainer will migrate both workbook copies. The inspected Egg Scan Linker source generates Drive scan links, so the transcription formula migration does not require a linker change. See the [hosted reader and workbook link guide](egg-reader.md).
+
+The Apps Script viewer is retained as a legacy reference and is no longer actively maintained for public display. The earlier viewer design, deployment and `/exec` spreadsheet formulas below describe that legacy system. The transcription application continues to use its configured source scans and CSV.
+
+On 20 November, the hosted direct-record URL returned the reader page, but the catalogue request returned HTTP 404 from this session. Verify a known published card after the catalogue is reachable and before replacing workbook links in bulk.
 
 ## Larus field placement, names and punctuation - 11 November 2026
 
