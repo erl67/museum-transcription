@@ -15,6 +15,11 @@
     .record-navigation a, .record-navigation button { display: inline-block; padding: 9px 13px; border: 1px solid #81938a; border-radius: 5px; background: white; color: #245c49; text-decoration: none; font: inherit; white-space: nowrap; }
     .record-navigation a:hover { background: #edf3ee; }
     .record-navigation button:disabled { background: #f5f3ef; color: #76827d; border-color: #d2d9d3; cursor: default; }
+    .deprecation-notice { margin: 16px 0 20px; padding: 14px 16px; background: #fef2f2; color: #821d23;
+      border: 1px solid #b4232d; border-left-width: 5px; border-radius: 6px; }
+    .deprecation-notice p { margin: 0; }
+    .deprecation-notice p + p { margin-top: 4px; }
+    .deprecation-notice a { display: inline-block; margin-top: 4px; color: inherit; font-weight: 700; }
     .navigation-notice { margin: 12px 0 0; color: #52645d; }
     h2 { margin: 0; font-size: 22px; }
     .subtitle, .source { color: #52645d; }
@@ -67,6 +72,11 @@
       <? } else { ?><button type="button" disabled aria-label="Next record">Next &rarr;</button><? } ?>
     </nav>
   </header>
+  <aside class="deprecation-notice" aria-label="Viewer deprecation notice">
+    <p><strong>The Google Apps Script version of the Egg Slip Viewer is deprecated.</strong></p>
+    <p>The new reader shows the same catalogue records, transcriptions, and scans and loads much faster.</p>
+    <a href="https://ericlaslo.com/birds/egg-reader/" target="_top">Open the new Egg Slip Reader &rarr;</a>
+  </aside>
   <div class="subtitle">Enter an E-number or species to view card records. <a href="<?= browseUrl ?>">Browse by family</a>.</div>
   <? if (result && result.navigationMessage) { ?>
     <p class="navigation-notice" role="status"><?= result.navigationMessage ?></p>

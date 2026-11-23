@@ -8,6 +8,8 @@ No transcription text is stored in the spreadsheet, hidden sheets, script proper
 
 ## Open Egg Slip Record Search
 
+The legacy viewer displays a red deprecation notice above the search form. **Open the new Egg Slip Reader** takes visitors to the hosted reader. To show the notice on an existing deployment, replace its **Viewer** HTML with [Viewer.html](Viewer.html) and publish a new version of that deployment. [Hosted Egg Slip Reader](https://ericlaslo.com/birds/egg-reader/).
+
 The old Apps Script viewer used **cmbirds.org/eggs** as its public address. An installed legacy instance can be opened through its `/exec` deployment URL. The page heading is **Egg-slip transcription / scan viewer**, with the instruction **Enter an E-number or species to view card records.** followed by a **Browse by family** link. The search field starts blank. Enter an E-number (for example, **E10215** or **10215**) or a complete scientific name such as **Pipilo erythrophthalmus**, then choose **Search**.
 
 The browser tab is titled **Egg Slip Record Search** on the initial search page and when a search returns an error. A successful record lookup uses the normalized E-number, for example **E4268 Egg Slip Record**. That title also applies when only scans or catalogue information are available. Leading zeros remain part of the title, so E001 is shown as **E001 Egg Slip Record**. Catalogue pages use **Browse by Family | Egg Slip Records** or the selected species followed by **| Egg Slip Records**.
